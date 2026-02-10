@@ -1,0 +1,1 @@
+require('mioki').start({ cwd: __dirname })

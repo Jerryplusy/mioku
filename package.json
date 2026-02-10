@@ -1,0 +1,20 @@
+{
+  "name": "mioku",
+  "private": false,
+  "dependencies": {
+    "mioki": "^0.15.0"
+  },
+  "mioki": {
+    "prefix": "#",
+    "owners": [3479445703],
+    "admins": [],
+    "plugins": [],
+    "log_level": "info",
+    "online_push": false,
+    "error_push": true,
+    "napcat": []
+  },
+  "scripts": {
+    "start": "node app.ts"
+  }
+}
