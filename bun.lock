@@ -5,9 +5,7 @@
     "": {
       "name": "mioku",
       "dependencies": {
-        "lodash": "^4.17.21",
         "mioki": "^0.15.0",
-        "openai": "^4.72.0",
       },
       "devDependencies": {
         "@types/lodash": "^4.14.0",
@@ -16,6 +14,36 @@
         "tsx": "^4.0.0",
         "typescript": "^5.0.0",
       },
+    },
+    "plugins/chat": {
+      "name": "mioku-plugin-chat",
+      "version": "1.0.0",
+    },
+    "plugins/demo": {
+      "name": "mioku-plugin-demo",
+      "version": "1.0.0",
+    },
+    "plugins/sign": {
+      "name": "mioku-plugin-sign",
+      "version": "1.0.0",
+    },
+    "src/services/ai": {
+      "name": "mioku-service-ai",
+      "version": "1.0.0",
+      "dependencies": {
+        "openai": "^4.72.0",
+      },
+    },
+    "src/services/config": {
+      "name": "mioku-service-config",
+      "version": "1.0.0",
+      "dependencies": {
+        "lodash": "^4.17.21",
+      },
+    },
+    "src/services/help": {
+      "name": "mioku-service-help",
+      "version": "1.0.0",
     },
   },
   "packages": {
@@ -150,6 +178,18 @@
     "mime-types": ["mime-types@2.1.35", "", { "dependencies": { "mime-db": "1.52.0" } }, "sha512-ZDY+bPm5zTTF+YpCrAU9nK0UgICYPT0QtT1NZWFv4s++TNkcgVaT0g6+4R2uI4MjQjzysHB1zxuWL50hzaeXiw=="],
 
     "mioki": ["mioki@0.15.0", "", { "dependencies": { "consola": "^3.4.2", "dayjs": "^1.11.19", "dedent": "^1.7.1", "filesize": "^11.0.13", "jiti": "^2.6.1", "lowdb": "^7.0.1", "mri": "^1.2.0", "napcat-sdk": "0.15.0", "node-cron": "^4.2.1", "pretty-ms": "^9.3.0", "string2argv": "^1.0.2", "systeminformation": "^5.30.7" }, "bin": { "mioki": "dist/cli.mjs" } }, "sha512-j1z9HEA9kYhaw00DkzkMmPaBeyOtXwPafEuLWMLNlrYbWODTWolEv9aXshbt9ps3BLz/fzYvCa5GshAvIAbOow=="],
+
+    "mioku-plugin-chat": ["mioku-plugin-chat@workspace:plugins/chat"],
+
+    "mioku-plugin-demo": ["mioku-plugin-demo@workspace:plugins/demo"],
+
+    "mioku-plugin-sign": ["mioku-plugin-sign@workspace:plugins/sign"],
+
+    "mioku-service-ai": ["mioku-service-ai@workspace:src/services/ai"],
+
+    "mioku-service-config": ["mioku-service-config@workspace:src/services/config"],
+
+    "mioku-service-help": ["mioku-service-help@workspace:src/services/help"],
 
     "mitt": ["mitt@3.0.1", "", {}, "sha512-vKivATfr97l2/QBCYAkXYDbrIWPM2IIKEl7YPhjCvKlG3kE2gm+uBo6nEXK3M5/Ffh/FLpKExzOQ3JJoJGFKBw=="],
 

@@ -1,20 +1,35 @@
 {
   "name": "mioku",
+  "version": "0.1.0",
+  "author": "Jerryplusy",
+  "license": "MIT",
+  "description": "AI-powered bot application based on mioki",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "private": false,
+  "workspaces": [
+    "plugins/*",
+    "src/services/*"
+  ],
   "dependencies": {
     "mioki": "^0.15.0"
   },
-  "mioki": {
-    "prefix": "#",
-    "owners": [],
-    "admins": [],
-    "plugins": [],
-    "log_level": "info",
-    "online_push": false,
-    "error_push": true,
-    "napcat": []
+  "devDependencies": {
+    "@types/lodash": "^4.14.0",
+    "@types/node": "^20.0.0",
+    "prettier": "^3.8.1",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
   },
   "scripts": {
-    "start": "node app.ts"
+    "start": "tsx app.ts",
+    "dev": "tsx watch app.ts",
+    "build": "tsc"
+  },
+  "mioki": {
+    "prefix": "/",
+    "log_level": "info",
+    "online_push": false,
+    "error_push": true
   }
 }
