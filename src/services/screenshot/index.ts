@@ -106,11 +106,14 @@ class ScreenshotServiceImpl implements ScreenshotService {
       await page.setViewport({ width, height });
 
       const fullHtml = this.createHtmlPage(htmlContent);
-      await page.setContent(fullHtml, { waitUntil: "networkidle0" });
+      const htmlId = this.generateId();
+      const htmlPath = path.join(this.tempDir, `${htmlId}.html`);
+      await fs.promises.writeFile(htmlPath, fullHtml, "utf-8");
+      await page.goto(`file://${htmlPath}`, { waitUntil: "networkidle0" });
 
-      if (options?.waitTime) {
-        await this.delay(options.waitTime);
-      }
+      // if (options?.waitTime) {
+      //   await this.delay(options.waitTime);
+      // }
 
       const screenshotId = this.generateId();
       const screenshotPath = path.join(
@@ -124,6 +127,12 @@ class ScreenshotServiceImpl implements ScreenshotService {
         quality: options?.quality,
         fullPage: options?.fullPage ?? false,
       });
+
+      try {
+        await fs.promises.unlink(htmlPath);
+      } catch (err) {
+        // 忽略删除错误
+      }
 
       return screenshotPath;
     } finally {

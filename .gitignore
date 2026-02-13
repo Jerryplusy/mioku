@@ -124,7 +124,8 @@ dist
 !src/services/screenshot
 !src/services/config
 !src/services/help
-!plugins/demo
+!plugins/boot
+!plugins/help
 bun.lock
 
 # Stores VSCode versions used for testing VSCode extensions
