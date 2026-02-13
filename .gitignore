@@ -120,6 +120,11 @@ dist
 # TernJS port file
 .tern-port
 
+!src/services/ai
+!src/services/screenshot
+!src/services/config
+!src/services/help
+!plugins/demo
 bun.lock
 
 # Stores VSCode versions used for testing VSCode extensions
@@ -140,3 +145,5 @@ vite.config.ts.timestamp-*
 /config/
 /example/
 /temp/
+/src/services/
+/plugins
