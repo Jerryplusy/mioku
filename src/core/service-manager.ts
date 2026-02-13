@@ -113,7 +113,6 @@ export class ServiceManager {
       }
 
       this.services.set(metadata.name, service);
-      logger.info(`✓ 服务 ${metadata.name} 已就绪`);
       return true;
     } catch (error: any) {
       logger.error(`加载服务 ${metadata.name} 失败: ${error.message}`);

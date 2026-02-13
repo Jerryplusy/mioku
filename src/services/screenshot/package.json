@@ -1,0 +1,9 @@
+{
+  "name": "mioku-service-screenshot",
+  "version": "1.0.0",
+  "description": "网页截图服务，支持 HTML 截图",
+  "main": "index.ts",
+  "dependencies": {
+    "puppeteer": "^22.0.0"
+  }
+}
