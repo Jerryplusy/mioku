@@ -68,6 +68,7 @@ export interface AIInstance {
     model: string;
     temperature?: number;
     maxIterations?: number;
+    tools?: AITool[];
   }): Promise<{
     content: string;
     iterations: number;
@@ -137,13 +138,24 @@ class AIInstanceImpl implements AIInstance {
       ? [{ role: "system", content: options.prompt }, ...options.messages]
       : [...options.messages];
 
+    logger.info(`[AI] generateText 请求开始`);
+    logger.info(`[AI] 模型: ${options.model}, 温度: ${options.temperature ?? 0.7}`);
+    logger.info(`[AI] 消息数量: ${messages.length}`);
+    for (const msg of messages) {
+      const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+      logger.info(`[AI] [${msg.role}] ${content.slice(0, 500)}${content.length > 500 ? "..." : ""}`);
+    }
+
     const response = await this.client.chat.completions.create({
       model: options.model,
       messages,
       temperature: options.temperature ?? 0.7,
     });
 
-    return response.choices[0]?.message?.content || "";
+    const result = response.choices[0]?.message?.content || "";
+    logger.info(`[AI] generateText 响应: ${result.slice(0, 500)}${result.length > 500 ? "..." : ""}`);
+
+    return result;
   }
 
   async generateMultimodal(options: {
@@ -152,6 +164,10 @@ class AIInstanceImpl implements AIInstance {
     model: string;
     temperature?: number;
   }): Promise<string> {
+    logger.info(`[AI] generateMultimodal 请求开始`);
+    logger.info(`[AI] 模型: ${options.model}, 温度: ${options.temperature ?? 0.7}`);
+    logger.info(`[AI] 消息数量: ${options.messages.length}`);
+
     const convertedMessages: ChatCompletionMessageParam[] =
       options.messages.map((msg) => {
         if (typeof msg.content === "string") {
@@ -180,13 +196,26 @@ class AIInstanceImpl implements AIInstance {
       ? [{ role: "system", content: options.prompt }, ...convertedMessages]
       : convertedMessages;
 
+    for (const msg of messages) {
+      if (typeof msg.content === "string") {
+        logger.info(`[AI] [${msg.role}] ${msg.content.slice(0, 500)}${msg.content.length > 500 ? "..." : ""}`);
+      } else {
+        const textParts = (msg.content as any[]).filter((c: any) => c.type === "text").map((c: any) => c.text).join(" ");
+        const imageParts = (msg.content as any[]).filter((c: any) => c.type === "image_url").length;
+        logger.info(`[AI] [${msg.role}] 文本: ${textParts.slice(0, 300)}${textParts.length > 300 ? "..." : ""}, 图片数: ${imageParts}`);
+      }
+    }
+
     const response = await this.client.chat.completions.create({
       model: options.model,
       messages,
       temperature: options.temperature ?? 0.7,
     });
 
-    return response.choices[0]?.message?.content || "";
+    const result = response.choices[0]?.message?.content || "";
+    logger.info(`[AI] generateMultimodal 响应: ${result.slice(0, 500)}${result.length > 500 ? "..." : ""}`);
+
+    return result;
   }
 
   async generateWithTools(options: {
@@ -195,6 +224,7 @@ class AIInstanceImpl implements AIInstance {
     model: string;
     temperature?: number;
     maxIterations?: number;
+    tools?: AITool[];
   }): Promise<{
     content: string;
     iterations: number;
@@ -204,7 +234,10 @@ class AIInstanceImpl implements AIInstance {
     let iterations = 0;
     const allToolCalls: ToolCallRecord[] = [];
 
-    // 构建工具列表（扁平化所有 skills 的工具）
+    logger.info(`[AI] generateWithTools 请求开始`);
+    logger.info(`[AI] 模型: ${options.model}, 温度: ${options.temperature ?? 0.7}, 最大迭代: ${maxIterations}`);
+
+    // 构建工具列表
     const tools: ChatCompletionTool[] = [];
     const toolMap = new Map<string, AITool>();
 
@@ -223,6 +256,24 @@ class AIInstanceImpl implements AIInstance {
       }
     }
 
+    // 添加传入的局部工具
+    if (options.tools) {
+      for (const tool of options.tools) {
+        tools.push({
+          type: "function",
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters,
+          },
+        });
+        toolMap.set(tool.name, tool);
+      }
+    }
+
+    logger.info(`[AI] 注册工具数: ${tools.length}`);
+    logger.info(`[AI] 工具列表: ${tools.map(t => t.function.name).join(", ")}`);
+
     let currentMessages = this.convertMessages(options.messages);
     if (options.prompt) {
       currentMessages = [
@@ -231,10 +282,13 @@ class AIInstanceImpl implements AIInstance {
       ];
     }
 
+    logger.info(`[AI] 初始消息数: ${currentMessages.length}`);
+
     let content = "";
 
     while (iterations < maxIterations) {
       iterations++;
+      logger.info(`[AI] ---- 迭代 ${iterations}/${maxIterations} ----`);
 
       const response = await this.client.chat.completions.create({
         model: options.model,
@@ -244,13 +298,19 @@ class AIInstanceImpl implements AIInstance {
       });
 
       const message = response.choices[0]?.message;
-      if (!message) break;
+      if (!message) {
+        logger.info(`[AI] 迭代 ${iterations}: 无响应消息，结束`);
+        break;
+      }
 
       content = message.content || "";
+      logger.info(`[AI] 迭代 ${iterations} AI思考/回复: ${content.slice(0, 500)}${content.length > 500 ? "..." : ""}`);
+
       currentMessages.push(message as ChatCompletionMessageParam);
 
       // 检查是否有工具调用
       if (message.tool_calls && message.tool_calls.length > 0) {
+        logger.info(`[AI] 迭代 ${iterations} 工具调用数: ${message.tool_calls.length}`);
         let hasReturnToAI = false;
 
         for (const toolCall of message.tool_calls) {
@@ -259,14 +319,20 @@ class AIInstanceImpl implements AIInstance {
             const tool = toolMap.get(toolName);
 
             if (!tool) {
-              logger.warn(`Tool ${toolName} not found`);
+              logger.warn(`[AI] 工具 ${toolName} 未找到，跳过`);
               continue;
             }
 
             try {
               const args = JSON.parse(toolCall.function.arguments);
+              logger.info(`[AI] 执行工具: ${toolName}`);
+              logger.info(`[AI] 工具参数: ${JSON.stringify(args)}`);
+
               const result = await tool.handler(args);
               const returnedToAI = tool.returnToAI ?? false;
+
+              logger.info(`[AI] 工具结果: ${JSON.stringify(result).slice(0, 300)}${JSON.stringify(result).length > 300 ? "..." : ""}`);
+              logger.info(`[AI] returnToAI: ${returnedToAI}`);
 
               allToolCalls.push({
                 name: toolName,
@@ -284,7 +350,7 @@ class AIInstanceImpl implements AIInstance {
                 } as ChatCompletionMessageParam);
               }
             } catch (error) {
-              logger.error(`Tool ${toolName} execution failed: ${error}`);
+              logger.error(`[AI] 工具 ${toolName} 执行失败: ${error}`);
               const errorResult = { error: String(error) };
               const returnedToAI = tool.returnToAI ?? false;
 
@@ -308,14 +374,17 @@ class AIInstanceImpl implements AIInstance {
         }
 
         if (!hasReturnToAI) {
+          logger.info(`[AI] 所有工具调用完成，无需返回AI，结束迭代`);
           return {
             content,
             iterations,
             allToolCalls,
           };
         }
+        logger.info(`[AI] 有工具结果需要返回AI，继续迭代`);
       } else {
         // 没有工具调用，结束
+        logger.info(`[AI] 迭代 ${iterations}: 无工具调用，对话结束`);
         return {
           content,
           iterations,
@@ -324,9 +393,7 @@ class AIInstanceImpl implements AIInstance {
       }
     }
 
-    logger.warn(
-      `Reached maximum iterations (${maxIterations}) for generateWithTools`,
-    );
+    logger.warn(`[AI] 达到最大迭代次数 (${maxIterations})，强制结束`);
     return {
       content: "达到最大迭代次数限制",
       iterations,

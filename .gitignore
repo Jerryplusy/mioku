@@ -148,3 +148,4 @@ vite.config.ts.timestamp-*
 /temp/
 /src/services/
 /plugins
+/data/chat.db

@@ -1,0 +1,38 @@
+{
+  "name": "mioku-plugin-chat",
+  "version": "1.0.0",
+  "description": "AI聊天插件 - 让AI像真人一样融入群聊",
+  "main": "index.ts",
+  "dependencies": {
+    "better-sqlite3": "^12.6.2",
+    "openai": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "mioku": {
+    "services": ["ai", "config", "help", "screenshot"],
+    "skill": {
+      "name": "chat",
+      "description": "AI聊天功能，包括发送消息、群管理等"
+    },
+    "help": {
+      "title": "AI聊天",
+      "description": "智能AI聊天插件，让AI融入群聊",
+      "commands": [
+        {
+          "cmd": "@bot 或 昵称",
+          "desc": "触发AI对话"
+        },
+        {
+          "cmd": "/chat reset",
+          "desc": "重置自己的会话"
+        },
+        {
+          "cmd": "/chat reset-group",
+          "desc": "重置群会话(管理)"
+        }
+      ]
+    }
+  }
+}
