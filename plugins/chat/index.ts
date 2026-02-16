@@ -1,0 +1,591 @@
+import type { MiokuPlugin } from "../../src";
+import type { AIService } from "../../src/services/ai";
+import type { HelpService } from "../../src/services/help";
+import type { ConfigService } from "../../src/services/config";
+import type { MiokiContext } from "mioki";
+import type { ChatConfig, ToolContext, ChatMessage } from "./types";
+import { initDatabase } from "./db";
+import { SessionManager } from "./session";
+import { RateLimiter } from "./rate-limiter";
+import { OneTimeListenerManager, ContinuousListenerManager } from "./listener";
+import { buildSystemPrompt } from "./prompt";
+import { runChat } from "./chat-engine";
+
+const DEFAULT_CONFIG: ChatConfig = {
+  apiUrl: "https://api.openai.com/v1",
+  apiKey: "",
+  model: "gpt-4o",
+  isMultimodal: true,
+  nicknames: [],
+  persona: "一个活泼可爱的群聊成员，喜欢聊天和开玩笑",
+  maxContextTokens: 128,
+  temperature: 0.8,
+  blacklistGroups: [],
+  whitelistGroups: [],
+  maxSessions: 100,
+  enableGroupAdmin: true,
+  enableExternalSkills: true,
+};
+
+const chatPlugin: MiokuPlugin = {
+  name: "chat",
+  version: "1.0.0",
+  description: "AI 智能聊天插件",
+  services: ["ai", "config", "help"],
+
+  help: {
+    title: "AI 聊天",
+    description: "智能 AI 聊天插件",
+    commands: [
+      { cmd: "/重置会话", desc: "重置自己的AI聊天记录" },
+      { cmd: "/重置群会话", desc: "[管理] 重置当前群的AI聊天记录" },
+    ],
+  },
+
+  async setup(ctx: MiokiContext) {
+    ctx.logger.info("聊天插件正在初始化...");
+
+    // 获取服务
+    const aiService = ctx.services?.ai as AIService | undefined;
+    const configService = ctx.services?.config as ConfigService | undefined;
+    const helpService = ctx.services?.help as HelpService | undefined;
+
+    // 注册帮助
+    if (helpService && chatPlugin.help) {
+      helpService.registerHelp(chatPlugin.name, chatPlugin.help);
+    }
+
+    // 注册配置
+    if (configService) {
+      await configService.registerConfig("chat", "settings", DEFAULT_CONFIG);
+    }
+
+    // 获取配置
+    const getConfig = async (): Promise<ChatConfig> => {
+      if (!configService) return DEFAULT_CONFIG;
+      const config = await configService.getConfig("chat", "settings");
+      return { ...DEFAULT_CONFIG, ...config };
+    };
+
+    const config = await getConfig();
+
+    if (!config.apiKey) {
+      ctx.logger.warn(
+        "聊天插件未配置 API Key，请在 config/chat/settings.json 中配置",
+      );
+      return;
+    }
+
+    // 初始化组件
+    const db = initDatabase();
+    const sessionManager = new SessionManager(db, config.maxSessions);
+    const rateLimiter = new RateLimiter();
+    const oneTimeListenerManager = new OneTimeListenerManager();
+    const continuousListenerManager = new ContinuousListenerManager();
+
+    // 戳一戳冷却：groupId -> lastPokeTime
+    const pokeCooldowns = new Map<number, number>();
+    const POKE_COOLDOWN_MS = 10 * 60_000; // 10 分钟
+
+    // 正在处理的会话，防止并发
+    const processingSet = new Set<string>();
+
+    /**
+     * 判断消息是否触发 AI
+     */
+    function shouldTrigger(e: any, text: string, cfg: ChatConfig): boolean {
+      // 私聊始终触发
+      if (e.message_type === "private") return true;
+
+      // @bot
+      if (e.at) {
+        if (String(e.at) === String(ctx.bot.uin)) {
+          return true;
+        }
+      }
+
+      // 引用 bot 的消息
+      if (e.message) {
+        for (const seg of e.message) {
+          if (seg.type === "reply") {
+            // 引用消息的判断需要异步，这里先标记
+            return false; // 在外层处理
+          }
+        }
+      }
+
+      // 昵称匹配
+      if (cfg.nicknames.length > 0) {
+        const lowerText = text.toLowerCase();
+        for (const nick of cfg.nicknames) {
+          if (lowerText.includes(nick.toLowerCase())) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
+
+    /**
+     * 异步检查是否引用了 bot 的消息
+     */
+    async function isQuotingBot(e: any): Promise<boolean> {
+      if (!e.message) return false;
+      for (const seg of e.message) {
+        if (seg.type === "reply" && seg.data?.id) {
+          try {
+            const quotedMsg = await ctx.bot.getMsg(seg.data.id);
+            if (quotedMsg && (quotedMsg as any).user_id === ctx.bot.uin) {
+              return true;
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+      return false;
+    }
+
+    /**
+     * 检查群组黑白名单
+     */
+    function isGroupAllowed(groupId: number, cfg: ChatConfig): boolean {
+      if (cfg.whitelistGroups.length > 0) {
+        return cfg.whitelistGroups.includes(groupId);
+      }
+      if (cfg.blacklistGroups.length > 0) {
+        return !cfg.blacklistGroups.includes(groupId);
+      }
+      return true;
+    }
+
+    /**
+     * 提取消息内容（文本 + 多模态）
+     */
+    function extractContent(
+      e: any,
+      cfg: ChatConfig,
+    ): { text: string; multimodal: any[] | null } {
+      const text = ctx.text(e) || "";
+      if (!cfg.isMultimodal) return { text, multimodal: null };
+
+      const parts: any[] = [];
+      if (text) {
+        parts.push({ type: "text", text });
+      }
+
+      // 提取图片
+      if (e.message) {
+        for (const seg of e.message) {
+          if (seg.type === "image" && seg.data?.url) {
+            parts.push({
+              type: "image_url",
+              image_url: { url: seg.data.url, detail: "auto" },
+            });
+          } else if (seg.type === "record") {
+            // TODO: 语音处理
+            parts.push({ type: "text", text: "[用户发送了一段语音]" });
+          } else if (seg.type === "video") {
+            // TODO: 视频处理
+            parts.push({ type: "text", text: "[用户发送了一段视频]" });
+          }
+        }
+      }
+
+      if (parts.length > 1 || parts.some((p) => p.type === "image_url")) {
+        return { text, multimodal: parts };
+      }
+      return { text, multimodal: null };
+    }
+
+    /**
+     * 获取 bot 在群中的角色
+     */
+    async function getBotRole(
+      groupId: number,
+    ): Promise<"owner" | "admin" | "member"> {
+      try {
+        const memberInfo = await ctx.bot.getGroupMemberInfo(
+          groupId,
+          ctx.bot.uin,
+        );
+        return (memberInfo.role as "owner" | "admin" | "member") || "member";
+      } catch {
+        return "member";
+      }
+    }
+
+    /**
+     * 处理 AI 聊天核心流程
+     */
+    async function processChat(
+      e: any,
+      cfg: ChatConfig,
+      triggerReason?: string,
+    ): Promise<void> {
+      const isGroup = e.message_type === "group";
+      const groupId: number | undefined = isGroup ? e.group_id : undefined;
+      const userId: number = e.user_id || e.sender?.user_id;
+
+      // 构建会话 ID
+      const groupSessionId = groupId
+        ? `group:${groupId}`
+        : `personal:${userId}`;
+      const personalSessionId = `personal:${userId}`;
+
+      // 防止并发处理
+      if (processingSet.has(groupSessionId)) return;
+      processingSet.add(groupSessionId);
+
+      try {
+        // 获取/创建会话
+        const groupSession = sessionManager.getOrCreate(
+          groupSessionId,
+          groupId ? "group" : "personal",
+          groupId ?? userId,
+        );
+
+        // 个人会话（跨群记录）
+        if (groupId) {
+          sessionManager.getOrCreate(personalSessionId, "personal", userId);
+        }
+
+        // 提取内容
+        const { text, multimodal } = extractContent(e, cfg);
+
+        // 构建用户消息内容
+        let messageContent: string;
+        if (multimodal) {
+          messageContent = JSON.stringify(multimodal);
+        } else {
+          messageContent = text;
+        }
+
+        // 补充触发原因
+        if (triggerReason) {
+          messageContent = triggerReason + messageContent;
+        }
+
+        // 保存用户消息到群会话
+        const userMsg: ChatMessage = {
+          sessionId: groupSessionId,
+          role: "user",
+          content: messageContent,
+          userId,
+          userName: e.sender?.card || e.sender?.nickname || String(userId),
+          userRole: e.sender?.role || "member",
+          userTitle: (e.sender as any)?.title || undefined,
+          groupId,
+          groupName: isGroup ? e.group_name : undefined,
+          timestamp: Date.now(),
+          messageId: e.message_id,
+        };
+        db.saveMessage(userMsg);
+
+        // 保存到个人会话
+        if (groupId) {
+          db.saveMessage({
+            ...userMsg,
+            sessionId: personalSessionId,
+          });
+        }
+
+        // 加载历史消息
+        const history = db.getMessages(groupSessionId, 30);
+
+        // 获取 bot 角色和群信息
+        const botRole = groupId ? await getBotRole(groupId) : "member";
+        let groupName: string | undefined;
+        let memberCount: number | undefined;
+
+        if (groupId) {
+          try {
+            const groupInfo = await ctx.bot.getGroupInfo(groupId);
+            groupName = (groupInfo as any)?.group_name || e.group_name;
+            memberCount = (groupInfo as any)?.member_count;
+          } catch {
+            groupName = e.group_name;
+          }
+        }
+
+        // 构建系统提示词
+        const systemPrompt = buildSystemPrompt({
+          config: cfg,
+          groupName,
+          memberCount,
+          botNickname: cfg.nicknames[0] || ctx.bot.nickname || "Bot",
+          botRole,
+          aiService: aiService!,
+          isGroup,
+        });
+
+        // 构建工具上下文
+        const toolCtx: ToolContext = {
+          ctx,
+          event: e,
+          sessionId: groupSessionId,
+          groupId,
+          userId,
+          config: cfg,
+          aiService: aiService!,
+          db,
+          botRole,
+        };
+
+        // 运行 AI
+        const result = await runChat(
+          toolCtx,
+          history,
+          systemPrompt,
+          sessionManager,
+          oneTimeListenerManager,
+        );
+
+        // 更新会话时间
+        sessionManager.touch(groupSessionId);
+
+        // 注册连续对话监听
+        if (groupId && result.assistantContent) {
+          continuousListenerManager.register(
+            groupId,
+            groupSessionId,
+            result.assistantContent,
+            e.message_id,
+          );
+        }
+      } catch (err) {
+        ctx.logger.error(`聊天处理失败: ${err}`);
+      } finally {
+        processingSet.delete(groupSessionId);
+      }
+    }
+
+    // ==================== 消息处理 ====================
+    ctx.handle("message", async (e: any) => {
+      const cfg = await getConfig();
+      if (!cfg.apiKey) return;
+
+      const text = ctx.text(e) || "";
+      const isGroup = e.message_type === "group";
+      const groupId: number | undefined = isGroup ? e.group_id : undefined;
+      const userId: number = e.user_id || e.sender?.user_id;
+
+      // 忽略自身消息
+      if (userId === ctx.bot.uin) return;
+
+      // 处理命令
+      if (text === "/重置会话") {
+        const personalSessionId = `personal:${userId}`;
+        sessionManager.reset(personalSessionId);
+        await e.reply("已重置你的个人会话记录~");
+        return;
+      }
+
+      if (text === "/重置群会话") {
+        if (!groupId) {
+          await e.reply("该命令仅群聊可用");
+          return;
+        }
+        // 检查权限
+        const senderRole = e.sender?.role;
+        const isOwner = ctx.isOwner?.(e) ?? false;
+        if (senderRole !== "admin" && senderRole !== "owner" && !isOwner) {
+          await e.reply("只有管理员或群主可以重置群会话");
+          return;
+        }
+        const groupSessionId = `group:${groupId}`;
+        sessionManager.reset(groupSessionId);
+        await e.reply("已重置本群的 AI 会话记录~");
+        return;
+      }
+
+      // 群组黑白名单
+      if (groupId && !isGroupAllowed(groupId, cfg)) return;
+
+      // 检查一次性监听器
+      if (groupId) {
+        const groupSessionId = `group:${groupId}`;
+        const listener = oneTimeListenerManager.check(groupSessionId, userId);
+        if (listener) {
+          const reason = `[监听器触发: ${listener.reason}]\n`;
+          await processChat(e, cfg, reason);
+          return;
+        }
+      }
+
+      // 检查连续对话监听器
+      if (groupId) {
+        const contListener = continuousListenerManager.consume(groupId);
+        if (contListener) {
+          const isRelated = await continuousListenerManager.checkRelevance(
+            cfg,
+            contListener.lastAssistantContent,
+            text,
+          );
+          if (isRelated) {
+            await processChat(e, cfg);
+            return;
+          }
+          // 不相关，不响应
+        }
+      }
+
+      // 检查触发条件
+      let triggered = shouldTrigger(e, text, cfg);
+
+      // 异步检查引用 bot
+      if (!triggered && isGroup) {
+        triggered = await isQuotingBot(e);
+      }
+
+      if (!triggered) return;
+
+      // 频率检查
+      if (!rateLimiter.canProcess(userId, groupId, text)) return;
+      rateLimiter.record(userId, groupId, text);
+
+      await processChat(e, cfg);
+    });
+
+    // ==================== 戳一戳处理 ====================
+    ctx.handle("notice.group.poke" as any, async (e: any) => {
+      // 检查是否戳的是 bot
+      if (e.target_id !== ctx.bot.uin) return;
+
+      const cfg = await getConfig();
+      if (!cfg.apiKey) return;
+
+      const groupId = e.group_id;
+      if (!groupId) return;
+
+      // 群组黑白名单
+      if (!isGroupAllowed(groupId, cfg)) return;
+
+      // 戳一戳冷却
+      const lastPoke = pokeCooldowns.get(groupId);
+      if (lastPoke && Date.now() - lastPoke < POKE_COOLDOWN_MS) return;
+      pokeCooldowns.set(groupId, Date.now());
+
+      const groupSessionId = `group:${groupId}`;
+
+      // 防止并发
+      if (processingSet.has(groupSessionId)) return;
+      processingSet.add(groupSessionId);
+
+      try {
+        // 获取/创建会话
+        sessionManager.getOrCreate(groupSessionId, "group", groupId);
+
+        // 获取群信息
+        const botRole = await getBotRole(groupId);
+        let groupName: string | undefined;
+        let memberCount: number | undefined;
+
+        try {
+          const groupInfo = await ctx.bot.getGroupInfo(groupId);
+          groupName = (groupInfo as any)?.group_name;
+          memberCount = (groupInfo as any)?.member_count;
+        } catch {
+          // ignore
+        }
+
+        // 构造虚拟消息：告诉 AI 有人戳了它
+        let pokerName = "某人";
+        try {
+          const pokerInfo = await ctx.bot.getGroupMemberInfo(
+            groupId,
+            e.user_id,
+          );
+          pokerName = pokerInfo.card || pokerInfo.nickname || String(e.user_id);
+        } catch {
+          // ignore
+        }
+
+        const pokeMsg: ChatMessage = {
+          sessionId: groupSessionId,
+          role: "user",
+          content: `[系统提示] ${pokerName}(${e.user_id}) 戳了你一下`,
+          userId: e.user_id,
+          userName: pokerName,
+          userRole: "member",
+          groupId,
+          groupName,
+          timestamp: Date.now(),
+        };
+        db.saveMessage(pokeMsg);
+
+        const history = db.getMessages(groupSessionId, 20);
+
+        const systemPrompt = buildSystemPrompt({
+          config: cfg,
+          groupName,
+          memberCount,
+          botNickname: cfg.nicknames[0] || ctx.bot.nickname || "Bot",
+          botRole,
+          aiService: aiService!,
+          isGroup: true,
+        });
+
+        // 构造一个虚拟 event 用于 reply
+        const fakeEvent = {
+          ...e,
+          message_type: "group",
+          reply: async (sendable: any) => {
+            return ctx.bot.sendGroupMsg(groupId, sendable);
+          },
+          sender: { user_id: e.user_id, role: "member" },
+        };
+
+        const toolCtx: ToolContext = {
+          ctx,
+          event: fakeEvent,
+          sessionId: groupSessionId,
+          groupId,
+          userId: e.user_id,
+          config: cfg,
+          aiService: aiService!,
+          db,
+          botRole,
+        };
+
+        const result = await runChat(
+          toolCtx,
+          history,
+          systemPrompt,
+          sessionManager,
+          oneTimeListenerManager,
+        );
+
+        sessionManager.touch(groupSessionId);
+
+        if (result.assistantContent) {
+          continuousListenerManager.register(
+            groupId,
+            groupSessionId,
+            result.assistantContent,
+          );
+        }
+      } catch (err) {
+        ctx.logger.error(`戳一戳处理失败: ${err}`);
+      } finally {
+        processingSet.delete(groupSessionId);
+      }
+    });
+
+    ctx.logger.info("聊天插件加载成功");
+
+    // 清理函数
+    return () => {
+      db.close();
+      rateLimiter.dispose();
+      oneTimeListenerManager.dispose();
+      continuousListenerManager.dispose();
+      processingSet.clear();
+      pokeCooldowns.clear();
+      ctx.logger.info("聊天插件已卸载");
+    };
+  },
+};
+
+export default chatPlugin;

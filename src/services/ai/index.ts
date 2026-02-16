@@ -260,6 +260,12 @@ class AIInstanceImpl implements AIInstance {
 
             if (!tool) {
               logger.warn(`Tool ${toolName} not found`);
+              // OpenAI 要求所有 tool_call 都必须有对应的 tool result
+              currentMessages.push({
+                role: "tool",
+                content: JSON.stringify({ error: `Tool ${toolName} not found` }),
+                tool_call_id: toolCall.id,
+              } as ChatCompletionMessageParam);
               continue;
             }
 
@@ -275,13 +281,15 @@ class AIInstanceImpl implements AIInstance {
                 returnedToAI,
               });
 
+              // 始终推送工具结果到消息列表（OpenAI 要求所有 tool_call 都必须有结果）
+              currentMessages.push({
+                role: "tool",
+                content: JSON.stringify(result),
+                tool_call_id: toolCall.id,
+              } as ChatCompletionMessageParam);
+
               if (returnedToAI) {
                 hasReturnToAI = true;
-                currentMessages.push({
-                  role: "tool",
-                  content: JSON.stringify(result),
-                  tool_call_id: toolCall.id,
-                } as ChatCompletionMessageParam);
               }
             } catch (error) {
               logger.error(`Tool ${toolName} execution failed: ${error}`);
@@ -295,13 +303,15 @@ class AIInstanceImpl implements AIInstance {
                 returnedToAI,
               });
 
+              // 始终推送错误结果到消息列表
+              currentMessages.push({
+                role: "tool",
+                content: JSON.stringify(errorResult),
+                tool_call_id: toolCall.id,
+              } as ChatCompletionMessageParam);
+
               if (returnedToAI) {
                 hasReturnToAI = true;
-                currentMessages.push({
-                  role: "tool",
-                  content: JSON.stringify(errorResult),
-                  tool_call_id: toolCall.id,
-                } as ChatCompletionMessageParam);
               }
             }
           }
