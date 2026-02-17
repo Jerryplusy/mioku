@@ -7,12 +7,13 @@ import { logger } from "mioki";
 import type { AITool } from "../../src";
 import type { ChatConfig, ToolContext, ChatMessage } from "./types";
 import type { SessionManager } from "./session";
-import type { OneTimeListenerManager } from "./listener";
+import type { HumanizeEngine } from "./humanize";
 import { createTools } from "./tools";
 
 export interface ChatResult {
   assistantContent: string;
   toolCalls: { name: string; args: any; result: any }[];
+  emojiPath?: string | null; // 表情包路径（如果有）
 }
 
 /**
@@ -125,7 +126,7 @@ export async function runChat(
   history: ChatMessage[],
   systemPrompt: string,
   sessionManager: SessionManager,
-  listenerManager: OneTimeListenerManager,
+  humanize?: HumanizeEngine,
 ): Promise<ChatResult> {
   const { config, sessionId, userId, groupId } = toolCtx;
   const debugId = `${groupId ? `群${groupId}` : `用户${userId}`}`;
@@ -138,10 +139,7 @@ export async function runChat(
   });
 
   // 创建工具
-  const { tools: chatTools, dynamicTools } = createTools(
-    toolCtx,
-    listenerManager,
-  );
+  const { tools: chatTools, dynamicTools } = createTools(toolCtx);
 
   // 构建工具列表
   let openaiTools = buildOpenAITools(chatTools, dynamicTools);
@@ -352,9 +350,20 @@ export async function runChat(
     `[AI聊天] ${debugId} 完成，共 ${iterations} 轮，工具调用 ${allToolCalls.length} 次`,
   );
 
+  // 表情包系统：根据回复内容选择表情包
+  let emojiPath: string | null = null;
+  if (humanize && lastAssistantContent) {
+    try {
+      emojiPath = await humanize.emojiSystem.pickEmoji(lastAssistantContent);
+    } catch (err) {
+      logger.warn(`[表情包] 选择失败: ${err}`);
+    }
+  }
+
   return {
     assistantContent: lastAssistantContent,
     toolCalls: allToolCalls,
+    emojiPath,
   };
 }
 

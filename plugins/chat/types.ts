@@ -3,6 +3,89 @@ import type { AIService } from "../../src/services/ai";
 import type { ChatDatabase } from "./db";
 
 /**
+ * 人格状态配置
+ */
+export interface PersonalityConfig {
+  states: string[];
+  stateProbability: number; // 切换到其他状态的概率 (0-1)
+}
+
+/**
+ * 回复风格配置
+ */
+export interface ReplyStyleConfig {
+  baseStyle: string;
+  multipleStyles: string[];
+  multipleProbability: number; // 使用特殊风格的概率 (0-1)
+}
+
+/**
+ * 记忆检索配置
+ */
+export interface MemoryConfig {
+  enabled: boolean;
+  maxIterations: number; // ReAct 最大迭代次数
+  timeoutMs: number; // 检索超时
+}
+
+/**
+ * 话题跟踪配置
+ */
+export interface TopicConfig {
+  enabled: boolean;
+  messageThreshold: number; // 触发话题检查的消息数
+  timeThresholdMs: number; // 触发话题检查的时间间隔
+  maxTopicsPerSession: number;
+}
+
+/**
+ * 动作规划器配置
+ */
+export interface PlannerConfig {
+  enabled: boolean;
+}
+
+/**
+ * 聊天频率控制配置
+ */
+export interface FrequencyConfig {
+  enabled: boolean;
+  minIntervalMs: number; // 最小发言间隔
+  maxIntervalMs: number; // 最大发言间隔
+  speakProbability: number; // 默认发言概率 (0-1)
+  quietHoursStart: number; // 安静时段开始 (0-23)
+  quietHoursEnd: number; // 安静时段结束 (0-23)
+  quietProbabilityMultiplier: number; // 安静时段概率乘数
+}
+
+/**
+ * 错别字生成器配置
+ */
+export interface TypoConfig {
+  enabled: boolean;
+  errorRate: number; // 单字替换概率 (0-1)
+  wordReplaceRate: number; // 整词替换概率 (0-1)
+}
+
+/**
+ * 表情包系统配置
+ */
+export interface EmojiConfig {
+  enabled: boolean;
+  emojiDir: string; // 表情包目录
+  sendProbability: number; // 发送表情包的概率 (0-1)
+}
+
+/**
+ * 表达学习配置
+ */
+export interface ExpressionConfig {
+  enabled: boolean;
+  maxExpressions: number; // 最大学习表达数
+  sampleSize: number; // 每次注入 prompt 的表达数
+}
+
+/**
  * 聊天插件配置
  */
 export interface ChatConfig {
@@ -19,6 +102,16 @@ export interface ChatConfig {
   maxSessions: number;
   enableGroupAdmin: boolean;
   enableExternalSkills: boolean;
+  // 真人化机制配置
+  personality: PersonalityConfig;
+  replyStyle: ReplyStyleConfig;
+  memory: MemoryConfig;
+  topic: TopicConfig;
+  planner: PlannerConfig;
+  frequency: FrequencyConfig;
+  typo: TypoConfig;
+  emoji: EmojiConfig;
+  expression: ExpressionConfig;
 }
 
 /**
@@ -97,4 +190,59 @@ export interface ToolContext {
   aiService: AIService;
   db: ChatDatabase;
   botRole: "owner" | "admin" | "member";
+  /** 错别字生成器（可选，由真人化引擎提供） */
+  typoApply?: (text: string) => string;
+}
+
+// ==================== 真人化系统数据类型 ====================
+
+/**
+ * 话题记录
+ */
+export interface TopicRecord {
+  id?: number;
+  sessionId: string;
+  title: string;
+  keywords: string; // JSON array
+  summary: string;
+  messageCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * 表达习惯记录
+ */
+export interface ExpressionRecord {
+  id?: number;
+  sessionId: string;
+  userId: number;
+  userName: string;
+  situation: string; // 使用场景
+  style: string; // 表达风格
+  example: string; // 原始示例
+  createdAt: number;
+}
+
+/**
+ * 表情包注册记录
+ */
+export interface EmojiRecord {
+  id?: number;
+  fileName: string;
+  description: string; // AI 生成的描述
+  emotion: string; // 情感标签
+  usageCount: number;
+  createdAt: number;
+}
+
+/**
+ * 动作规划结果
+ */
+export type PlannerAction = "reply" | "wait" | "complete";
+
+export interface PlannerResult {
+  action: PlannerAction;
+  reason: string;
+  waitMs?: number; // action=wait 时的等待时间
 }

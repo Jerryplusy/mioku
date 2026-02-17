@@ -2,14 +2,15 @@ import type { MiokuPlugin } from "../../src";
 import type { AIService } from "../../src/services/ai";
 import type { HelpService } from "../../src/services/help";
 import type { ConfigService } from "../../src/services/config";
-import type { MiokiContext } from "mioki";
+import { MiokiContext } from "mioki";
+import OpenAI from "openai";
 import type { ChatConfig, ToolContext, ChatMessage } from "./types";
 import { initDatabase } from "./db";
 import { SessionManager } from "./session";
 import { RateLimiter } from "./rate-limiter";
-import { OneTimeListenerManager, ContinuousListenerManager } from "./listener";
 import { buildSystemPrompt } from "./prompt";
 import { runChat } from "./chat-engine";
+import { HumanizeEngine } from "./humanize";
 
 const DEFAULT_CONFIG: ChatConfig = {
   apiUrl: "https://api.openai.com/v1",
@@ -25,6 +26,54 @@ const DEFAULT_CONFIG: ChatConfig = {
   maxSessions: 100,
   enableGroupAdmin: true,
   enableExternalSkills: true,
+  // 真人化机制默认配置
+  personality: {
+    states: [],
+    stateProbability: 0.3,
+  },
+  replyStyle: {
+    baseStyle: "",
+    multipleStyles: [],
+    multipleProbability: 0.3,
+  },
+  memory: {
+    enabled: true,
+    maxIterations: 3,
+    timeoutMs: 15000,
+  },
+  topic: {
+    enabled: true,
+    messageThreshold: 50,
+    timeThresholdMs: 8 * 3600_000,
+    maxTopicsPerSession: 20,
+  },
+  planner: {
+    enabled: true,
+  },
+  frequency: {
+    enabled: true,
+    minIntervalMs: 3000,
+    maxIntervalMs: 10000,
+    speakProbability: 0.85,
+    quietHoursStart: 23,
+    quietHoursEnd: 7,
+    quietProbabilityMultiplier: 0.3,
+  },
+  typo: {
+    enabled: true,
+    errorRate: 0.03,
+    wordReplaceRate: 0.1,
+  },
+  emoji: {
+    enabled: false,
+    emojiDir: "",
+    sendProbability: 0.15,
+  },
+  expression: {
+    enabled: true,
+    maxExpressions: 100,
+    sampleSize: 8,
+  },
 };
 
 const chatPlugin: MiokuPlugin = {
@@ -80,8 +129,14 @@ const chatPlugin: MiokuPlugin = {
     const db = initDatabase();
     const sessionManager = new SessionManager(db, config.maxSessions);
     const rateLimiter = new RateLimiter();
-    const oneTimeListenerManager = new OneTimeListenerManager();
-    const continuousListenerManager = new ContinuousListenerManager();
+
+    // 初始化真人化引擎
+    const openaiClient = new OpenAI({
+      baseURL: config.apiUrl,
+      apiKey: config.apiKey,
+    });
+    const humanize = new HumanizeEngine(openaiClient, config, db);
+    await humanize.init();
 
     // 戳一戳冷却：groupId -> lastPokeTime
     const pokeCooldowns = new Map<number, number>();
@@ -291,8 +346,61 @@ const chatPlugin: MiokuPlugin = {
           });
         }
 
+        // 表达学习：记录用户消息
+        humanize.expressionLearner.onMessage(groupSessionId, userMsg);
+
+        // 话题跟踪：记录消息
+        humanize.topicTracker.onMessage(groupSessionId);
+
+        // 表情包收集：如果消息中有图片，尝试收集
+        if (e.message) {
+          for (const seg of e.message) {
+            if (seg.type === "image" && seg.data?.url && seg.data?.file) {
+              humanize.emojiSystem
+                .collectFromMessage(seg.data.url, seg.data.file)
+                .catch(() => {});
+            }
+          }
+        }
+
+        // 聊天频率控制：判断是否应该发言
+        if (
+          isGroup &&
+          !humanize.frequencyController.shouldSpeak(groupSessionId)
+        ) {
+          ctx.logger.info(`[频率控制] 会话 ${groupSessionId} 本次保持沉默`);
+          processingSet.delete(groupSessionId);
+          return;
+        }
+
         // 加载历史消息
         const history = db.getMessages(groupSessionId, 30);
+
+        // 动作规划器：决定是否回复
+        const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+        const planResult = await humanize.actionPlanner.plan(
+          groupSessionId,
+          botNickname,
+          history,
+          text,
+        );
+
+        if (planResult.action === "complete") {
+          ctx.logger.info(
+            `[动作规划] 会话 ${groupSessionId} 结束对话: ${planResult.reason}`,
+          );
+          processingSet.delete(groupSessionId);
+          return;
+        }
+
+        if (planResult.action === "wait" && planResult.waitMs) {
+          ctx.logger.info(
+            `[动作规划] 会话 ${groupSessionId} 等待 ${planResult.waitMs}ms: ${planResult.reason}`,
+          );
+          // 等待后再处理（不阻塞其他会话）
+          processingSet.delete(groupSessionId);
+          return;
+        }
 
         // 获取 bot 角色和群信息
         const botRole = groupId ? await getBotRole(groupId) : "member";
@@ -309,18 +417,39 @@ const chatPlugin: MiokuPlugin = {
           }
         }
 
-        // 构建系统提示词
+        // 记忆检索：分析是否需要回忆
+        const senderName =
+          e.sender?.card || e.sender?.nickname || String(userId);
+        const memoryContext = await humanize.memoryRetrieval.retrieve(
+          groupSessionId,
+          text,
+          senderName,
+          history,
+        );
+
+        // 话题上下文
+        const topicContext =
+          humanize.topicTracker.getTopicContext(groupSessionId);
+
+        // 表达习惯上下文
+        const expressionContext =
+          humanize.expressionLearner.getExpressionContext(groupSessionId);
+
+        // 构建系统提示词（含真人化上下文）
         const systemPrompt = buildSystemPrompt({
           config: cfg,
           groupName,
           memberCount,
-          botNickname: cfg.nicknames[0] || ctx.bot.nickname || "Bot",
+          botNickname,
           botRole,
           aiService: aiService!,
           isGroup,
+          memoryContext: memoryContext || undefined,
+          topicContext: topicContext || undefined,
+          expressionContext: expressionContext || undefined,
         });
 
-        // 构建工具上下文
+        // 构建工具上下文（含错别字生成器）
         const toolCtx: ToolContext = {
           ctx,
           event: e,
@@ -331,7 +460,16 @@ const chatPlugin: MiokuPlugin = {
           aiService: aiService!,
           db,
           botRole,
+          typoApply: (text: string) => humanize.typoGenerator.apply(text),
         };
+
+        // 模拟打字延迟
+        const typingDelay = humanize.frequencyController.getTypingDelay(
+          text.length,
+        );
+        if (typingDelay > 0) {
+          await new Promise((r) => setTimeout(r, typingDelay));
+        }
 
         // 运行 AI
         const result = await runChat(
@@ -339,21 +477,26 @@ const chatPlugin: MiokuPlugin = {
           history,
           systemPrompt,
           sessionManager,
-          oneTimeListenerManager,
+          humanize,
         );
+
+        // 记录发言
+        humanize.frequencyController.recordSpeak(groupSessionId);
+
+        // 发送表情包（如果有）
+        if (result.emojiPath) {
+          try {
+            const emojiSegment = ctx.segment.image(
+              `file://${result.emojiPath}`,
+            );
+            await e.reply([emojiSegment]);
+          } catch (err) {
+            ctx.logger.warn(`[表情包] 发送失败: ${err}`);
+          }
+        }
 
         // 更新会话时间
         sessionManager.touch(groupSessionId);
-
-        // 注册连续对话监听
-        if (groupId && result.assistantContent) {
-          continuousListenerManager.register(
-            groupId,
-            groupSessionId,
-            result.assistantContent,
-            e.message_id,
-          );
-        }
       } catch (err) {
         ctx.logger.error(`聊天处理失败: ${err}`);
       } finally {
@@ -403,33 +546,7 @@ const chatPlugin: MiokuPlugin = {
       // 群组黑白名单
       if (groupId && !isGroupAllowed(groupId, cfg)) return;
 
-      // 检查一次性监听器
-      if (groupId) {
-        const groupSessionId = `group:${groupId}`;
-        const listener = oneTimeListenerManager.check(groupSessionId, userId);
-        if (listener) {
-          const reason = `[监听器触发: ${listener.reason}]\n`;
-          await processChat(e, cfg, reason);
-          return;
-        }
-      }
-
-      // 检查连续对话监听器
-      if (groupId) {
-        const contListener = continuousListenerManager.consume(groupId);
-        if (contListener) {
-          const isRelated = await continuousListenerManager.checkRelevance(
-            cfg,
-            contListener.lastAssistantContent,
-            text,
-          );
-          if (isRelated) {
-            await processChat(e, cfg);
-            return;
-          }
-          // 不相关，不响应
-        }
-      }
+      // TODO检查连续对话监听器
 
       // 检查触发条件
       let triggered = shouldTrigger(e, text, cfg);
@@ -547,6 +664,7 @@ const chatPlugin: MiokuPlugin = {
           aiService: aiService!,
           db,
           botRole,
+          typoApply: (text: string) => humanize.typoGenerator.apply(text),
         };
 
         const result = await runChat(
@@ -554,18 +672,22 @@ const chatPlugin: MiokuPlugin = {
           history,
           systemPrompt,
           sessionManager,
-          oneTimeListenerManager,
+          humanize,
         );
 
-        sessionManager.touch(groupSessionId);
-
-        if (result.assistantContent) {
-          continuousListenerManager.register(
-            groupId,
-            groupSessionId,
-            result.assistantContent,
-          );
+        // 发送表情包（如果有）
+        if (result.emojiPath) {
+          try {
+            const emojiSegment = ctx.segment.image(
+              `file://${result.emojiPath}`,
+            );
+            await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
+          } catch (err) {
+            ctx.logger.warn(`[表情包] 发送失败: ${err}`);
+          }
         }
+
+        sessionManager.touch(groupSessionId);
       } catch (err) {
         ctx.logger.error(`戳一戳处理失败: ${err}`);
       } finally {
@@ -579,8 +701,6 @@ const chatPlugin: MiokuPlugin = {
     return () => {
       db.close();
       rateLimiter.dispose();
-      oneTimeListenerManager.dispose();
-      continuousListenerManager.dispose();
       processingSet.clear();
       pokeCooldowns.clear();
       ctx.logger.info("聊天插件已卸载");

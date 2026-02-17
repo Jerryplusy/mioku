@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import * as fs from "fs";
 import * as path from "path";
-import type { SessionMeta, ChatMessage } from "./types";
+import type { SessionMeta, ChatMessage, TopicRecord, ExpressionRecord, EmojiRecord } from "./types";
 
 /**
  * 聊天数据库接口
@@ -12,8 +12,23 @@ export interface ChatDatabase {
   saveMessage(msg: ChatMessage): void;
   getMessages(sessionId: string, limit?: number, before?: number): ChatMessage[];
   getMessagesByUser(userId: number, sessionId?: string, limit?: number): ChatMessage[];
+  searchMessages(sessionId: string, keyword: string, limit?: number): ChatMessage[];
   updateCompressedContext(sessionId: string, context: string): void;
   deleteSessionMessages(sessionId: string): void;
+  // 话题
+  saveTopic(topic: TopicRecord): number;
+  getTopics(sessionId: string, limit?: number): TopicRecord[];
+  updateTopic(id: number, updates: Partial<Pick<TopicRecord, "summary" | "keywords" | "messageCount" | "updatedAt">>): void;
+  // 表达学习
+  saveExpression(expr: ExpressionRecord): void;
+  getExpressions(sessionId: string, limit?: number): ExpressionRecord[];
+  getExpressionCount(sessionId: string): number;
+  deleteOldestExpressions(sessionId: string, keepCount: number): void;
+  // 表情包
+  saveEmoji(emoji: EmojiRecord): void;
+  getEmojiByEmotion(emotion: string, limit?: number): EmojiRecord[];
+  getAllEmojis(): EmojiRecord[];
+  incrementEmojiUsage(id: number): void;
   close(): void;
 }
 
@@ -61,6 +76,43 @@ export function initDatabase(): ChatDatabase {
 
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_messages_content ON messages(session_id, content);
+
+    CREATE TABLE IF NOT EXISTS topics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      keywords TEXT NOT NULL DEFAULT '[]',
+      summary TEXT NOT NULL,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_topics_session ON topics(session_id, updated_at);
+
+    CREATE TABLE IF NOT EXISTS expressions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      user_name TEXT NOT NULL,
+      situation TEXT NOT NULL,
+      style TEXT NOT NULL,
+      example TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_expressions_session ON expressions(session_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS emojis (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      file_name TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL,
+      emotion TEXT NOT NULL,
+      usage_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_emojis_emotion ON emojis(emotion);
   `);
 
   // 预编译语句
@@ -97,6 +149,49 @@ export function initDatabase(): ChatDatabase {
     `),
     resetSessionContext: db.prepare(`
       UPDATE sessions SET compressed_context = NULL, updated_at = ? WHERE id = ?
+    `),
+    // 消息搜索
+    searchMessages: db.prepare(`
+      SELECT * FROM messages WHERE session_id = ? AND content LIKE ? ORDER BY timestamp DESC LIMIT ?
+    `),
+    // 话题
+    insertTopic: db.prepare(`
+      INSERT INTO topics (session_id, title, keywords, summary, message_count, created_at, updated_at)
+      VALUES (@sessionId, @title, @keywords, @summary, @messageCount, @createdAt, @updatedAt)
+    `),
+    getTopics: db.prepare(`
+      SELECT * FROM topics WHERE session_id = ? ORDER BY updated_at DESC LIMIT ?
+    `),
+    updateTopic: db.prepare(`
+      UPDATE topics SET summary = @summary, keywords = @keywords, message_count = @messageCount, updated_at = @updatedAt WHERE id = @id
+    `),
+    // 表达学习
+    insertExpression: db.prepare(`
+      INSERT INTO expressions (session_id, user_id, user_name, situation, style, example, created_at)
+      VALUES (@sessionId, @userId, @userName, @situation, @style, @example, @createdAt)
+    `),
+    getExpressions: db.prepare(`
+      SELECT * FROM expressions WHERE session_id = ? ORDER BY created_at DESC LIMIT ?
+    `),
+    getExpressionCount: db.prepare(`
+      SELECT COUNT(*) as count FROM expressions WHERE session_id = ?
+    `),
+    deleteOldestExpressions: db.prepare(`
+      DELETE FROM expressions WHERE session_id = ? AND id NOT IN (
+        SELECT id FROM expressions WHERE session_id = ? ORDER BY created_at DESC LIMIT ?
+      )
+    `),
+    // 表情包
+    insertEmoji: db.prepare(`
+      INSERT OR IGNORE INTO emojis (file_name, description, emotion, usage_count, created_at)
+      VALUES (@fileName, @description, @emotion, @usageCount, @createdAt)
+    `),
+    getEmojiByEmotion: db.prepare(`
+      SELECT * FROM emojis WHERE emotion = ? ORDER BY usage_count DESC LIMIT ?
+    `),
+    getAllEmojis: db.prepare(`SELECT * FROM emojis ORDER BY usage_count DESC`),
+    incrementEmojiUsage: db.prepare(`
+      UPDATE emojis SET usage_count = usage_count + 1 WHERE id = ?
     `),
   };
 
@@ -194,6 +289,139 @@ export function initDatabase(): ChatDatabase {
     deleteSessionMessages(sessionId: string): void {
       stmts.deleteSessionMessages.run(sessionId);
       stmts.resetSessionContext.run(Date.now(), sessionId);
+    },
+
+    searchMessages(sessionId: string, keyword: string, limit: number = 20): ChatMessage[] {
+      const rows = stmts.searchMessages.all(sessionId, `%${keyword}%`, limit) as any[];
+      return rows
+        .map((row) => ({
+          id: row.id,
+          sessionId: row.session_id,
+          role: row.role,
+          content: row.content,
+          userId: row.user_id,
+          userName: row.user_name,
+          userRole: row.user_role,
+          userTitle: row.user_title,
+          groupId: row.group_id,
+          groupName: row.group_name,
+          timestamp: row.timestamp,
+          messageId: row.message_id,
+        }))
+        .reverse();
+    },
+
+    saveTopic(topic: TopicRecord): number {
+      const result = stmts.insertTopic.run({
+        sessionId: topic.sessionId,
+        title: topic.title,
+        keywords: topic.keywords,
+        summary: topic.summary,
+        messageCount: topic.messageCount,
+        createdAt: topic.createdAt,
+        updatedAt: topic.updatedAt,
+      });
+      return Number(result.lastInsertRowid);
+    },
+
+    getTopics(sessionId: string, limit: number = 10): TopicRecord[] {
+      const rows = stmts.getTopics.all(sessionId, limit) as any[];
+      return rows.map((row) => ({
+        id: row.id,
+        sessionId: row.session_id,
+        title: row.title,
+        keywords: row.keywords,
+        summary: row.summary,
+        messageCount: row.message_count,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+    },
+
+    updateTopic(id: number, updates: Partial<Pick<TopicRecord, "summary" | "keywords" | "messageCount" | "updatedAt">>): void {
+      // 先获取当前值用于合并
+      const current = db.prepare("SELECT * FROM topics WHERE id = ?").get(id) as any;
+      if (!current) return;
+      stmts.updateTopic.run({
+        id,
+        summary: updates.summary ?? current.summary,
+        keywords: updates.keywords ?? current.keywords,
+        messageCount: updates.messageCount ?? current.message_count,
+        updatedAt: updates.updatedAt ?? Date.now(),
+      });
+    },
+
+    saveExpression(expr: ExpressionRecord): void {
+      stmts.insertExpression.run({
+        sessionId: expr.sessionId,
+        userId: expr.userId,
+        userName: expr.userName,
+        situation: expr.situation,
+        style: expr.style,
+        example: expr.example,
+        createdAt: expr.createdAt,
+      });
+    },
+
+    getExpressions(sessionId: string, limit: number = 50): ExpressionRecord[] {
+      const rows = stmts.getExpressions.all(sessionId, limit) as any[];
+      return rows.map((row) => ({
+        id: row.id,
+        sessionId: row.session_id,
+        userId: row.user_id,
+        userName: row.user_name,
+        situation: row.situation,
+        style: row.style,
+        example: row.example,
+        createdAt: row.created_at,
+      }));
+    },
+
+    getExpressionCount(sessionId: string): number {
+      const row = stmts.getExpressionCount.get(sessionId) as any;
+      return row?.count ?? 0;
+    },
+
+    deleteOldestExpressions(sessionId: string, keepCount: number): void {
+      stmts.deleteOldestExpressions.run(sessionId, sessionId, keepCount);
+    },
+
+    saveEmoji(emoji: EmojiRecord): void {
+      stmts.insertEmoji.run({
+        fileName: emoji.fileName,
+        description: emoji.description,
+        emotion: emoji.emotion,
+        usageCount: emoji.usageCount ?? 0,
+        createdAt: emoji.createdAt,
+      });
+    },
+
+    getEmojiByEmotion(emotion: string, limit: number = 5): EmojiRecord[] {
+      const rows = stmts.getEmojiByEmotion.all(emotion, limit) as any[];
+      return rows.map((row) => ({
+        id: row.id,
+        fileName: row.file_name,
+        description: row.description,
+        emotion: row.emotion,
+        usageCount: row.usage_count,
+        createdAt: row.created_at,
+      }));
+    },
+
+    getAllEmojis(): EmojiRecord[] {
+      const rows = stmts.getAllEmojis.all() as any[];
+      return rows.map((row) => ({
+        id: row.id,
+        fileName: row.file_name,
+        description: row.description,
+        emotion: row.emotion,
+        usageCount: row.usage_count,
+        createdAt: row.created_at,
+      }));
+    },
+
+    incrementEmojiUsage(id: number): void {
+      stmts.incrementEmojiUsage.run(id);
     },
 
     close(): void {

@@ -1,7 +1,6 @@
 import { logger } from "mioki";
 import type { AITool } from "../../src";
 import type { ToolContext } from "./types";
-import type { OneTimeListenerManager } from "./listener";
 
 interface CreateToolsResult {
   tools: AITool[];
@@ -9,28 +8,22 @@ interface CreateToolsResult {
 }
 
 /**
- * 创建所有工具
+ * Create all tools
  */
-export function createTools(
-  toolCtx: ToolContext,
-  listenerManager: OneTimeListenerManager,
-): CreateToolsResult {
+export function createTools(toolCtx: ToolContext): CreateToolsResult {
   const dynamicTools = new Map<string, AITool>();
   const tools: AITool[] = [];
 
-  // === 交流工具（始终可用）===
+  // === Communication tools (always available) ===
   tools.push(...createCommunicationTools(toolCtx));
 
-  // === 信息查询工具（始终可用）===
+  // === Info query tools (always available) ===
   tools.push(...createInfoTools(toolCtx));
 
-  // === 防御工具（始终可用）===
+  // === Defense tools (always available) ===
   tools.push(...createDefenseTools(toolCtx));
 
-  // === 监听器工具 ===
-  tools.push(createListenerTool(toolCtx, listenerManager));
-
-  // === 群管工具（条件）===
+  // === Admin tools (conditional) ===
   if (
     toolCtx.groupId &&
     toolCtx.config.enableGroupAdmin &&
@@ -39,7 +32,7 @@ export function createTools(
     tools.push(...createAdminTools(toolCtx));
   }
 
-  // === Meta 工具（条件）===
+  // === Meta tools (conditional) ===
   if (toolCtx.config.enableExternalSkills) {
     tools.push(createLoadSkillTool(toolCtx, dynamicTools));
   }
@@ -47,44 +40,44 @@ export function createTools(
   return { tools, dynamicTools };
 }
 
-// ==================== 交流工具 ====================
+// ==================== Communication Tools ====================
 
 function createCommunicationTools(toolCtx: ToolContext): AITool[] {
   return [
     {
       name: "send_message",
-      description: "发送消息到当前聊天，支持分段发送",
+      description: "Send message to current chat, supports multi-message sending",
       parameters: {
         type: "object",
         properties: {
           messages: {
             type: "array",
-            description: "消息列表，每条消息会单独发送",
+            description: "List of messages, each will be sent separately",
             items: {
               type: "object",
               properties: {
                 segments: {
                   type: "array",
-                  description: "消息片段列表",
+                  description: "List of message segments",
                   items: {
                     type: "object",
                     properties: {
                       type: {
                         type: "string",
                         enum: ["text", "at", "quote"],
-                        description: "片段类型",
+                        description: "Segment type",
                       },
                       content: {
                         type: "string",
-                        description: "文本内容（type=text 时必填）",
+                        description: "Text content (required when type=text)",
                       },
                       user_id: {
                         type: "number",
-                        description: "要 @ 的用户 QQ（type=at 时必填）",
+                        description: "User QQ to @ (required when type=at)",
                       },
                       message_id: {
                         type: "string",
-                        description: "要引用的消息 ID（type=quote 时必填）",
+                        description: "Message ID to quote (required when type=quote)",
                       },
                     },
                     required: ["type"],
@@ -109,8 +102,12 @@ function createCommunicationTools(toolCtx: ToolContext): AITool[] {
             switch (seg.type) {
               case "text":
                 if (seg.content) {
-                  sendable.push(ctx.segment.text(seg.content));
-                  messageTexts.push(seg.content);
+                  // 应用错别字生成器
+                  const text = toolCtx.typoApply
+                    ? toolCtx.typoApply(seg.content)
+                    : seg.content;
+                  sendable.push(ctx.segment.text(text));
+                  messageTexts.push(text);
                 }
                 break;
               case "at":
@@ -157,13 +154,13 @@ function createCommunicationTools(toolCtx: ToolContext): AITool[] {
     },
     {
       name: "poke_user",
-      description: "戳一戳某个用户",
+      description: "Poke a user",
       parameters: {
         type: "object",
         properties: {
           user_id: {
             type: "number",
-            description: "要戳的用户 QQ",
+            description: "User QQ to poke",
           },
         },
         required: ["user_id"],
@@ -191,25 +188,25 @@ function createCommunicationTools(toolCtx: ToolContext): AITool[] {
   ];
 }
 
-// ==================== 信息查询工具 ====================
+// ==================== Info Query Tools ====================
 
 function createInfoTools(toolCtx: ToolContext): AITool[] {
   return [
     {
       name: "get_chat_history",
-      description: "获取更多群聊历史消息记录",
+      description: "Get more group chat history messages",
       parameters: {
         type: "object",
         properties: {
           count: {
             type: "number",
-            description: "获取的消息数量，默认 20",
+            description: "Number of messages to get, default 20",
           },
         },
       },
       handler: async (args) => {
         const { ctx, groupId } = toolCtx;
-        if (!groupId) return { error: "仅群聊可用" };
+        if (!groupId) return { error: "Group chat only" };
 
         try {
           const result = await ctx.bot.api<any>("get_group_msg_history", {
@@ -222,7 +219,7 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
           const formatted = result.messages.map((msg: any) => {
             const time = new Date(msg.time * 1000);
             const timeStr = `${String(time.getHours()).padStart(2, "0")}:${String(time.getMinutes()).padStart(2, "0")}`;
-            const sender = msg.sender?.nickname || msg.sender?.card || "未知";
+            const sender = msg.sender?.nickname || msg.sender?.card || "unknown";
             const content = msg.raw_message || "";
             return `[${timeStr}] ${sender}(${msg.user_id}): ${content}`;
           });
@@ -236,17 +233,17 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
     },
     {
       name: "search_user_messages",
-      description: "搜索指定用户在当前会话中的近期消息",
+      description: "Search recent messages from a specific user in current session",
       parameters: {
         type: "object",
         properties: {
           user_id: {
             type: "number",
-            description: "用户 QQ",
+            description: "User QQ",
           },
           limit: {
             type: "number",
-            description: "最多返回条数，默认 10",
+            description: "Max messages to return, default 10",
           },
         },
         required: ["user_id"],
@@ -273,13 +270,13 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
     },
     {
       name: "get_user_avatar",
-      description: "获取用户头像链接",
+      description: "Get user avatar URL",
       parameters: {
         type: "object",
         properties: {
           user_id: {
             type: "number",
-            description: "用户 QQ",
+            description: "User QQ",
           },
         },
         required: ["user_id"],
@@ -293,17 +290,17 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
     },
     {
       name: "get_cross_group_messages",
-      description: "获取用户在其他群聊中的消息记录（跨群查询）",
+      description: "Get user's messages in other group chats (cross-group query)",
       parameters: {
         type: "object",
         properties: {
           user_id: {
             type: "number",
-            description: "用户 QQ",
+            description: "User QQ",
           },
           limit: {
             type: "number",
-            description: "最多返回条数，默认 10",
+            description: "Max messages to return, default 10",
           },
         },
         required: ["user_id"],
@@ -329,13 +326,13 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
     {
       name: "end_conversation",
       description:
-        "结束本轮对话。当你觉得这次交流可以告一段落时调用此工具。不调用此工具会话将继续等待你的下一步操作。",
+        "End this conversation turn. Call this when you feel the exchange is complete. Without this call, the conversation will continue waiting for your next action.",
       parameters: {
         type: "object",
         properties: {
           reason: {
             type: "string",
-            description: "结束原因（可选，用于调试）",
+            description: "Reason for ending (optional, for debugging)",
           },
         },
         required: [],
@@ -352,50 +349,50 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
   ];
 }
 
-// ==================== 群管工具 ====================
+// ==================== Admin Tools ====================
 
 function createAdminTools(toolCtx: ToolContext): AITool[] {
   return [
     {
       name: "mute_member",
-      description: "禁言群成员",
+      description: "Mute a group member",
       parameters: {
         type: "object",
         properties: {
           user_id: {
             type: "number",
-            description: "要禁言的用户 QQ",
+            description: "User QQ to mute",
           },
           duration: {
             type: "string",
             enum: ["1min", "5min", "10min"],
-            description: "禁言时长",
+            description: "Mute duration",
           },
         },
         required: ["user_id", "duration"],
       },
       handler: async (args) => {
         const { ctx, event, groupId } = toolCtx;
-        if (!groupId) return { error: "仅群聊可用" };
+        if (!groupId) return { error: "Group chat only" };
 
-        // 检查发起人权限
+        // Check invoker permissions
         const senderRole = event.sender?.role;
         const isOwner = ctx.isOwner?.(event) ?? false;
         if (senderRole !== "admin" && senderRole !== "owner" && !isOwner) {
-          return { error: "权限不足，只有管理员或群主可以命令禁言" };
+          return { error: "Insufficient permissions - only admin or owner can command mute" };
         }
 
-        // 检查目标权限
+        // Check target permissions
         try {
           const targetInfo = await ctx.bot.getGroupMemberInfo(
             groupId,
             args.user_id,
           );
           if (targetInfo.role === "admin" || targetInfo.role === "owner") {
-            return { error: "不能禁言管理员或群主" };
+            return { error: "Cannot mute admin or owner" };
           }
         } catch {
-          // 获取失败则继续
+          // continue if failed
         }
 
         const durationMap: Record<string, number> = {
@@ -416,58 +413,58 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
     },
     {
       name: "kick_member",
-      description: "踢出群成员（需要其他管理员确认）",
+      description: "Kick a group member (requires other admin confirmation)",
       parameters: {
         type: "object",
         properties: {
           user_id: {
             type: "number",
-            description: "要踢出的用户 QQ",
+            description: "User QQ to kick",
           },
           reason: {
             type: "string",
-            description: "踢出原因",
+            description: "Kick reason",
           },
         },
         required: ["user_id"],
       },
       handler: async (args) => {
         const { ctx, event, groupId } = toolCtx;
-        if (!groupId) return { error: "仅群聊可用" };
+        if (!groupId) return { error: "Group chat only" };
 
-        // 检查发起人权限
+        // Check invoker permissions
         const senderRole = event.sender?.role;
         const isOwner = ctx.isOwner?.(event) ?? false;
         if (senderRole !== "admin" && senderRole !== "owner" && !isOwner) {
-          return { error: "权限不足" };
+          return { error: "Insufficient permissions" };
         }
 
-        // 检查目标权限
+        // Check target permissions
         try {
           const targetInfo = await ctx.bot.getGroupMemberInfo(
             groupId,
             args.user_id,
           );
           if (targetInfo.role === "admin" || targetInfo.role === "owner") {
-            return { error: "不能踢出管理员或群主" };
+            return { error: "Cannot kick admin or owner" };
           }
         } catch {
           // ignore
         }
 
-        // 发送确认请求
-        const reason = args.reason ? `（原因：${args.reason}）` : "";
+        // Send confirmation request
+        const reason = args.reason ? ` (reason: ${args.reason})` : "";
         await ctx.bot.sendGroupMsg(groupId, [
           ctx.segment.text(
-            `⚠ 踢出确认：是否踢出 ${args.user_id}${reason}\n其他管理员请在 120 秒内回复"确认踢出"来确认，或回复"取消"来拒绝。`,
+            `⚠ Kick confirmation: Kick ${args.user_id}${reason}?\nOther admins please reply "confirm" within 120 seconds to confirm, or "cancel" to reject.`,
           ),
         ]);
 
-        // 等待确认
+        // Wait for confirmation
         return new Promise<any>((resolve) => {
           const timeout = setTimeout(() => {
             cleanup();
-            resolve({ success: false, reason: "确认超时，已取消" });
+            resolve({ success: false, reason: "Confirmation timeout, cancelled" });
           }, 120_000);
 
           const cleanup = ctx.handle("message", async (e: any) => {
@@ -476,9 +473,9 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
             const responderRole = e.sender?.role;
             const responderIsOwner = ctx.isOwner?.(e) ?? false;
 
-            // 只接受其他管理员/群主/主人的确认
+            // Only accept other admin/owner/owner's confirmation
             if (
-              e.user_id === event.user_id || // 不能自己确认自己
+              e.user_id === event.user_id || // cannot confirm self
               (responderRole !== "admin" &&
                 responderRole !== "owner" &&
                 !responderIsOwner)
@@ -486,7 +483,7 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
               return;
             }
 
-            if (text === "确认踢出") {
+            if (text === "confirm" || text === "确认踢出") {
               clearTimeout(timeout);
               cleanup();
               try {
@@ -495,10 +492,10 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
               } catch (err) {
                 resolve({ error: String(err) });
               }
-            } else if (text === "取消") {
+            } else if (text === "cancel" || text === "取消") {
               clearTimeout(timeout);
               cleanup();
-              resolve({ success: false, reason: "管理员已拒绝" });
+              resolve({ success: false, reason: "Rejected by admin" });
             }
           });
         });
@@ -507,24 +504,24 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
     },
     {
       name: "set_member_card",
-      description: "设置群成员的群昵称",
+      description: "Set member's group nickname",
       parameters: {
         type: "object",
         properties: {
           user_id: {
             type: "number",
-            description: "用户 QQ",
+            description: "User QQ",
           },
           card: {
             type: "string",
-            description: "新的群昵称",
+            description: "New group nickname",
           },
         },
         required: ["user_id", "card"],
       },
       handler: async (args) => {
         const { ctx, groupId } = toolCtx;
-        if (!groupId) return { error: "仅群聊可用" };
+        if (!groupId) return { error: "Group chat only" };
         try {
           await ctx.bot.setGroupCard(groupId, args.user_id, args.card);
           return { success: true };
@@ -536,25 +533,25 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
     },
     {
       name: "set_member_title",
-      description: "设置群成员的专属头衔（需要bot是群主）",
+      description: "Set member's special title (requires bot to be owner)",
       parameters: {
         type: "object",
         properties: {
           user_id: {
             type: "number",
-            description: "用户 QQ",
+            description: "User QQ",
           },
           title: {
             type: "string",
-            description: "新的专属头衔",
+            description: "New special title",
           },
         },
         required: ["user_id", "title"],
       },
       handler: async (args) => {
         const { ctx, groupId, botRole } = toolCtx;
-        if (!groupId) return { error: "仅群聊可用" };
-        if (botRole !== "owner") return { error: "需要群主权限" };
+        if (!groupId) return { error: "Group chat only" };
+        if (botRole !== "owner") return { error: "Owner permission required" };
         try {
           await ctx.bot.setGroupSpecialTitle(groupId, args.user_id, args.title);
           return { success: true };
@@ -566,25 +563,25 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
     },
     {
       name: "toggle_mute_all",
-      description: "开启或关闭全体禁言",
+      description: "Enable or disable group-wide mute",
       parameters: {
         type: "object",
         properties: {
           enable: {
             type: "boolean",
-            description: "true 开启全体禁言，false 关闭",
+            description: "true to enable group mute, false to disable",
           },
         },
         required: ["enable"],
       },
       handler: async (args) => {
         const { ctx, event, groupId } = toolCtx;
-        if (!groupId) return { error: "仅群聊可用" };
+        if (!groupId) return { error: "Group chat only" };
 
         const senderRole = event.sender?.role;
         const isOwner = ctx.isOwner?.(event) ?? false;
         if (senderRole !== "admin" && senderRole !== "owner" && !isOwner) {
-          return { error: "权限不足" };
+          return { error: "Insufficient permissions" };
         }
 
         try {
@@ -602,28 +599,28 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
   ];
 }
 
-// ==================== 防御工具 ====================
+// ==================== Defense Tools ====================
 
 function createDefenseTools(toolCtx: ToolContext): AITool[] {
   return [
     {
       name: "auto_mute",
-      description: "自动禁言辱骂者 1 分钟（自我保护，无需确认）",
+      description: "Auto-mute abuser for 1 minute (self-protection, no confirmation needed)",
       parameters: {
         type: "object",
         properties: {
           user_id: {
             type: "number",
-            description: "要禁言的用户 QQ",
+            description: "User QQ to mute",
           },
         },
         required: ["user_id"],
       },
       handler: async (args) => {
         const { ctx, groupId, botRole } = toolCtx;
-        if (!groupId) return { error: "仅群聊可用" };
+        if (!groupId) return { error: "Group chat only" };
         if (botRole !== "admin" && botRole !== "owner") {
-          return { error: "没有管理权限，无法禁言" };
+          return { error: "No admin permission, cannot mute" };
         }
         try {
           await ctx.bot.setGroupBan(groupId, args.user_id, 60);
@@ -636,29 +633,29 @@ function createDefenseTools(toolCtx: ToolContext): AITool[] {
     },
     {
       name: "report_abuse",
-      description: "向主人举报辱骂行为",
+      description: "Report abusive behavior to bot owner",
       parameters: {
         type: "object",
         properties: {
           user_id: {
             type: "number",
-            description: "辱骂者 QQ",
+            description: "Abuser's QQ",
           },
           user_name: {
             type: "string",
-            description: "辱骂者昵称",
+            description: "Abuser's nickname",
           },
           content: {
             type: "string",
-            description: "辱骂内容摘要",
+            description: "Summary of abusive content",
           },
         },
         required: ["user_id", "user_name", "content"],
       },
       handler: async (args) => {
         const { ctx, groupId } = toolCtx;
-        const groupInfo = groupId ? `群 ${groupId}` : "私聊";
-        const reportMsg = `⚠ 辱骂举报\n来源：${groupInfo}\n用户：${args.user_name}(${args.user_id})\n内容：${args.content}`;
+        const groupInfo = groupId ? `group ${groupId}` : "private chat";
+        const reportMsg = `⚠ Abuse Report\nSource: ${groupInfo}\nUser: ${args.user_name}(${args.user_id})\nContent: ${args.content}`;
         try {
           await ctx.noticeMainOwner(reportMsg);
           return { success: true };
@@ -671,51 +668,7 @@ function createDefenseTools(toolCtx: ToolContext): AITool[] {
   ];
 }
 
-// ==================== 监听器工具 ====================
-
-function createListenerTool(
-  toolCtx: ToolContext,
-  listenerManager: OneTimeListenerManager,
-): AITool {
-  return {
-    name: "register_listener",
-    description: "注册一次性事件监听器，等待特定条件触发后唤醒你",
-    parameters: {
-      type: "object",
-      properties: {
-        type: {
-          type: "string",
-          enum: ["next_user_message", "message_count"],
-          description:
-            "监听类型：next_user_message 等待指定用户发言，message_count 等待收到指定数量消息",
-        },
-        user_id: {
-          type: "number",
-          description: "目标用户 QQ（type=next_user_message 时必填）",
-        },
-        count: {
-          type: "number",
-          description: "消息数量（type=message_count 时必填）",
-        },
-        reason: {
-          type: "string",
-          description: "注册监听的原因（会在触发时提供给你）",
-        },
-      },
-      required: ["type", "reason"],
-    },
-    handler: async (args) => {
-      return listenerManager.register(toolCtx.sessionId, args.type, {
-        userId: args.user_id,
-        count: args.count,
-        reason: args.reason,
-      });
-    },
-    returnToAI: true,
-  };
-}
-
-// ==================== Meta 工具 ====================
+// ==================== Meta Tools ====================
 
 function createLoadSkillTool(
   toolCtx: ToolContext,
@@ -723,13 +676,13 @@ function createLoadSkillTool(
 ): AITool {
   return {
     name: "load_skill",
-    description: "加载外部插件的技能工具",
+    description: "Load external plugin's skill tools",
     parameters: {
       type: "object",
       properties: {
         skill_name: {
           type: "string",
-          description: "技能名称",
+          description: "Skill name",
         },
       },
       required: ["skill_name"],
@@ -737,7 +690,7 @@ function createLoadSkillTool(
     handler: async (args) => {
       const skill = toolCtx.aiService.getSkill(args.skill_name);
       if (!skill) {
-        return { error: `技能 ${args.skill_name} 不存在` };
+        return { error: `Skill ${args.skill_name} does not exist` };
       }
 
       const loadedTools: {
