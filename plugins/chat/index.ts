@@ -473,55 +473,56 @@ const chatPlugin: MiokuPlugin = {
             // 应用错别字生成器
             msg = humanize.typoGenerator.apply(msg);
 
-            // 构建消息段
-            const segments: any[] = [];
-
-            // 引用段（第一条消息）
-            if (i === 0 && result.pendingQuote !== undefined) {
-              segments.push({ type: "reply", id: String(result.pendingQuote) });
-            }
-
-            // AT 段（所有 AT 附加到第一条消息）
-            if (i === 0 && result.pendingAt.length > 0) {
-              for (const atId of result.pendingAt) {
-                segments.push(ctx.segment.at(atId));
-              }
-            }
-
-            // 戳一下（仅群聊，第一条消息）
-            if (groupId && i === 0 && result.pendingPoke.length > 0) {
-              for (const pokeId of result.pendingPoke) {
-                try {
-                  await ctx.bot.api("group_poke", {
-                    group_id: groupId,
-                    user_id: pokeId,
-                  });
-                } catch (err) {
-                  ctx.logger.warn(`[戳人] 失败: ${err}`);
-                }
-              }
-            }
-
-            // 文本段（按换行符分割为多条消息）
+            // 按换行符分割为多条消息
             const lines = msg.split("\n").filter((l) => l.trim());
             for (let j = 0; j < lines.length; j++) {
               const line = lines[j];
-              const lineSegments = [...segments];
 
-              // 第一条消息带引用和 AT，后续只带文本
-              if (j === 0) {
-                // 已有引用和 AT 段
-              } else {
-                // 后续消息只加文本
-                lineSegments.length = 0;
+              // 解析消息中的标记并按顺序构建消息段
+              const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(
+                line,
+                i === 0 && j === 0 ? undefined : "skip",
+              );
+
+              // 戳人
+              if (groupId && pokeUsers.length > 0) {
+                for (const pokeId of pokeUsers) {
+                  try {
+                    await ctx.bot.api("group_poke", {
+                      group_id: groupId,
+                      user_id: pokeId,
+                    });
+                  } catch (err) {
+                    ctx.logger.warn(`[戳人] 失败: ${err}`);
+                  }
+                }
               }
-              lineSegments.push(ctx.segment.text(line));
+
+              // 构建消息段
+              const lineSegments: any[] = [];
+
+              // 引用（仅第一条消息的第一行）
+              if (quoteId !== undefined && i === 0 && j === 0) {
+                lineSegments.push({ type: "reply", id: String(quoteId) });
+              }
+
+              // AT
+              for (const atId of atUsers) {
+                lineSegments.push(ctx.segment.at(atId));
+              }
+
+              // 文本
+              if (cleanText) {
+                lineSegments.push(ctx.segment.text(cleanText));
+              }
 
               // 发送
-              if (groupId) {
-                await ctx.bot.sendGroupMsg(groupId, lineSegments);
-              } else {
-                await ctx.bot.sendPrivateMsg(userId, lineSegments);
+              if (lineSegments.length > 0) {
+                if (groupId) {
+                  await ctx.bot.sendGroupMsg(groupId, lineSegments);
+                } else {
+                  await ctx.bot.sendPrivateMsg(userId, lineSegments);
+                }
               }
 
               // 多条消息间延迟
@@ -796,39 +797,52 @@ const chatPlugin: MiokuPlugin = {
             let msg = result.messages[i];
             msg = humanize.typoGenerator.apply(msg);
 
-            const segments: any[] = [];
-            // 引用段（第一条消息）
-            if (i === 0 && result.pendingQuote !== undefined) {
-              segments.push({ type: "reply", id: String(result.pendingQuote) });
-            }
-            if (i === 0 && result.pendingAt.length > 0) {
-              for (const atId of result.pendingAt) {
-                segments.push(ctx.segment.at(atId));
-              }
-            }
-
-            // 戳一下（仅群聊，第一条消息）
-            if (i === 0 && result.pendingPoke.length > 0) {
-              for (const pokeId of result.pendingPoke) {
-                try {
-                  await ctx.bot.api("group_poke", {
-                    group_id: groupId,
-                    user_id: pokeId,
-                  });
-                } catch (err) {
-                  ctx.logger.warn(`poke failed: ${err}`);
-                }
-              }
-            }
-
             // 按换行符分割为多条消息
             const lines = msg.split("\n").filter((l) => l.trim());
             for (let j = 0; j < lines.length; j++) {
               const line = lines[j];
-              const lineSegments = j === 0 ? [...segments] : [];
-              lineSegments.push(ctx.segment.text(line));
 
-              await ctx.bot.sendGroupMsg(groupId, lineSegments);
+              // 解析消息中的标记并按顺序构建消息段
+              const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(
+                line,
+                i === 0 && j === 0 ? undefined : "skip",
+              );
+
+              // 戳人
+              if (pokeUsers.length > 0) {
+                for (const pokeId of pokeUsers) {
+                  try {
+                    await ctx.bot.api("group_poke", {
+                      group_id: groupId,
+                      user_id: pokeId,
+                    });
+                  } catch (err) {
+                    ctx.logger.warn(`poke failed: ${err}`);
+                  }
+                }
+              }
+
+              // 构建消息段
+              const lineSegments: any[] = [];
+
+              // 引用（仅第一条消息的第一行）
+              if (quoteId !== undefined && i === 0 && j === 0) {
+                lineSegments.push({ type: "reply", id: String(quoteId) });
+              }
+
+              // AT
+              for (const atId of atUsers) {
+                lineSegments.push(ctx.segment.at(atId));
+              }
+
+              // 文本
+              if (cleanText) {
+                lineSegments.push(ctx.segment.text(cleanText));
+              }
+
+              if (lineSegments.length > 0) {
+                await ctx.bot.sendGroupMsg(groupId, lineSegments);
+              }
 
               if (j < lines.length - 1) {
                 await new Promise((r) => setTimeout(r, 300));
@@ -881,5 +895,77 @@ const chatPlugin: MiokuPlugin = {
     };
   },
 };
+
+// ==================== 消息标记解析 ====================
+
+/**
+ * 解析单行文本中的标记，按顺序提取 AT、戳人、引用
+ * @param line 要解析的文本
+ * @param quoteMode "skip" 跳过引用标记，其他值处理引用
+ */
+function parseLineMarkers(
+  line: string,
+  quoteMode?: "skip",
+): {
+  cleanText: string;
+  atUsers: number[];
+  pokeUsers: number[];
+  quoteId?: number;
+} {
+  const atUsers: number[] = [];
+  const pokeUsers: number[] = [];
+  let quoteId: number | undefined;
+
+  // 提取 AT 标记
+  const atPatterns = [
+    /\[\[\[at:(\d+)\]\]\]/g,
+    /\(\(\(at:(\d+)\)\)\)/g,
+    /\(\(\((\d+)\)\)\)/g,
+  ];
+  for (const pattern of atPatterns) {
+    const matches = line.matchAll(pattern);
+    for (const match of matches) {
+      atUsers.push(parseInt(match[1], 10));
+    }
+  }
+
+  // 提取戳人标记
+  const pokePatterns = [/\[\[\[poke:(\d+)\]\]\]/g, /\(\(\(poke:(\d+)\)\)\)/g];
+  for (const pattern of pokePatterns) {
+    const matches = line.matchAll(pattern);
+    for (const match of matches) {
+      pokeUsers.push(parseInt(match[1], 10));
+    }
+  }
+
+  // 提取引用标记（仅在允许时）
+  if (quoteMode !== "skip") {
+    const replyPatterns = [
+      /\[\[\[reply:(\d+)\]\]\]/g,
+      /\(\(\(reply:(\d+)\)\)\)/g,
+    ];
+    for (const pattern of replyPatterns) {
+      const matches = line.matchAll(pattern);
+      for (const match of matches) {
+        if (quoteId === undefined) {
+          quoteId = parseInt(match[1], 10);
+        }
+      }
+    }
+  }
+
+  // 清理标记
+  let cleanText = line
+    .replace(/\[\[\[at:\d+\]\]\]/g, "")
+    .replace(/\(\(\(at:\d+\)\)\)/g, "")
+    .replace(/\(\(\(\d+\)\)\)/g, "")
+    .replace(/\[\[\[poke:\d+\]\]\]/g, "")
+    .replace(/\(\(\(poke:\d+\)\)\)/g, "")
+    .replace(/\[\[\[reply:\d+\]\]\]/g, "")
+    .replace(/\(\(\(reply:\d+\)\)\)/g, "")
+    .trim();
+
+  return { cleanText, atUsers, pokeUsers, quoteId };
+}
 
 export default chatPlugin;

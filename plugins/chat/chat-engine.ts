@@ -170,123 +170,55 @@ export async function runChat(
     }
   }
 
-  // Parse messages and extract special actions (at, poke, reply)
-  const {
-    messages: parsedMessages,
-    atUsers,
-    pokeUsers,
-    quoteMessageId,
-  } = parseMessagesAndActions(lastTextContent);
+  // Clean markers from text for storage/emoji pick
+  const cleanedText = cleanMarkers(lastTextContent);
+
+  // Parse messages (markers will be processed when sending)
+  const messages = parseMessages(cleanedText);
 
   // Save assistant message to DB
-  if (lastTextContent.trim()) {
+  if (cleanedText.trim()) {
     toolCtx.db.saveMessage({
       sessionId: toolCtx.sessionId,
       role: "assistant",
-      content: lastTextContent,
+      content: cleanedText,
       timestamp: Date.now(),
     });
   }
 
   // Pick emoji
   let emojiPath: string | null = null;
-  if (lastTextContent.trim()) {
-    emojiPath = await humanize.emojiSystem.pickEmoji(lastTextContent);
-  }
-
-  // 如果没有消息但有 pending AT/Poke/Quote，发送空消息
-  if (
-    parsedMessages.length === 0 &&
-    (atUsers.length > 0 || pokeUsers.length > 0 || quoteMessageId !== undefined)
-  ) {
-    parsedMessages.push("");
+  if (cleanedText.trim()) {
+    emojiPath = await humanize.emojiSystem.pickEmoji(cleanedText);
   }
 
   logger.info(
-    `[chat-engine] Session ${toolCtx.sessionId} done | ${parsedMessages.length} msg(s), ${allToolCalls.length} tool call(s)${atUsers.length > 0 ? `, AT: ${atUsers.join(",")}` : ""}${pokeUsers.length > 0 ? `, Poke: ${pokeUsers.join(",")}` : ""}${quoteMessageId !== undefined ? `, Quote: ${quoteMessageId}` : ""}`,
+    `[chat-engine] Session ${toolCtx.sessionId} done | ${messages.length} msg(s), ${allToolCalls.length} tool call(s)`,
   );
 
   return {
-    messages: parsedMessages,
-    pendingAt: atUsers,
-    pendingPoke: pokeUsers,
-    pendingQuote: quoteMessageId,
+    messages,
+    pendingAt: [],
+    pendingPoke: [],
+    pendingQuote: undefined,
     toolCalls: allToolCalls,
     emojiPath,
   };
 }
 
 /**
- * Parse AI text response into separate messages and extract special actions
- * Supports both [[[at:X]]] and ((at:X)) syntax, plus ((X)) for at
- * Returns: [messages, atUsers, pokeUsers, quoteMessageId]
+ * Remove all action markers from text for storage/display
  */
-function parseMessagesAndActions(text: string): {
-  messages: string[];
-  atUsers: number[];
-  pokeUsers: number[];
-  quoteMessageId?: number;
-} {
-  const atUsers: number[] = [];
-  const pokeUsers: number[] = [];
-  let quoteMessageId: number | undefined;
-
-  // First, extract special markers from the entire text
-  let processedText = text;
-
-  // Extract [[[at:123456]]] and (((at:123456))) or (((123456))) markers
-  const atPatterns = [
-    /\[\[\[at:(\d+)\]\]\]/g,
-    /\(\(\(at:(\d+)\)\)\)/g,
-    /\(\(\((\d+)\)\)\)/g, // (((123456))) shorthand for at
-  ];
-  for (const pattern of atPatterns) {
-    const matches = processedText.matchAll(pattern);
-    for (const match of matches) {
-      atUsers.push(parseInt(match[1], 10));
-    }
-  }
-  processedText = processedText
+function cleanMarkers(text: string): string {
+  return text
     .replace(/\[\[\[at:\d+\]\]\]/g, "")
     .replace(/\(\(\(at:\d+\)\)\)/g, "")
-    .replace(/\(\(\(\d+\)\)\)/g, "");
-
-  // Extract [[[poke:123456]]] and (((poke:123456))) markers
-  const pokePatterns = [/\[\[\[poke:(\d+)\]\]\]/g, /\(\(\(poke:(\d+)\)\)\)/g];
-  for (const pattern of pokePatterns) {
-    const matches = processedText.matchAll(pattern);
-    for (const match of matches) {
-      pokeUsers.push(parseInt(match[1], 10));
-    }
-  }
-  processedText = processedText
+    .replace(/\(\(\(\d+\)\)\)/g, "")
     .replace(/\[\[\[poke:\d+\]\]\]/g, "")
-    .replace(/\(\(\(poke:\d+\)\)\)/g, "");
-
-  // Extract [[[reply:123456]]] and (((reply:123456))) markers (only at start of a line)
-  const lines = processedText.split("\n");
-  const processedLines: string[] = [];
-  for (const line of lines) {
-    const replyMatch = line.match(
-      /^(?:\[\[\[reply:(\d+)\]\]\]|\(\(\(reply:(\d+)\)\)\))\s*(.*)$/,
-    );
-    if (replyMatch) {
-      const id = replyMatch[1] || replyMatch[2];
-      if (!quoteMessageId) {
-        quoteMessageId = parseInt(id, 10);
-      }
-      processedLines.push(replyMatch[3].trim());
-    } else if (line.trim()) {
-      processedLines.push(line.trim());
-    }
-  }
-
-  return {
-    messages: processedLines,
-    atUsers,
-    pokeUsers,
-    quoteMessageId,
-  };
+    .replace(/\(\(\(poke:\d+\)\)\)/g, "")
+    .replace(/\[\[\[reply:\d+\]\]\]/g, "")
+    .replace(/\(\(\(reply:\d+\)\)\)/g, "")
+    .trim();
 }
 
 /**
