@@ -23,6 +23,7 @@ import {
   isGroupAllowed,
   extractContent,
   getBotRole,
+  getQuotedContent,
 } from "./utils";
 import { BASE_CONFIG } from "./configs/base";
 import { SETTINGS_CONFIG } from "./configs/settings";
@@ -164,7 +165,7 @@ const chatPlugin: MiokuPlugin = {
       );
     }
 
-    // 获取配置（合并三个配置文件）
+    // 获取配置
     const getConfig = async (): Promise<ChatConfig> => {
       if (!configService) {
         return {
@@ -229,6 +230,11 @@ const chatPlugin: MiokuPlugin = {
     // 正在处理的会话，防止并发
     const processingSet = new Set<string>();
 
+    // 连续对话追踪：记录 bot 最近回复的用户和时间
+    // key: "group:{groupId}:{userId}", value: timestamp
+    const recentReplies = new Map<string, number>();
+    const FOLLOW_UP_WINDOW_MS = 3 * 60_000; // 3 分钟内的后续消息走 planner
+
     // 定期清理过期技能会话
     const cleanupInterval = setInterval(
       () => skillManager.cleanup(),
@@ -271,11 +277,19 @@ const chatPlugin: MiokuPlugin = {
         // 提取内容
         const { text, multimodal } = extractContent(e, cfg, ctx);
 
+        // 检测引用内容
+        const quotedInfo = await getQuotedContent(e, ctx);
+
         let messageContent: string;
         if (multimodal) {
           messageContent = JSON.stringify(multimodal);
         } else {
           messageContent = text;
+        }
+
+        // 注入引用信息
+        if (quotedInfo) {
+          messageContent = `[Quoting ${quotedInfo.senderName}: "${quotedInfo.content}"] ${messageContent}`;
         }
 
         if (options?.triggerReason) {
@@ -309,12 +323,12 @@ const chatPlugin: MiokuPlugin = {
         // 话题跟踪
         humanize.topicTracker.onMessage(groupSessionId);
 
-        // 表情包收集
+        // 表情包收集 (seg format: {type: "image", url: "...", file: "..."})
         if (e.message) {
           for (const seg of e.message) {
-            if (seg.type === "image" && seg.data?.url && seg.data?.file) {
+            if (seg.type === "image" && seg.url && seg.file) {
               humanize.emojiSystem
-                .collectFromMessage(seg.data.url, seg.data.file)
+                .collectFromMessage(seg.url, seg.file)
                 .catch(() => {});
             }
           }
@@ -464,32 +478,42 @@ const chatPlugin: MiokuPlugin = {
               }
             }
 
-            // 文本段
-            segments.push(ctx.segment.text(msg));
+            // 文本段（按换行符分割为多条消息）
+            const lines = msg.split("\n").filter((l) => l.trim());
+            for (let j = 0; j < lines.length; j++) {
+              const line = lines[j];
+              const lineSegments = [...segments];
 
-            // 模拟打字延迟
-            const typingDelay = humanize.frequencyController.getTypingDelay(
-              msg.length,
-            );
-            if (typingDelay > 0) {
-              await new Promise((r) => setTimeout(r, typingDelay));
-            }
+              // 第一条消息带引用和 AT，后续只带文本
+              if (j === 0) {
+                // 已有引用和 AT 段
+              } else {
+                // 后续消息只加文本
+                lineSegments.length = 0;
+              }
+              lineSegments.push(ctx.segment.text(line));
 
-            // 发送
-            if (groupId) {
-              await ctx.bot.sendGroupMsg(groupId, segments);
-            } else {
-              await ctx.bot.sendPrivateMsg(userId, segments);
-            }
+              // 发送
+              if (groupId) {
+                await ctx.bot.sendGroupMsg(groupId, lineSegments);
+              } else {
+                await ctx.bot.sendPrivateMsg(userId, lineSegments);
+              }
 
-            // 多条消息间延迟
-            if (i < result.messages.length - 1) {
-              await new Promise((r) => setTimeout(r, 300));
+              // 多条消息间延迟
+              if (j < lines.length - 1) {
+                await new Promise((r) => setTimeout(r, 300));
+              }
             }
           }
 
           // 记录发言
           humanize.frequencyController.recordSpeak(groupSessionId);
+
+          // 记录最近回复，用于连续对话追踪
+          if (groupId && userId) {
+            recentReplies.set(`${groupId}:${userId}`, Date.now());
+          }
         }
 
         // 发送表情包
@@ -559,6 +583,38 @@ const chatPlugin: MiokuPlugin = {
 
       // 检查触发条件
       let triggered = shouldTrigger(e, text, cfg, ctx);
+
+      // 连续对话追踪：检查是否在 bot 最近回复的时间窗口内
+      // 策略：planner只响应第一条后续消息，后续消息作为聊天记录
+      if (!triggered && isGroup && groupId && text.trim()) {
+        const replyKey = `${groupId}:${userId}`;
+        const lastReplyTime = recentReplies.get(replyKey) ?? 0;
+        
+        // 清除记录，防止重复触发planner
+        recentReplies.delete(replyKey);
+        
+        if (Date.now() - lastReplyTime < FOLLOW_UP_WINDOW_MS) {
+          // 在时间窗口内，用 planner 判断是否回复
+          const groupSessionId = `group:${groupId}`;
+          const history = db.getMessages(groupSessionId, 30);
+          const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+
+          const planResult = await humanize.actionPlanner.plan(
+            groupSessionId,
+            botNickname,
+            history,
+            text,
+          );
+
+          if (planResult.action === "reply") {
+            if (!rateLimiter.canProcess(userId, groupId, text)) return;
+            rateLimiter.record(userId, groupId, text);
+            await processChat(e, cfg, { skipPlanner: true });
+          }
+          // wait/complete → 不回复，但消息已保存到DB供后续使用
+          return;
+        }
+      }
 
       // 引用 bot 消息触发检测
       if (!triggered && isGroup) {
@@ -698,16 +754,20 @@ const chatPlugin: MiokuPlugin = {
                 segments.push(ctx.segment.at(atId));
               }
             }
-            segments.push(ctx.segment.text(msg));
 
-            const typingDelay = humanize.frequencyController.getTypingDelay(
-              msg.length,
-            );
-            if (typingDelay > 0) {
-              await new Promise((r) => setTimeout(r, typingDelay));
+            // 按换行符分割为多条消息
+            const lines = msg.split("\n").filter((l) => l.trim());
+            for (let j = 0; j < lines.length; j++) {
+              const line = lines[j];
+              const lineSegments = j === 0 ? [...segments] : [];
+              lineSegments.push(ctx.segment.text(line));
+
+              await ctx.bot.sendGroupMsg(groupId, lineSegments);
+
+              if (j < lines.length - 1) {
+                await new Promise((r) => setTimeout(r, 300));
+              }
             }
-
-            await ctx.bot.sendGroupMsg(groupId, segments);
 
             if (i < result.messages.length - 1) {
               await new Promise((r) => setTimeout(r, 300));
@@ -715,6 +775,11 @@ const chatPlugin: MiokuPlugin = {
           }
 
           humanize.frequencyController.recordSpeak(groupSessionId);
+
+          // 记录最近回复
+          if (groupId && userId) {
+            recentReplies.set(`${groupId}:${userId}`, Date.now());
+          }
         }
 
         // 发送表情包

@@ -385,11 +385,18 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
         required: ["user_id"],
       },
       handler: async (args) => {
+        const { ctx, groupId } = toolCtx;
         try {
-          await (toolCtx.ctx.bot as any).sendGroupPoke(
-            toolCtx.groupId!,
-            args.user_id,
-          );
+          if (groupId) {
+            await ctx.bot.api("group_poke", {
+              group_id: groupId,
+              user_id: args.user_id,
+            });
+          } else {
+            await ctx.bot.api("friend_poke", {
+              user_id: args.user_id,
+            });
+          }
           return { success: true };
         } catch (err) {
           return { error: `Failed: ${err}` };

@@ -1,1 +1,1 @@
-export { shouldTrigger, isQuotingBot, isGroupAllowed, extractContent, getBotRole } from "./message";
+export { shouldTrigger, isQuotingBot, isGroupAllowed, extractContent, getBotRole, getQuotedContent } from "./message";

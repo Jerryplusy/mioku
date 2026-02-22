@@ -36,6 +36,8 @@ export async function runChat(
   let toolResults: { toolName: string; result: any }[] = [];
   let lastTextContent = "";
 
+  logger.info(`[chat-engine] Session ${toolCtx.sessionId} | target: ${targetMessage.userName}(${targetMessage.userId}): "${targetMessage.content}"`);
+
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     // Build prompt fresh each iteration
     const activeSkillsInfo = skillManager.getActiveSkillsInfo(toolCtx.sessionId);
@@ -46,6 +48,11 @@ export async function runChat(
       chatHistory: history,
       targetMessage,
     });
+
+    // 调试：打印完整 prompt
+    logger.info(`[chat-engine] === Prompt (iter ${iteration}) ===`);
+    logger.info(prompt);
+    logger.info(`[chat-engine] === End Prompt ===`);
 
     // Build tool definitions
     const skillTools = skillManager.getTools(toolCtx.sessionId);
@@ -59,9 +66,15 @@ export async function runChat(
       temperature: toolCtx.config.temperature,
     });
 
+    // Log AI reasoning if present
+    if (resp.reasoning) {
+      logger.info(`[chat-engine] AI reasoning (iter ${iteration}): ${resp.reasoning}`);
+    }
+
     // Capture text content
     if (resp.content) {
       lastTextContent = resp.content;
+      logger.info(`[chat-engine] AI reply (iter ${iteration}): "${resp.content}"`);
     }
 
     // No tool calls → done
@@ -92,16 +105,19 @@ export async function runChat(
       if (tc.name === "at_user") {
         if (args.user_id) pendingAt.push(args.user_id);
         allToolCalls.push({ name: tc.name, args, result: { success: true } });
+        logger.info(`[chat-engine] AT user: ${args.user_id}`);
         continue;
       }
 
       if (tc.name === "quote_reply") {
         if (args.message_id) pendingQuote = args.message_id;
         allToolCalls.push({ name: tc.name, args, result: { success: true } });
+        logger.info(`[chat-engine] Quote reply: #${args.message_id}`);
         continue;
       }
 
       // Execute handler
+      logger.info(`[chat-engine] Tool call: ${tc.name}(${JSON.stringify(args).substring(0, 100)})`);
       try {
         const result = await handler.tool.handler(args);
         allToolCalls.push({ name: tc.name, args, result });
@@ -110,8 +126,6 @@ export async function runChat(
           newToolResults.push({ toolName: tc.name, result });
           hasReturnToAI = true;
         }
-
-        // If load_skill was called, skill tools changed — will be picked up next iteration
       } catch (err) {
         logger.warn(`[chat-engine] Tool ${tc.name} failed: ${err}`);
         const errorResult = { error: String(err) };
@@ -151,6 +165,8 @@ export async function runChat(
   if (lastTextContent.trim()) {
     emojiPath = await humanize.emojiSystem.pickEmoji(lastTextContent);
   }
+
+  logger.info(`[chat-engine] Session ${toolCtx.sessionId} done | ${messages.length} msg(s), ${allToolCalls.length} tool call(s)${pendingAt.length > 0 ? `, AT: ${pendingAt.join(",")}` : ""}${pendingQuote ? `, quote: #${pendingQuote}` : ""}`);
 
   return {
     messages,
