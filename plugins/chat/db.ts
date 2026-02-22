@@ -70,8 +70,7 @@ export function initDatabase(): ChatDatabase {
       group_id INTEGER,
       group_name TEXT,
       timestamp INTEGER NOT NULL,
-      message_id INTEGER,
-      FOREIGN KEY (session_id) REFERENCES sessions(id)
+      message_id INTEGER
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);
@@ -86,8 +85,7 @@ export function initDatabase(): ChatDatabase {
       summary TEXT NOT NULL,
       message_count INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      FOREIGN KEY (session_id) REFERENCES sessions(id)
+      updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_topics_session ON topics(session_id, updated_at);
 
@@ -99,8 +97,7 @@ export function initDatabase(): ChatDatabase {
       situation TEXT NOT NULL,
       style TEXT NOT NULL,
       example TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      FOREIGN KEY (session_id) REFERENCES sessions(id)
+      created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_expressions_session ON expressions(session_id, created_at);
 

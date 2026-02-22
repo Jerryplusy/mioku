@@ -1,4 +1,4 @@
-import type { MiokiContext } from "mioki";
+import { logger, MiokiContext } from "mioki";
 import type { ChatConfig } from "../types";
 
 export function shouldTrigger(
@@ -10,8 +10,7 @@ export function shouldTrigger(
   if (e.message_type === "private") return false;
 
   // Check if message contains a reply segment
-  const hasReply =
-    e.message?.some((seg: any) => seg.type === "reply") ?? false;
+  const hasReply = e.message?.some((seg: any) => seg.type === "reply") ?? false;
 
   // Check if message @s the bot (seg format: {type: "at", qq: "123456"})
   const atSeg = e.message?.find((seg: any) => seg.type === "at");
@@ -170,5 +169,108 @@ export async function getBotRole(
     return (memberInfo.role as "owner" | "admin" | "member") || "member";
   } catch {
     return "member";
+  }
+}
+
+/**
+ * 从 OneBot API 获取群聊历史消息
+ * 返回格式化为 ChatMessage 数组
+ */
+export async function getGroupHistory(
+  groupId: number,
+  ctx: MiokiContext,
+  count: number = 100,
+): Promise<
+  Array<{
+    userId: number;
+    userName: string;
+    userRole: string;
+    content: string;
+    messageId: number;
+    timestamp: number;
+  }>
+> {
+  try {
+    // 调用 OneBot API 获取群聊历史
+    const result = await (ctx.bot as any).api("get_group_msg_history", {
+      group_id: String(groupId),
+      message_seq: "0",
+      count: Math.min(count, 200), // 最多获取200条
+      reverse_order: false,
+      disable_get_url: false,
+      parse_mult_msg: true,
+      quick_reply: false,
+    });
+    const messages = result?.messages || result?.data?.messages || [];
+    if (!Array.isArray(messages)) {
+      logger.warn("[getGroupHistory] API 返回格式异常:", result);
+      return [];
+    }
+
+    const botUin = ctx.bot.uin;
+
+    // 格式化消息
+    const formatted: Array<{
+      userId: number;
+      userName: string;
+      userRole: string;
+      content: string;
+      messageId: number;
+      timestamp: number;
+    }> = [];
+
+    for (const msg of messages) {
+      // 跳过自己的消息
+      if (String(msg.user_id) === String(botUin)) {
+        continue;
+      }
+
+      // 提取文本内容
+      let content = "";
+      if (msg.message && msg.message.length > 0) {
+        // 先尝试提取所有文本段
+        const textSegs = msg.message.filter((seg: any) => seg.type === "text");
+        const textContent = textSegs
+          .map((seg: any) => seg.data?.text || "")
+          .join("")
+          .trim();
+
+        if (textContent) {
+          // 有文本内容，使用文本内容
+          content = textContent;
+        } else {
+          // 没有文本内容，显示消息类型
+          const segTypes = msg.message.map((seg: any) => seg.type);
+          // 只显示非 text 的类型（因为 text 为空）
+          const nonTextTypes = segTypes.filter((t: string) => t !== "text");
+          if (nonTextTypes.length > 0) {
+            content = `[${nonTextTypes.join(", ")}]`;
+          } else {
+            // 只有空文本段，跳过
+            continue;
+          }
+        }
+      }
+
+      // 跳过空消息
+      if (!content.trim()) {
+        continue;
+      }
+
+      formatted.push({
+        userId: msg.user_id,
+        userName:
+          msg.sender?.card || msg.sender?.nickname || String(msg.user_id),
+        userRole: msg.sender?.role || "member",
+        content,
+        messageId: msg.message_id,
+        timestamp: msg.time ? msg.time * 1000 : Date.now(),
+      });
+    }
+
+    return formatted;
+  } catch (err) {
+    console.error("获取群聊历史失败:", err);
+    return [];
   }
 }

@@ -5,7 +5,13 @@ import type {
 } from "openai/resources/chat/completions";
 import { logger } from "mioki";
 import type { AITool } from "../../src";
-import type { ChatConfig, ToolContext, ChatMessage, TargetMessage, ChatResult } from "./types";
+import type {
+  ChatConfig,
+  ToolContext,
+  ChatMessage,
+  TargetMessage,
+  ChatResult,
+} from "./types";
 import type { SessionManager } from "./session";
 import type { HumanizeEngine } from "./humanize";
 import type { PromptContext } from "./prompt";
@@ -23,7 +29,10 @@ export async function runChat(
   toolCtx: ToolContext,
   history: ChatMessage[],
   targetMessage: TargetMessage,
-  promptCtx: Omit<PromptContext, "toolResults" | "activeSkillsInfo" | "chatHistory" | "targetMessage">,
+  promptCtx: Omit<
+    PromptContext,
+    "toolResults" | "activeSkillsInfo" | "chatHistory" | "targetMessage"
+  >,
   sessionManager: SessionManager,
   humanize: HumanizeEngine,
   skillManager: SkillSessionManager,
@@ -36,11 +45,15 @@ export async function runChat(
   let toolResults: { toolName: string; result: any }[] = [];
   let lastTextContent = "";
 
-  logger.info(`[chat-engine] Session ${toolCtx.sessionId} | target: ${targetMessage.userName}(${targetMessage.userId}): "${targetMessage.content}"`);
+  logger.info(
+    `[chat-engine] Session ${toolCtx.sessionId} | target: ${targetMessage.userName}(${targetMessage.userId}): "${targetMessage.content}"`,
+  );
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     // Build prompt fresh each iteration
-    const activeSkillsInfo = skillManager.getActiveSkillsInfo(toolCtx.sessionId);
+    const activeSkillsInfo = skillManager.getActiveSkillsInfo(
+      toolCtx.sessionId,
+    );
     const prompt = buildSystemPrompt({
       ...promptCtx,
       toolResults: iteration > 0 ? toolResults : undefined,
@@ -49,7 +62,6 @@ export async function runChat(
       targetMessage,
     });
 
-    // 调试：打印完整 prompt
     logger.info(`[chat-engine] === Prompt (iter ${iteration}) ===`);
     logger.info(prompt);
     logger.info(`[chat-engine] === End Prompt ===`);
@@ -68,13 +80,17 @@ export async function runChat(
 
     // Log AI reasoning if present
     if (resp.reasoning) {
-      logger.info(`[chat-engine] AI reasoning (iter ${iteration}): ${resp.reasoning}`);
+      logger.info(
+        `[chat-engine] AI reasoning (iter ${iteration}): ${resp.reasoning}`,
+      );
     }
 
     // Capture text content
     if (resp.content) {
       lastTextContent = resp.content;
-      logger.info(`[chat-engine] AI reply (iter ${iteration}): "${resp.content}"`);
+      logger.info(
+        `[chat-engine] AI reply (iter ${iteration}): "${resp.content}"`,
+      );
     }
 
     // No tool calls → done
@@ -117,7 +133,9 @@ export async function runChat(
       }
 
       // Execute handler
-      logger.info(`[chat-engine] Tool call: ${tc.name}(${JSON.stringify(args).substring(0, 100)})`);
+      logger.info(
+        `[chat-engine] Tool call: ${tc.name}(${JSON.stringify(args).substring(0, 100)})`,
+      );
       try {
         const result = await handler.tool.handler(args);
         allToolCalls.push({ name: tc.name, args, result });
@@ -166,7 +184,9 @@ export async function runChat(
     emojiPath = await humanize.emojiSystem.pickEmoji(lastTextContent);
   }
 
-  logger.info(`[chat-engine] Session ${toolCtx.sessionId} done | ${messages.length} msg(s), ${allToolCalls.length} tool call(s)${pendingAt.length > 0 ? `, AT: ${pendingAt.join(",")}` : ""}${pendingQuote ? `, quote: #${pendingQuote}` : ""}`);
+  logger.info(
+    `[chat-engine] Session ${toolCtx.sessionId} done | ${messages.length} msg(s), ${allToolCalls.length} tool call(s)${pendingAt.length > 0 ? `, AT: ${pendingAt.join(",")}` : ""}${pendingQuote ? `, quote: #${pendingQuote}` : ""}`,
+  );
 
   return {
     messages,

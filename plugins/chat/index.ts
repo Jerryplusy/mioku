@@ -24,6 +24,7 @@ import {
   extractContent,
   getBotRole,
   getQuotedContent,
+  getGroupHistory,
 } from "./utils";
 import { BASE_CONFIG } from "./configs/base";
 import { SETTINGS_CONFIG } from "./configs/settings";
@@ -296,10 +297,10 @@ const chatPlugin: MiokuPlugin = {
           messageContent = options.triggerReason + messageContent;
         }
 
-        // 保存用户消息到群会话
-        const userMsg: ChatMessage = {
+        // 构建用户消息（用于表达学习和话题跟踪，不保存到数据库）
+        const userMsg = {
           sessionId: groupSessionId,
-          role: "user",
+          role: "user" as const,
           content: messageContent,
           userId,
           userName: e.sender?.card || e.sender?.nickname || String(userId),
@@ -310,12 +311,6 @@ const chatPlugin: MiokuPlugin = {
           timestamp: Date.now(),
           messageId: e.message_id,
         };
-        db.saveMessage(userMsg);
-
-        // 保存到个人会话
-        if (groupId) {
-          db.saveMessage({ ...userMsg, sessionId: personalSessionId });
-        }
 
         // 表达学习
         humanize.expressionLearner.onMessage(groupSessionId, userMsg);
@@ -335,7 +330,7 @@ const chatPlugin: MiokuPlugin = {
         }
 
         // 频率控制
-        if (
+        /*if (
           isGroup &&
           !humanize.frequencyController.shouldSpeak(groupSessionId)
         ) {
@@ -343,9 +338,25 @@ const chatPlugin: MiokuPlugin = {
           processingSet.delete(groupSessionId);
           return;
         }
+        */
 
-        // 加载历史消息
-        const history = db.getMessages(groupSessionId, 30);
+        // 加载群聊历史消息
+        const rawHistory = groupId
+          ? await getGroupHistory(groupId, ctx, cfg.historyCount)
+          : [];
+
+        // 转换为 ChatMessage 格式
+        const history: ChatMessage[] = rawHistory.map((msg) => ({
+          sessionId: groupSessionId,
+          role: "user" as const,
+          content: msg.content,
+          userId: msg.userId,
+          userName: msg.userName,
+          userRole: msg.userRole,
+          groupId,
+          timestamp: msg.timestamp,
+          messageId: msg.messageId,
+        }));
 
         // 动作规划器
         const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
@@ -589,14 +600,29 @@ const chatPlugin: MiokuPlugin = {
       if (!triggered && isGroup && groupId && text.trim()) {
         const replyKey = `${groupId}:${userId}`;
         const lastReplyTime = recentReplies.get(replyKey) ?? 0;
-        
+
         // 清除记录，防止重复触发planner
         recentReplies.delete(replyKey);
-        
+
         if (Date.now() - lastReplyTime < FOLLOW_UP_WINDOW_MS) {
           // 在时间窗口内，用 planner 判断是否回复
           const groupSessionId = `group:${groupId}`;
-          const history = db.getMessages(groupSessionId, 30);
+          const rawHistory = await getGroupHistory(
+            groupId,
+            ctx,
+            cfg.historyCount,
+          );
+          const history: ChatMessage[] = rawHistory.map((msg) => ({
+            sessionId: groupSessionId,
+            role: "user" as const,
+            content: msg.content,
+            userId: msg.userId,
+            userName: msg.userName,
+            userRole: msg.userRole,
+            groupId,
+            timestamp: msg.timestamp,
+            messageId: msg.messageId,
+          }));
           const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
 
           const planResult = await humanize.actionPlanner.plan(
@@ -624,8 +650,23 @@ const chatPlugin: MiokuPlugin = {
           // 如果只是引用但没有 @ 或提到名字，用 planner 判断
           const groupSessionId = `group:${groupId}`;
 
-          // 先保存消息到 DB（processChat 也会保存，这里提前保存给 planner 用）
-          const history = db.getMessages(groupSessionId, 30);
+          // 获取群聊历史
+          const rawHistory = await getGroupHistory(
+            groupId!,
+            ctx,
+            cfg.historyCount,
+          );
+          const history: ChatMessage[] = rawHistory.map((msg) => ({
+            sessionId: groupSessionId,
+            role: "user" as const,
+            content: msg.content,
+            userId: msg.userId,
+            userName: msg.userName,
+            userRole: msg.userRole,
+            groupId,
+            timestamp: msg.timestamp,
+            messageId: msg.messageId,
+          }));
           const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
 
           const planResult = await humanize.actionPlanner.plan(
@@ -675,6 +716,9 @@ const chatPlugin: MiokuPlugin = {
       if (processingSet.has(groupSessionId)) return;
       processingSet.add(groupSessionId);
 
+      // 确保 session 存在
+      sessionManager.getOrCreate(groupSessionId, "group", groupId);
+
       try {
         const userId = e.user_id || e.operator_id;
         const botRole = await getBotRole(groupId, ctx);
@@ -698,7 +742,23 @@ const chatPlugin: MiokuPlugin = {
           timestamp: Date.now(),
         };
 
-        const history = db.getMessages(groupSessionId, 30);
+        // 获取群聊历史
+        const rawHistory = await getGroupHistory(
+          groupId,
+          ctx,
+          cfg.historyCount,
+        );
+        const history: ChatMessage[] = rawHistory.map((msg) => ({
+          sessionId: groupSessionId,
+          role: "user" as const,
+          content: msg.content,
+          userId: msg.userId,
+          userName: msg.userName,
+          userRole: msg.userRole,
+          groupId,
+          timestamp: msg.timestamp,
+          messageId: msg.messageId,
+        }));
 
         let groupName: string | undefined;
         let memberCount: number | undefined;

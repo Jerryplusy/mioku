@@ -77,7 +77,7 @@ function createMessageTools(): AITool[] {
       handler: async (args) => {
         return { success: true, user_id: args.user_id };
       },
-      returnToAI: false,
+      returnToAI: true,
     },
     {
       name: "quote_reply",
@@ -96,7 +96,7 @@ function createMessageTools(): AITool[] {
       handler: async (args) => {
         return { success: true, message_id: args.message_id };
       },
-      returnToAI: false,
+      returnToAI: true,
     },
   ];
 }
@@ -402,7 +402,7 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
           return { error: `Failed: ${err}` };
         }
       },
-      returnToAI: false,
+      returnToAI: true,
     },
   ];
 }

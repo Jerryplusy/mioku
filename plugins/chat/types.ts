@@ -98,6 +98,7 @@ export interface ChatConfig {
   persona: string;
   maxContextTokens: number; // 单位 K，例如 128 = 128K
   temperature: number;
+  historyCount: number; // 群聊历史消息数量
   blacklistGroups: number[];
   whitelistGroups: number[];
   maxSessions: number;
