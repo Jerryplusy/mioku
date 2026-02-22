@@ -4,23 +4,29 @@ import type { HelpService } from "../../src/services/help";
 import type { ConfigService } from "../../src/services/config";
 import { MiokiContext } from "mioki";
 import type { AITool } from "../../src";
-import type { ChatConfig, ToolContext, ChatMessage, TargetMessage, SkillSession } from "./types";
+import type {
+  ChatConfig,
+  ToolContext,
+  ChatMessage,
+  TargetMessage,
+  SkillSession,
+} from "./types";
 import { initDatabase } from "./db";
 import { SessionManager } from "./session";
 import { RateLimiter } from "./rate-limiter";
 import { runChat } from "./chat-engine";
 import { HumanizeEngine } from "./humanize";
 import type { SkillSessionManager } from "./tools";
-import { shouldTrigger, isQuotingBot, isGroupAllowed, extractContent, getBotRole } from "./utils";
+import {
+  shouldTrigger,
+  isQuotingBot,
+  isGroupAllowed,
+  extractContent,
+  getBotRole,
+} from "./utils";
 import { BASE_CONFIG } from "./configs/base";
 import { SETTINGS_CONFIG } from "./configs/settings";
 import { PERSONALIZATION_CONFIG } from "./configs/personalization";
-
-const DEFAULT_CONFIG: ChatConfig = {
-  ...BASE_CONFIG,
-  ...SETTINGS_CONFIG,
-  ...PERSONALIZATION_CONFIG,
-};
 
 // ==================== SkillSessionManager ====================
 
@@ -46,7 +52,11 @@ class SkillSessionManagerImpl implements SkillSessionManager {
     return result;
   }
 
-  loadSkill(sessionId: string, skillName: string, tools: AITool[]): SkillSession {
+  loadSkill(
+    sessionId: string,
+    skillName: string,
+    tools: AITool[],
+  ): SkillSession {
     let sessionSkills = this.sessions.get(sessionId);
     if (!sessionSkills) {
       sessionSkills = new Map();
@@ -89,7 +99,9 @@ class SkillSessionManagerImpl implements SkillSessionManager {
       }
       const remainingMin = Math.ceil((session.expiresAt - now) / 60000);
       const toolNames = [...session.tools.keys()].join(", ");
-      lines.push(`- ${skillName} (expires in ${remainingMin}min): ${toolNames}`);
+      lines.push(
+        `- ${skillName} (expires in ${remainingMin}min): ${toolNames}`,
+      );
     }
 
     if (lines.length === 0) return "";
@@ -143,21 +155,45 @@ const chatPlugin: MiokuPlugin = {
 
     // 注册配置
     if (configService) {
-      await configService.registerConfig("chat", "settings", DEFAULT_CONFIG);
+      await configService.registerConfig("chat", "base", BASE_CONFIG);
+      await configService.registerConfig("chat", "settings", SETTINGS_CONFIG);
+      await configService.registerConfig(
+        "chat",
+        "personalization",
+        PERSONALIZATION_CONFIG,
+      );
     }
 
-    // 获取配置
+    // 获取配置（合并三个配置文件）
     const getConfig = async (): Promise<ChatConfig> => {
-      if (!configService) return DEFAULT_CONFIG;
-      const config = await configService.getConfig("chat", "settings");
-      return { ...DEFAULT_CONFIG, ...config };
+      if (!configService) {
+        return {
+          ...BASE_CONFIG,
+          ...SETTINGS_CONFIG,
+          ...PERSONALIZATION_CONFIG,
+        } as ChatConfig;
+      }
+      const base = await configService.getConfig("chat", "base");
+      const settings = await configService.getConfig("chat", "settings");
+      const personalization = await configService.getConfig(
+        "chat",
+        "personalization",
+      );
+      return {
+        ...BASE_CONFIG,
+        ...SETTINGS_CONFIG,
+        ...PERSONALIZATION_CONFIG,
+        ...base,
+        ...settings,
+        ...personalization,
+      } as ChatConfig;
     };
 
     const config = await getConfig();
 
     if (!config.apiKey) {
       ctx.logger.warn(
-        "聊天插件未配置 API Key，请在 config/chat/settings.json 中配置",
+        "聊天插件未配置 API Key，请在 config/chat/base.json 中配置",
       );
       return;
     }
@@ -194,7 +230,10 @@ const chatPlugin: MiokuPlugin = {
     const processingSet = new Set<string>();
 
     // 定期清理过期技能会话
-    const cleanupInterval = setInterval(() => skillManager.cleanup(), 10 * 60_000);
+    const cleanupInterval = setInterval(
+      () => skillManager.cleanup(),
+      10 * 60_000,
+    );
 
     /**
      * 处理 AI 聊天核心流程
@@ -415,9 +454,7 @@ const chatPlugin: MiokuPlugin = {
 
             // 第一条消息带引用
             if (i === 0 && result.pendingQuote) {
-              segments.push(
-                ctx.segment.reply(String(result.pendingQuote)),
-              );
+              segments.push(ctx.segment.reply(String(result.pendingQuote)));
             }
 
             // AT 段（所有 AT 附加到第一条消息）
@@ -431,8 +468,9 @@ const chatPlugin: MiokuPlugin = {
             segments.push(ctx.segment.text(msg));
 
             // 模拟打字延迟
-            const typingDelay =
-              humanize.frequencyController.getTypingDelay(msg.length);
+            const typingDelay = humanize.frequencyController.getTypingDelay(
+              msg.length,
+            );
             if (typingDelay > 0) {
               await new Promise((r) => setTimeout(r, typingDelay));
             }
@@ -662,8 +700,9 @@ const chatPlugin: MiokuPlugin = {
             }
             segments.push(ctx.segment.text(msg));
 
-            const typingDelay =
-              humanize.frequencyController.getTypingDelay(msg.length);
+            const typingDelay = humanize.frequencyController.getTypingDelay(
+              msg.length,
+            );
             if (typingDelay > 0) {
               await new Promise((r) => setTimeout(r, typingDelay));
             }
