@@ -11,69 +11,15 @@ import { RateLimiter } from "./rate-limiter";
 import { buildSystemPrompt } from "./prompt";
 import { runChat } from "./chat-engine";
 import { HumanizeEngine } from "./humanize";
+import { shouldTrigger, isQuotingBot, isGroupAllowed, extractContent, getBotRole } from "./utils";
+import { BASE_CONFIG } from "./configs/base";
+import { SETTINGS_CONFIG } from "./configs/settings";
+import { PERSONALIZATION_CONFIG } from "./configs/personalization";
 
 const DEFAULT_CONFIG: ChatConfig = {
-  apiUrl: "https://api.openai.com/v1",
-  apiKey: "",
-  model: "gpt-4o",
-  isMultimodal: true,
-  nicknames: [],
-  persona: "一个活泼可爱的群聊成员，喜欢聊天和开玩笑",
-  maxContextTokens: 128,
-  temperature: 0.8,
-  blacklistGroups: [],
-  whitelistGroups: [],
-  maxSessions: 100,
-  enableGroupAdmin: true,
-  enableExternalSkills: true,
-  // 真人化机制默认配置
-  personality: {
-    states: [],
-    stateProbability: 0.3,
-  },
-  replyStyle: {
-    baseStyle: "",
-    multipleStyles: [],
-    multipleProbability: 0.3,
-  },
-  memory: {
-    enabled: true,
-    maxIterations: 3,
-    timeoutMs: 15000,
-  },
-  topic: {
-    enabled: true,
-    messageThreshold: 50,
-    timeThresholdMs: 8 * 3600_000,
-    maxTopicsPerSession: 20,
-  },
-  planner: {
-    enabled: true,
-  },
-  frequency: {
-    enabled: true,
-    minIntervalMs: 3000,
-    maxIntervalMs: 10000,
-    speakProbability: 0.85,
-    quietHoursStart: 23,
-    quietHoursEnd: 7,
-    quietProbabilityMultiplier: 0.3,
-  },
-  typo: {
-    enabled: true,
-    errorRate: 0.03,
-    wordReplaceRate: 0.1,
-  },
-  emoji: {
-    enabled: false,
-    emojiDir: "",
-    sendProbability: 0.15,
-  },
-  expression: {
-    enabled: true,
-    maxExpressions: 100,
-    sampleSize: 8,
-  },
+  ...BASE_CONFIG,
+  ...SETTINGS_CONFIG,
+  ...PERSONALIZATION_CONFIG,
 };
 
 const chatPlugin: MiokuPlugin = {
@@ -146,132 +92,6 @@ const chatPlugin: MiokuPlugin = {
     const processingSet = new Set<string>();
 
     /**
-     * 判断消息是否触发 AI
-     */
-    function shouldTrigger(e: any, text: string, cfg: ChatConfig): boolean {
-      // 私聊始终触发
-      if (e.message_type === "private") return true;
-
-      // @bot
-      if (e.at) {
-        if (String(e.at) === String(ctx.bot.uin)) {
-          return true;
-        }
-      }
-
-      // 引用 bot 的消息
-      if (e.message) {
-        for (const seg of e.message) {
-          if (seg.type === "reply") {
-            // 引用消息的判断需要异步，这里先标记
-            return false; // 在外层处理
-          }
-        }
-      }
-
-      // 昵称匹配
-      if (cfg.nicknames.length > 0) {
-        const lowerText = text.toLowerCase();
-        for (const nick of cfg.nicknames) {
-          if (lowerText.includes(nick.toLowerCase())) {
-            return true;
-          }
-        }
-      }
-
-      return false;
-    }
-
-    /**
-     * 异步检查是否引用了 bot 的消息
-     */
-    async function isQuotingBot(e: any): Promise<boolean> {
-      if (!e.message) return false;
-      for (const seg of e.message) {
-        if (seg.type === "reply" && seg.data?.id) {
-          try {
-            const quotedMsg = await ctx.bot.getMsg(seg.data.id);
-            if (quotedMsg && (quotedMsg as any).user_id === ctx.bot.uin) {
-              return true;
-            }
-          } catch {
-            // ignore
-          }
-        }
-      }
-      return false;
-    }
-
-    /**
-     * 检查群组黑白名单
-     */
-    function isGroupAllowed(groupId: number, cfg: ChatConfig): boolean {
-      if (cfg.whitelistGroups.length > 0) {
-        return cfg.whitelistGroups.includes(groupId);
-      }
-      if (cfg.blacklistGroups.length > 0) {
-        return !cfg.blacklistGroups.includes(groupId);
-      }
-      return true;
-    }
-
-    /**
-     * 提取消息内容（文本 + 多模态）
-     */
-    function extractContent(
-      e: any,
-      cfg: ChatConfig,
-    ): { text: string; multimodal: any[] | null } {
-      const text = ctx.text(e) || "";
-      if (!cfg.isMultimodal) return { text, multimodal: null };
-
-      const parts: any[] = [];
-      if (text) {
-        parts.push({ type: "text", text });
-      }
-
-      // 提取图片
-      if (e.message) {
-        for (const seg of e.message) {
-          if (seg.type === "image" && seg.data?.url) {
-            parts.push({
-              type: "image_url",
-              image_url: { url: seg.data.url, detail: "auto" },
-            });
-          } else if (seg.type === "record") {
-            // TODO: 语音处理
-            parts.push({ type: "text", text: "[用户发送了一段语音]" });
-          } else if (seg.type === "video") {
-            // TODO: 视频处理
-            parts.push({ type: "text", text: "[用户发送了一段视频]" });
-          }
-        }
-      }
-
-      if (parts.length > 1 || parts.some((p) => p.type === "image_url")) {
-        return { text, multimodal: parts };
-      }
-      return { text, multimodal: null };
-    }
-
-    /**
-     * 获取 bot 在群中的角色
-     */
-    async function getBotRole(
-      groupId: number,
-    ): Promise<"owner" | "admin" | "member"> {
-      try {
-        const memberInfo = await ctx.bot.getGroupMemberInfo(
-          groupId,
-          ctx.bot.uin,
-        );
-        return (memberInfo.role as "owner" | "admin" | "member") || "member";
-      } catch {
-        return "member";
-      }
-    }
-
-    /**
      * 处理 AI 聊天核心流程
      */
     async function processChat(
@@ -307,7 +127,7 @@ const chatPlugin: MiokuPlugin = {
         }
 
         // 提取内容
-        const { text, multimodal } = extractContent(e, cfg);
+        const { text, multimodal } = extractContent(e, cfg, ctx);
 
         // 构建用户消息内容
         let messageContent: string;
@@ -403,7 +223,7 @@ const chatPlugin: MiokuPlugin = {
         }
 
         // 获取 bot 角色和群信息
-        const botRole = groupId ? await getBotRole(groupId) : "member";
+        const botRole = groupId ? await getBotRole(groupId, ctx) : "member";
         let groupName: string | undefined;
         let memberCount: number | undefined;
 
@@ -549,11 +369,11 @@ const chatPlugin: MiokuPlugin = {
       // TODO检查连续对话监听器
 
       // 检查触发条件
-      let triggered = shouldTrigger(e, text, cfg);
+      let triggered = shouldTrigger(e, text, cfg, ctx);
 
       // 异步检查引用 bot
       if (!triggered && isGroup) {
-        triggered = await isQuotingBot(e);
+        triggered = await isQuotingBot(e, ctx);
       }
 
       if (!triggered) return;
@@ -595,7 +415,7 @@ const chatPlugin: MiokuPlugin = {
         sessionManager.getOrCreate(groupSessionId, "group", groupId);
 
         // 获取群信息
-        const botRole = await getBotRole(groupId);
+        const botRole = await getBotRole(groupId, ctx);
         let groupName: string | undefined;
         let memberCount: number | undefined;
 
