@@ -1,9 +1,8 @@
 import type { MiokuPlugin } from "../../src";
-import type { AIService } from "../../src/services/ai";
+import type { AIService, AIInstance } from "../../src/services/ai";
 import type { HelpService } from "../../src/services/help";
 import type { ConfigService } from "../../src/services/config";
 import { MiokiContext } from "mioki";
-import OpenAI from "openai";
 import type { ChatConfig, ToolContext, ChatMessage } from "./types";
 import { initDatabase } from "./db";
 import { SessionManager } from "./session";
@@ -76,12 +75,22 @@ const chatPlugin: MiokuPlugin = {
     const sessionManager = new SessionManager(db, config.maxSessions);
     const rateLimiter = new RateLimiter();
 
-    // 初始化真人化引擎
-    const openaiClient = new OpenAI({
-      baseURL: config.apiUrl,
+    // 通过 AI 服务创建实例并设为默认
+    if (!aiService) {
+      ctx.logger.error("聊天插件需要 AI 服务，但 AI 服务不可用");
+      return;
+    }
+
+    const aiInstance = await aiService.create({
+      name: "default",
+      apiUrl: config.apiUrl,
       apiKey: config.apiKey,
+      modelType: config.isMultimodal ? "multimodal" : "text",
     });
-    const humanize = new HumanizeEngine(openaiClient, config, db);
+    aiService.setDefault("default");
+
+    // 初始化真人化引擎
+    const humanize = new HumanizeEngine(aiInstance, config, db);
     await humanize.init();
 
     // 戳一戳冷却：groupId -> lastPokeTime
@@ -293,6 +302,7 @@ const chatPlugin: MiokuPlugin = {
 
         // 运行 AI
         const result = await runChat(
+          aiInstance,
           toolCtx,
           history,
           systemPrompt,
@@ -488,6 +498,7 @@ const chatPlugin: MiokuPlugin = {
         };
 
         const result = await runChat(
+          aiInstance,
           toolCtx,
           history,
           systemPrompt,

@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import type { AIInstance } from "../../src/services/ai";
 import type {
   ChatCompletionMessageParam,
   ChatCompletionTool,
@@ -27,35 +27,26 @@ function estimateTokens(text: string): number {
  * 压缩上下文
  */
 async function compressContext(
-  client: OpenAI,
+  ai: AIInstance,
   config: ChatConfig,
   messages: ChatCompletionMessageParam[],
 ): Promise<string> {
-  const response = await client.chat.completions.create({
+  const content = messages
+    .map((m) => {
+      const c =
+        typeof m.content === "string"
+          ? m.content
+          : JSON.stringify(m.content);
+      return `[${m.role}] ${c}`;
+    })
+    .join("\n");
+
+  return ai.generateText({
+    prompt: "请将以下聊天记录压缩为简洁的摘要。保留关键信息：谁说了什么、讨论了什么话题、有什么重要事件。用中文输出，不超过 500 字。",
+    messages: [{ role: "user", content }],
     model: config.model,
-    messages: [
-      {
-        role: "system",
-        content:
-          "请将以下聊天记录压缩为简洁的摘要。保留关键信息：谁说了什么、讨论了什么话题、有什么重要事件。用中文输出，不超过 500 字。",
-      },
-      {
-        role: "user",
-        content: messages
-          .map((m) => {
-            const content =
-              typeof m.content === "string"
-                ? m.content
-                : JSON.stringify(m.content);
-            return `[${m.role}] ${content}`;
-          })
-          .join("\n"),
-      },
-    ],
     temperature: 0.3,
   });
-
-  return response.choices[0]?.message?.content || "（摘要生成失败）";
 }
 
 /**
@@ -122,6 +113,7 @@ function formatHistoryMessages(
  * 运行 AI 聊天
  */
 export async function runChat(
+  ai: AIInstance,
   toolCtx: ToolContext,
   history: ChatMessage[],
   systemPrompt: string,
@@ -132,11 +124,6 @@ export async function runChat(
   const debugId = `${groupId ? `群${groupId}` : `用户${userId}`}`;
 
   logger.info(`[AI聊天] ${debugId} 开始处理会话 ${sessionId}`);
-
-  const client = new OpenAI({
-    baseURL: config.apiUrl,
-    apiKey: config.apiKey,
-  });
 
   // 创建工具
   const { tools: chatTools, dynamicTools } = createTools(toolCtx);
@@ -200,7 +187,7 @@ export async function runChat(
     const toKeep = historyMessages.slice(-20);
 
     try {
-      const summary = await compressContext(client, config, toCompress);
+      const summary = await compressContext(ai, config, toCompress);
       sessionManager.updateCompressedContext(toolCtx.sessionId, summary);
 
       // 重建消息列表
@@ -228,9 +215,9 @@ export async function runChat(
       `[AI聊天] ${debugId} 第 ${iterations} 轮请求，消息数: ${currentMessages.length}`,
     );
 
-    let response;
+    let resp;
     try {
-      response = await client.chat.completions.create({
+      resp = await ai.complete({
         model: config.model,
         messages: currentMessages,
         tools: openaiTools.length > 0 ? openaiTools : undefined,
@@ -241,38 +228,31 @@ export async function runChat(
       break;
     }
 
-    const message = response.choices[0]?.message;
-    if (!message) break;
-
     // 打印 reasoning (如果模型返回了)
-    const reasoningContent =
-      (message as any).reasoning_content || (message as any).reasoning;
-    if (reasoningContent) {
-      logger.info(`[AI聊天] ${debugId} 推理过程:\n${reasoningContent}`);
+    if (resp.reasoning) {
+      logger.info(`[AI聊天] ${debugId} 推理过程:\n${resp.reasoning}`);
     }
 
-    if (message.content) {
-      lastAssistantContent = message.content;
-      logger.info(`[AI聊天] ${debugId} 模型回复:\n${message.content}`);
-    } else if (!message.tool_calls) {
+    if (resp.content) {
+      lastAssistantContent = resp.content;
+      logger.info(`[AI聊天] ${debugId} 模型回复:\n${resp.content}`);
+    } else if (resp.toolCalls.length === 0) {
       logger.info(`[AI聊天] ${debugId} 模型无回复内容`);
     }
 
-    currentMessages.push(message as ChatCompletionMessageParam);
+    currentMessages.push(resp.raw);
 
     // 没有工具调用则结束
-    if (!message.tool_calls || message.tool_calls.length === 0) {
+    if (resp.toolCalls.length === 0) {
       break;
     }
 
     let hasReturnToAI = false;
 
     // 工具调用日志
-    for (const toolCall of message.tool_calls) {
-      if (toolCall.type !== "function") continue;
-
-      const toolName = toolCall.function.name;
-      const toolArgs = toolCall.function.arguments;
+    for (const toolCall of resp.toolCalls) {
+      const toolName = toolCall.name;
+      const toolArgs = toolCall.arguments;
 
       logger.info(`[AI聊天] ${debugId} 工具调用: ${toolName}`);
       logger.info(`[AI聊天] ${debugId} 工具参数: ${toolArgs}`);
@@ -281,7 +261,6 @@ export async function runChat(
 
       if (!handler) {
         logger.warn(`工具 ${toolName} 未找到`);
-        // 仍然需要返回结果给 OpenAI
         currentMessages.push({
           role: "tool",
           content: JSON.stringify({ error: `工具 ${toolName} 不存在` }),
@@ -291,7 +270,7 @@ export async function runChat(
       }
 
       try {
-        const args = JSON.parse(toolCall.function.arguments);
+        const args = JSON.parse(toolCall.arguments);
         const result = await handler.tool.handler(args);
 
         allToolCalls.push({ name: toolName, args, result });
@@ -299,7 +278,6 @@ export async function runChat(
           `[AI聊天] ${debugId} 工具结果: ${JSON.stringify(result).substring(0, 500)}${JSON.stringify(result).length > 500 ? "..." : ""}`,
         );
 
-        // 始终推送工具结果到消息列表（OpenAI 要求）
         currentMessages.push({
           role: "tool",
           content: JSON.stringify(result),
@@ -320,7 +298,7 @@ export async function runChat(
         const errorResult = { error: String(err) };
         allToolCalls.push({
           name: toolName,
-          args: toolCall.function.arguments,
+          args: toolCall.arguments,
           result: errorResult,
         });
 

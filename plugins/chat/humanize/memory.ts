@@ -1,15 +1,15 @@
-import OpenAI from "openai";
+import type { AIInstance } from "../../../src/services/ai";
 import { logger } from "mioki";
 import type { ChatDatabase } from "../db";
 import type { ChatConfig, ChatMessage } from "../types";
 
 export class MemoryRetrieval {
-  private client: OpenAI;
+  private ai: AIInstance;
   private config: ChatConfig;
   private db: ChatDatabase;
 
-  constructor(client: OpenAI, config: ChatConfig, db: ChatDatabase) {
-    this.client = client;
+  constructor(ai: AIInstance, config: ChatConfig, db: ChatDatabase) {
+    this.ai = ai;
     this.config = config;
     this.db = db;
   }
@@ -52,12 +52,8 @@ export class MemoryRetrieval {
     const timeStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
     try {
-      const resp = await this.client.chat.completions.create({
-        model: this.config.model,
-        messages: [
-          {
-            role: "system",
-            content: `现在是${timeStr}。
+      const result = await this.ai.generateText({
+        prompt: `现在是${timeStr}。
 群里正在进行的聊天内容：
 ${historyText}
 
@@ -70,15 +66,14 @@ ${historyText}
 
 如果你认为需要从记忆中检索信息来回答，请直接输出一个最关键的问题（不要加任何前缀）。
 如果不需要检索记忆，请输出"无需检索"。`,
-          },
-        ],
+        messages: [],
+        model: this.config.model,
         temperature: 0.3,
         max_tokens: 150,
       });
 
-      const result = resp.choices[0]?.message?.content?.trim() || "";
       if (result === "无需检索" || result.includes("无需检索")) return null;
-      return result;
+      return result.trim() || null;
     } catch (err) {
       logger.warn(`[记忆检索] 问题生成失败: ${err}`);
       return null;
@@ -140,7 +135,7 @@ ${historyText}
       },
     ];
 
-    const messages: OpenAI.ChatCompletionMessageParam[] = [
+    const messages: any[] = [
       {
         role: "system",
         content: `你正在搜集信息来回答问题，帮助你参与聊天。
@@ -163,7 +158,7 @@ ${historyText}
       }
 
       try {
-        const resp = await this.client.chat.completions.create({
+        const resp = await this.ai.complete({
           model: this.config.model,
           messages,
           tools,
@@ -171,21 +166,18 @@ ${historyText}
           max_tokens: 500,
         });
 
-        const choice = resp.choices[0];
-        if (!choice?.message) break;
+        messages.push(resp.raw);
 
-        messages.push(choice.message);
-
-        if (!choice.message.tool_calls?.length) {
-          if (choice.message.content) return choice.message.content;
+        if (!resp.toolCalls.length) {
+          if (resp.content) return resp.content;
           break;
         }
 
-        for (const tc of choice.message.tool_calls) {
-          const args = JSON.parse(tc.function.arguments || "{}");
+        for (const tc of resp.toolCalls) {
+          const args = JSON.parse(tc.arguments || "{}");
           let result = "";
 
-          if (tc.function.name === "search_chat_history") {
+          if (tc.name === "search_chat_history") {
             const msgs = this.db.searchMessages(sessionId, args.keyword, 15);
             if (msgs.length > 0) {
               result = msgs
@@ -198,7 +190,7 @@ ${historyText}
             } else {
               result = `未找到包含"${args.keyword}"的聊天记录`;
             }
-          } else if (tc.function.name === "search_user_history") {
+          } else if (tc.name === "search_user_history") {
             const msgs = this.db.getMessagesByUser(args.user_id, sessionId, 15);
             if (msgs.length > 0) {
               result = msgs
@@ -211,7 +203,7 @@ ${historyText}
             } else {
               result = `未找到该用户的发言记录`;
             }
-          } else if (tc.function.name === "found_answer") {
+          } else if (tc.name === "found_answer") {
             if (args.found) return args.answer;
             return null;
           }

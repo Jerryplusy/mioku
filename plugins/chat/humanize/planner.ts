@@ -1,17 +1,17 @@
-import OpenAI from "openai";
+import type { AIInstance } from "../../../src/services/ai";
 import { logger } from "mioki";
 import type { ChatConfig, ChatMessage, PlannerAction, PlannerResult } from "../types";
 
 export class ActionPlanner {
-  private client: OpenAI;
+  private ai: AIInstance;
   private config: ChatConfig;
   private actionHistory: Map<
     string,
     { action: PlannerAction; time: number }[]
   > = new Map();
 
-  constructor(client: OpenAI, config: ChatConfig) {
-    this.client = client;
+  constructor(ai: AIInstance, config: ChatConfig) {
+    this.ai = ai;
     this.config = config;
   }
 
@@ -47,13 +47,9 @@ export class ActionPlanner {
 
     try {
       logger.info(`[ActionPlanner] Planning action for session ${sessionId}, last message: "${lastTriggerMessage.substring(0, 50)}..."`);
-      
-      const resp = await this.client.chat.completions.create({
-        model: this.config.model,
-        messages: [
-          {
-            role: "system",
-            content: `It is ${timeStr}. Your name is ${botName}.
+
+      const content = await this.ai.generateText({
+        prompt: `It is ${timeStr}. Your name is ${botName}.
 
 Here is the chat content:
 ${chatBlock}
@@ -77,13 +73,12 @@ complete - The current chat is temporarily over, the other person left, no more 
 Choose the appropriate action. Output strictly in JSON format:
 {"action": "reply|wait|complete", "reason": "reason for choice", "wait_seconds": 0}
 Note: wait_seconds is only valid when action=wait, representing suggested wait time in seconds (10-300).`,
-          },
-        ],
+        messages: [],
+        model: this.config.model,
         temperature: 0.5,
         max_tokens: 200,
       });
 
-      const content = resp.choices[0]?.message?.content || "";
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         logger.warn(`[ActionPlanner] Failed to parse JSON response: ${content.substring(0, 100)}`);

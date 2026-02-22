@@ -1,17 +1,17 @@
-import OpenAI from "openai";
+import type { AIInstance } from "../../../src/services/ai";
 import { logger } from "mioki";
 import type { ChatDatabase } from "../db";
 import type { ChatConfig, ChatMessage } from "../types";
 
 export class ExpressionLearner {
-  private client: OpenAI;
+  private ai: AIInstance;
   private config: ChatConfig;
   private db: ChatDatabase;
   private pendingMessages: Map<string, ChatMessage[]> = new Map();
   private readonly BATCH_SIZE = 30;
 
-  constructor(client: OpenAI, config: ChatConfig, db: ChatDatabase) {
-    this.client = client;
+  constructor(ai: AIInstance, config: ChatConfig, db: ChatDatabase) {
+    this.ai = ai;
     this.config = config;
     this.db = db;
   }
@@ -69,12 +69,8 @@ ${habits.join("\n")}`;
       const msgTexts = userMsgs.map((m) => m.content).join("\n");
 
       try {
-        const resp = await this.client.chat.completions.create({
-          model: this.config.model,
-          messages: [
-            {
-              role: "system",
-              content: `分析以下用户"${userName}"的聊天消息，提取其说话风格和表达习惯。
+        const content = await this.ai.generateText({
+          prompt: `分析以下用户"${userName}"的聊天消息，提取其说话风格和表达习惯。
 
 消息内容：
 ${msgTexts}
@@ -88,13 +84,12 @@ ${msgTexts}
 {"expressions": [{"situation": "...", "style": "...", "example": "..."}]}
 
 如果消息太普通没有明显特征，输出 {"expressions": []}`,
-            },
-          ],
+          messages: [],
+          model: this.config.model,
           temperature: 0.3,
           max_tokens: 500,
         });
 
-        const content = resp.choices[0]?.message?.content || "";
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (!jsonMatch) continue;
 

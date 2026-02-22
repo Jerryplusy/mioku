@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import type { AIInstance } from "../../../src/services/ai";
 import * as fs from "fs";
 import * as path from "path";
 import { logger } from "mioki";
@@ -6,13 +6,13 @@ import type { ChatDatabase } from "../db";
 import type { ChatConfig } from "../types";
 
 export class EmojiSystem {
-  private client: OpenAI;
+  private ai: AIInstance;
   private config: ChatConfig;
   private db: ChatDatabase;
   private initialized = false;
 
-  constructor(client: OpenAI, config: ChatConfig, db: ChatDatabase) {
-    this.client = client;
+  constructor(ai: AIInstance, config: ChatConfig, db: ChatDatabase) {
+    this.ai = ai;
     this.config = config;
     this.db = db;
   }
@@ -146,8 +146,7 @@ export class EmojiSystem {
               ? "image/gif"
               : `image/${ext}`;
 
-        const resp = await this.client.chat.completions.create({
-          model: this.config.model,
+        const content = await this.ai.generateMultimodal({
           messages: [
             {
               role: "user",
@@ -168,11 +167,11 @@ export class EmojiSystem {
               ],
             },
           ],
+          model: this.config.model,
           temperature: 0.3,
           max_tokens: 150,
         });
 
-        const content = resp.choices[0]?.message?.content || "";
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           return JSON.parse(jsonMatch[0]);
@@ -188,22 +187,17 @@ export class EmojiSystem {
 
   private async detectEmotion(text: string): Promise<string | null> {
     try {
-      const resp = await this.client.chat.completions.create({
-        model: this.config.model,
-        messages: [
-          {
-            role: "system",
-            content: `分析以下文本的情感，只输出一个情感标签。
+      const result = await this.ai.generateText({
+        prompt: `分析以下文本的情感，只输出一个情感标签。
 可选标签：happy, sad, angry, surprised, disgusted, scared, neutral, funny, cute, confused, excited, tired, love
 只输出标签，不要其他内容。`,
-          },
-          { role: "user", content: text },
-        ],
+        messages: [{ role: "user", content: text }],
+        model: this.config.model,
         temperature: 0.3,
         max_tokens: 20,
       });
 
-      return resp.choices[0]?.message?.content?.trim().toLowerCase() || null;
+      return result.trim().toLowerCase() || null;
     } catch {
       return null;
     }

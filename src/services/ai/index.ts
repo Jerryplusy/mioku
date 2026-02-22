@@ -45,6 +45,31 @@ export interface ToolCallRecord {
 }
 
 /**
+ * 原始补全请求参数
+ */
+export interface CompleteOptions {
+  model: string;
+  messages: ChatCompletionMessageParam[];
+  tools?: ChatCompletionTool[];
+  temperature?: number;
+  max_tokens?: number;
+}
+
+/**
+ * 原始补全响应
+ */
+export interface CompleteResponse {
+  content: string | null;
+  reasoning: string | null;
+  toolCalls: {
+    id: string;
+    name: string;
+    arguments: string;
+  }[];
+  raw: ChatCompletionMessageParam;
+}
+
+/**
  * AI 实例接口
  */
 export interface AIInstance {
@@ -53,6 +78,7 @@ export interface AIInstance {
     messages: TextMessage[];
     model: string;
     temperature?: number;
+    max_tokens?: number;
   }): Promise<string>;
 
   generateMultimodal(options: {
@@ -60,6 +86,7 @@ export interface AIInstance {
     messages: MultimodalMessage[];
     model: string;
     temperature?: number;
+    max_tokens?: number;
   }): Promise<string>;
 
   generateWithTools(options: {
@@ -73,6 +100,12 @@ export interface AIInstance {
     iterations: number;
     allToolCalls: ToolCallRecord[];
   }>;
+
+  /**
+   * 原始补全调用，提供对 OpenAI API 的直接访问
+   * 适用于需要自行管理工具循环、消息流的场景
+   */
+  complete(options: CompleteOptions): Promise<CompleteResponse>;
 
   registerPrompt(name: string, prompt: string): boolean;
   getPrompt(name: string): string | undefined;
@@ -94,6 +127,10 @@ export interface AIService {
   get(name: string): AIInstance | undefined;
   list(): string[];
   remove(name: string): boolean;
+
+  // 默认实例
+  setDefault(name: string): boolean;
+  getDefault(): AIInstance | undefined;
 
   // Skill 管理
   registerSkill(skill: AISkill): boolean;
@@ -132,6 +169,7 @@ class AIInstanceImpl implements AIInstance {
     messages: TextMessage[];
     model: string;
     temperature?: number;
+    max_tokens?: number;
   }): Promise<string> {
     const messages: ChatCompletionMessageParam[] = options.prompt
       ? [{ role: "system", content: options.prompt }, ...options.messages]
@@ -141,6 +179,7 @@ class AIInstanceImpl implements AIInstance {
       model: options.model,
       messages,
       temperature: options.temperature ?? 0.7,
+      ...(options.max_tokens != null && { max_tokens: options.max_tokens }),
     });
 
     return response.choices[0]?.message?.content || "";
@@ -151,6 +190,7 @@ class AIInstanceImpl implements AIInstance {
     messages: MultimodalMessage[];
     model: string;
     temperature?: number;
+    max_tokens?: number;
   }): Promise<string> {
     const convertedMessages: ChatCompletionMessageParam[] =
       options.messages.map((msg) => {
@@ -184,9 +224,41 @@ class AIInstanceImpl implements AIInstance {
       model: options.model,
       messages,
       temperature: options.temperature ?? 0.7,
+      ...(options.max_tokens != null && { max_tokens: options.max_tokens }),
     });
 
     return response.choices[0]?.message?.content || "";
+  }
+
+  async complete(options: CompleteOptions): Promise<CompleteResponse> {
+    const response = await this.client.chat.completions.create({
+      model: options.model,
+      messages: options.messages,
+      tools: options.tools,
+      temperature: options.temperature ?? 0.7,
+      ...(options.max_tokens != null && { max_tokens: options.max_tokens }),
+    });
+
+    const message = response.choices[0]?.message;
+    if (!message) {
+      return { content: null, reasoning: null, toolCalls: [], raw: { role: "assistant", content: "" } };
+    }
+
+    const reasoning = (message as any).reasoning_content || (message as any).reasoning || null;
+    const toolCalls = (message.tool_calls || [])
+      .filter((tc) => tc.type === "function")
+      .map((tc) => ({
+        id: tc.id,
+        name: tc.function.name,
+        arguments: tc.function.arguments,
+      }));
+
+    return {
+      content: message.content,
+      reasoning,
+      toolCalls,
+      raw: message as ChatCompletionMessageParam,
+    };
   }
 
   async generateWithTools(options: {
@@ -414,6 +486,7 @@ class AIInstanceImpl implements AIInstance {
 class AIServiceImpl implements AIService {
   private instances: Map<string, AIInstance> = new Map();
   private globalSkills: Map<string, AISkill> = new Map();
+  private defaultInstanceName: string | null = null;
 
   constructor() {}
 
@@ -450,9 +523,29 @@ class AIServiceImpl implements AIService {
   remove(name: string): boolean {
     const deleted = this.instances.delete(name);
     if (deleted) {
+      if (this.defaultInstanceName === name) {
+        this.defaultInstanceName = null;
+      }
       logger.info(`AI instance ${name} removed`);
     }
     return deleted;
+  }
+
+  setDefault(name: string): boolean {
+    if (!this.instances.has(name)) {
+      logger.warn(`Cannot set default: AI instance ${name} not found`);
+      return false;
+    }
+    this.defaultInstanceName = name;
+    logger.info(`Default AI instance set to ${name}`);
+    return true;
+  }
+
+  getDefault(): AIInstance | undefined {
+    if (this.defaultInstanceName) {
+      return this.instances.get(this.defaultInstanceName);
+    }
+    return undefined;
   }
 
   registerSkill(skill: AISkill): boolean {

@@ -7,7 +7,7 @@ export { EmojiSystem } from "./emoji";
 export { ExpressionLearner } from "./expression";
 export { pickReplyStyle, pickPersonalityState } from "./utils";
 
-import OpenAI from "openai";
+import type { AIInstance } from "../../../src/services/ai";
 import type { ChatDatabase } from "../db";
 import type { ChatConfig } from "../types";
 import { MemoryRetrieval } from "./memory";
@@ -27,14 +27,14 @@ export class HumanizeEngine {
   readonly emojiSystem: EmojiSystem;
   readonly expressionLearner: ExpressionLearner;
 
-  constructor(client: OpenAI, config: ChatConfig, db: ChatDatabase) {
-    this.memoryRetrieval = new MemoryRetrieval(client, config, db);
-    this.topicTracker = new TopicTracker(client, config, db);
-    this.actionPlanner = new ActionPlanner(client, config);
+  constructor(ai: AIInstance, config: ChatConfig, db: ChatDatabase) {
+    this.memoryRetrieval = new MemoryRetrieval(ai, config, db);
+    this.topicTracker = new TopicTracker(ai, config, db);
+    this.actionPlanner = new ActionPlanner(ai, config);
     this.frequencyController = new FrequencyController(config);
     this.typoGenerator = new TypoGenerator(config);
-    this.emojiSystem = new EmojiSystem(client, config, db);
-    this.expressionLearner = new ExpressionLearner(client, config, db);
+    this.emojiSystem = new EmojiSystem(ai, config, db);
+    this.expressionLearner = new ExpressionLearner(ai, config, db);
   }
 
   async init(): Promise<void> {

@@ -1,17 +1,17 @@
-import OpenAI from "openai";
+import type { AIInstance } from "../../../src/services/ai";
 import { logger } from "mioki";
 import type { ChatDatabase } from "../db";
 import type { ChatConfig } from "../types";
 
 export class TopicTracker {
-  private client: OpenAI;
+  private ai: AIInstance;
   private config: ChatConfig;
   private db: ChatDatabase;
   private messageCounters: Map<string, number> = new Map();
   private lastCheckTime: Map<string, number> = new Map();
 
-  constructor(client: OpenAI, config: ChatConfig, db: ChatDatabase) {
-    this.client = client;
+  constructor(ai: AIInstance, config: ChatConfig, db: ChatDatabase) {
+    this.ai = ai;
     this.config = config;
     this.db = db;
   }
@@ -70,12 +70,8 @@ export class TopicTracker {
       .join("\n");
 
     try {
-      const resp = await this.client.chat.completions.create({
-        model: this.config.model,
-        messages: [
-          {
-            role: "system",
-            content: `你是一个话题分析助手。请分析聊天记录中的话题。
+      const content = await this.ai.generateText({
+        prompt: `你是一个话题分析助手。请分析聊天记录中的话题。
 
 历史话题标题列表：
 ${historyTopicTitles || "（暂无）"}
@@ -99,13 +95,12 @@ ${messagesBlock}
     }
   ]
 }`,
-          },
-        ],
+        messages: [],
+        model: this.config.model,
         temperature: 0.3,
         max_tokens: 1000,
       });
 
-      const content = resp.choices[0]?.message?.content || "";
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return;
 
