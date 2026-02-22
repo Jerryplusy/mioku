@@ -20,7 +20,7 @@ import { createTools } from "./tools";
 import { buildSystemPrompt } from "./prompt";
 
 /**
- * Run a single chat turn — AI responds directly via text, tools are side-effects
+ * Run a single chat turn — AI responds directly via text, tools are side effects
  */
 export async function runChat(
   ai: AIInstance,
@@ -37,8 +37,6 @@ export async function runChat(
 ): Promise<ChatResult> {
   const { tools: chatTools } = createTools(toolCtx, skillManager);
 
-  const pendingAt: number[] = [];
-  let pendingQuote: number | undefined;
   const allToolCalls: { name: string; args: any; result: any }[] = [];
   let toolResults: { toolName: string; result: any }[] = [];
   let lastTextContent = "";
@@ -50,7 +48,11 @@ export async function runChat(
   // 获取迭代次数限制
   const maxIterations = toolCtx.config.maxIterations ?? 20;
 
-  for (let iteration = 0; maxIterations === -1 || iteration < maxIterations; iteration++) {
+  for (
+    let iteration = 0;
+    maxIterations === -1 || iteration < maxIterations;
+    iteration++
+  ) {
     // Build prompt fresh each iteration
     const activeSkillsInfo = skillManager.getActiveSkillsInfo(
       toolCtx.sessionId,
@@ -118,24 +120,17 @@ export async function runChat(
         continue;
       }
 
-      // Special handling for at_user
-      if (tc.name === "at_user") {
-        if (args.user_id) pendingAt.push(args.user_id);
-        allToolCalls.push({ name: tc.name, args, result: { success: true } });
-        logger.info(`[chat-engine] AT user: ${args.user_id}`);
-        continue;
-      }
-
-      // quote_reply 需要返回给 AI 继续处理，不使用 continue
-
       // end_session 工具：立即结束会话
       if (tc.name === "end_session") {
         const result = await handler.tool.handler(args);
-        logger.info(`[chat-engine] Session ended: ${args.reason || "no reason"}`);
+        logger.info(
+          `[chat-engine] Session ended: ${args.reason || "no reason"}`,
+        );
         // 不发送任何消息，直接结束
         return {
           messages: [],
           pendingAt: [],
+          pendingPoke: [],
           pendingQuote: undefined,
           toolCalls: allToolCalls,
           emojiPath: null,
@@ -175,8 +170,13 @@ export async function runChat(
     }
   }
 
-  // Parse messages from text
-  const messages = parseMessages(lastTextContent);
+  // Parse messages and extract special actions (at, poke, reply)
+  const {
+    messages: parsedMessages,
+    atUsers,
+    pokeUsers,
+    quoteMessageId,
+  } = parseMessagesAndActions(lastTextContent);
 
   // Save assistant message to DB
   if (lastTextContent.trim()) {
@@ -194,16 +194,98 @@ export async function runChat(
     emojiPath = await humanize.emojiSystem.pickEmoji(lastTextContent);
   }
 
+  // 如果没有消息但有 pending AT/Poke/Quote，发送空消息
+  if (
+    parsedMessages.length === 0 &&
+    (atUsers.length > 0 || pokeUsers.length > 0 || quoteMessageId !== undefined)
+  ) {
+    parsedMessages.push("");
+  }
+
   logger.info(
-    `[chat-engine] Session ${toolCtx.sessionId} done | ${messages.length} msg(s), ${allToolCalls.length} tool call(s)${pendingAt.length > 0 ? `, AT: ${pendingAt.join(",")}` : ""}${pendingQuote ? `, quote: #${pendingQuote}` : ""}`,
+    `[chat-engine] Session ${toolCtx.sessionId} done | ${parsedMessages.length} msg(s), ${allToolCalls.length} tool call(s)${atUsers.length > 0 ? `, AT: ${atUsers.join(",")}` : ""}${pokeUsers.length > 0 ? `, Poke: ${pokeUsers.join(",")}` : ""}${quoteMessageId !== undefined ? `, Quote: ${quoteMessageId}` : ""}`,
   );
 
   return {
-    messages,
-    pendingAt,
-    pendingQuote,
+    messages: parsedMessages,
+    pendingAt: atUsers,
+    pendingPoke: pokeUsers,
+    pendingQuote: quoteMessageId,
     toolCalls: allToolCalls,
     emojiPath,
+  };
+}
+
+/**
+ * Parse AI text response into separate messages and extract special actions
+ * Supports both [[[at:X]]] and ((at:X)) syntax, plus ((X)) for at
+ * Returns: [messages, atUsers, pokeUsers, quoteMessageId]
+ */
+function parseMessagesAndActions(text: string): {
+  messages: string[];
+  atUsers: number[];
+  pokeUsers: number[];
+  quoteMessageId?: number;
+} {
+  const atUsers: number[] = [];
+  const pokeUsers: number[] = [];
+  let quoteMessageId: number | undefined;
+
+  // First, extract special markers from the entire text
+  let processedText = text;
+
+  // Extract [[[at:123456]]] and (((at:123456))) or (((123456))) markers
+  const atPatterns = [
+    /\[\[\[at:(\d+)\]\]\]/g,
+    /\(\(\(at:(\d+)\)\)\)/g,
+    /\(\(\((\d+)\)\)\)/g, // (((123456))) shorthand for at
+  ];
+  for (const pattern of atPatterns) {
+    const matches = processedText.matchAll(pattern);
+    for (const match of matches) {
+      atUsers.push(parseInt(match[1], 10));
+    }
+  }
+  processedText = processedText
+    .replace(/\[\[\[at:\d+\]\]\]/g, "")
+    .replace(/\(\(\(at:\d+\)\)\)/g, "")
+    .replace(/\(\(\(\d+\)\)\)/g, "");
+
+  // Extract [[[poke:123456]]] and (((poke:123456))) markers
+  const pokePatterns = [/\[\[\[poke:(\d+)\]\]\]/g, /\(\(\(poke:(\d+)\)\)\)/g];
+  for (const pattern of pokePatterns) {
+    const matches = processedText.matchAll(pattern);
+    for (const match of matches) {
+      pokeUsers.push(parseInt(match[1], 10));
+    }
+  }
+  processedText = processedText
+    .replace(/\[\[\[poke:\d+\]\]\]/g, "")
+    .replace(/\(\(\(poke:\d+\)\)\)/g, "");
+
+  // Extract [[[reply:123456]]] and (((reply:123456))) markers (only at start of a line)
+  const lines = processedText.split("\n");
+  const processedLines: string[] = [];
+  for (const line of lines) {
+    const replyMatch = line.match(
+      /^(?:\[\[\[reply:(\d+)\]\]\]|\(\(\(reply:(\d+)\)\)\))\s*(.*)$/,
+    );
+    if (replyMatch) {
+      const id = replyMatch[1] || replyMatch[2];
+      if (!quoteMessageId) {
+        quoteMessageId = parseInt(id, 10);
+      }
+      processedLines.push(replyMatch[3].trim());
+    } else if (line.trim()) {
+      processedLines.push(line.trim());
+    }
+  }
+
+  return {
+    messages: processedLines,
+    atUsers,
+    pokeUsers,
+    quoteMessageId,
   };
 }
 

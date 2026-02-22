@@ -232,7 +232,6 @@ const chatPlugin: MiokuPlugin = {
     const processingSet = new Set<string>();
 
     // 连续对话追踪：记录 bot 最近回复的用户和时间
-    // key: "group:{groupId}:{userId}", value: timestamp
     const recentReplies = new Map<string, number>();
     const FOLLOW_UP_WINDOW_MS = 3 * 60_000; // 3 分钟内的后续消息走 planner
 
@@ -477,15 +476,29 @@ const chatPlugin: MiokuPlugin = {
             // 构建消息段
             const segments: any[] = [];
 
-            // 第一条消息带引用
-            if (i === 0 && result.pendingQuote) {
-              segments.push(ctx.segment.reply(String(result.pendingQuote)));
+            // 引用段（第一条消息）
+            if (i === 0 && result.pendingQuote !== undefined) {
+              segments.push({ type: "reply", id: String(result.pendingQuote) });
             }
 
             // AT 段（所有 AT 附加到第一条消息）
             if (i === 0 && result.pendingAt.length > 0) {
               for (const atId of result.pendingAt) {
                 segments.push(ctx.segment.at(atId));
+              }
+            }
+
+            // 戳一下（仅群聊，第一条消息）
+            if (groupId && i === 0 && result.pendingPoke.length > 0) {
+              for (const pokeId of result.pendingPoke) {
+                try {
+                  await ctx.bot.api("group_poke", {
+                    group_id: groupId,
+                    user_id: pokeId,
+                  });
+                } catch (err) {
+                  ctx.logger.warn(`[戳人] 失败: ${err}`);
+                }
               }
             }
 
@@ -545,7 +558,22 @@ const chatPlugin: MiokuPlugin = {
 
         sessionManager.touch(groupSessionId);
       } catch (err) {
-        ctx.logger.error(`聊天处理失败: ${err}`);
+        const errStr = String(err);
+        // 429 rate limit 错误，等待后重试
+        if (errStr.includes("429") || errStr.includes("rate limit")) {
+          ctx.logger.warn(`[Chat] Rate limit hit, waiting 5s to retry...`);
+          await new Promise((r) => setTimeout(r, 5000));
+          try {
+            // 重置并重试，跳过 planner
+            processingSet.delete(groupSessionId);
+            await processChat(e, cfg, { ...options, skipPlanner: true });
+            return;
+          } catch (retryErr) {
+            ctx.logger.error(`Chat retry failed: ${retryErr}`);
+          }
+        } else {
+          ctx.logger.error(`Chat processing failed: ${err}`);
+        }
       } finally {
         processingSet.delete(groupSessionId);
       }
@@ -592,108 +620,71 @@ const chatPlugin: MiokuPlugin = {
       // 群组黑白名单
       if (groupId && !isGroupAllowed(groupId, cfg)) return;
 
-      // 检查触发条件
-      let triggered = shouldTrigger(e, text, cfg, ctx);
+      // 检查是否 @ 了 bot
+      const atBot = shouldTrigger(e, text, cfg, ctx);
 
-      // 连续对话追踪：检查是否在 bot 最近回复的时间窗口内
-      // 策略：planner只响应第一条后续消息，后续消息作为聊天记录
-      if (!triggered && isGroup && groupId && text.trim()) {
+      // 检查是否引用了 bot 消息
+      const quotedBot = isGroup ? await isQuotingBot(e, ctx) : null;
+
+      // 检查是否包含昵称
+      const mentionedNickname =
+        cfg.nicknames.length > 0 &&
+        text.toLowerCase().includes(cfg.nicknames[0].toLowerCase());
+
+      // @bot -> 直接回复，不走 planner
+      if (atBot) {
+        if (!rateLimiter.canProcess(userId, groupId, text)) return;
+        rateLimiter.record(userId, groupId, text);
+        await processChat(e, cfg, { skipPlanner: true });
+        return;
+      }
+
+      // 引用 bot 消息 或 昵称触发 或 3分钟内对话 -> 走 planner
+      const isFollowUp = (() => {
+        if (!isGroup || !groupId) return false;
         const replyKey = `${groupId}:${userId}`;
         const lastReplyTime = recentReplies.get(replyKey) ?? 0;
+        recentReplies.delete(replyKey); // 清除记录，防止重复触发
+        return Date.now() - lastReplyTime < FOLLOW_UP_WINDOW_MS;
+      })();
 
-        // 清除记录，防止重复触发planner
-        recentReplies.delete(replyKey);
+      if (quotedBot || mentionedNickname || isFollowUp) {
+        const groupSessionId = `group:${groupId}`;
+        const rawHistory = await getGroupHistory(
+          groupId!,
+          ctx,
+          cfg.historyCount,
+        );
+        const history: ChatMessage[] = rawHistory.map((msg) => ({
+          sessionId: groupSessionId,
+          role: "user" as const,
+          content: msg.content,
+          userId: msg.userId,
+          userName: msg.userName,
+          userRole: msg.userRole,
+          groupId,
+          timestamp: msg.timestamp,
+          messageId: msg.messageId,
+        }));
+        const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
 
-        if (Date.now() - lastReplyTime < FOLLOW_UP_WINDOW_MS) {
-          // 在时间窗口内，用 planner 判断是否回复
-          const groupSessionId = `group:${groupId}`;
-          const rawHistory = await getGroupHistory(
-            groupId,
-            ctx,
-            cfg.historyCount,
-          );
-          const history: ChatMessage[] = rawHistory.map((msg) => ({
-            sessionId: groupSessionId,
-            role: "user" as const,
-            content: msg.content,
-            userId: msg.userId,
-            userName: msg.userName,
-            userRole: msg.userRole,
-            groupId,
-            timestamp: msg.timestamp,
-            messageId: msg.messageId,
-          }));
-          const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+        const planResult = await humanize.actionPlanner.plan(
+          groupSessionId,
+          botNickname,
+          history,
+          text,
+        );
 
-          const planResult = await humanize.actionPlanner.plan(
-            groupSessionId,
-            botNickname,
-            history,
-            text,
-          );
-
-          if (planResult.action === "reply") {
-            if (!rateLimiter.canProcess(userId, groupId, text)) return;
-            rateLimiter.record(userId, groupId, text);
-            await processChat(e, cfg, { skipPlanner: true });
-          }
-          // wait/complete → 不回复，但消息已保存到DB供后续使用
-          return;
+        if (planResult.action === "reply") {
+          if (!rateLimiter.canProcess(userId, groupId, text)) return;
+          rateLimiter.record(userId, groupId, text);
+          await processChat(e, cfg, { skipPlanner: true });
         }
+        return;
       }
 
-      // 引用 bot 消息触发检测
-      if (!triggered && isGroup) {
-        const quotingBot = await isQuotingBot(e, ctx);
-        if (quotingBot) {
-          // 检查是否也直接提到了 bot（已被 shouldTrigger 覆盖）
-          // 如果只是引用但没有 @ 或提到名字，用 planner 判断
-          const groupSessionId = `group:${groupId}`;
-
-          // 获取群聊历史
-          const rawHistory = await getGroupHistory(
-            groupId!,
-            ctx,
-            cfg.historyCount,
-          );
-          const history: ChatMessage[] = rawHistory.map((msg) => ({
-            sessionId: groupSessionId,
-            role: "user" as const,
-            content: msg.content,
-            userId: msg.userId,
-            userName: msg.userName,
-            userRole: msg.userRole,
-            groupId,
-            timestamp: msg.timestamp,
-            messageId: msg.messageId,
-          }));
-          const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
-
-          const planResult = await humanize.actionPlanner.plan(
-            groupSessionId,
-            botNickname,
-            history,
-            text,
-          );
-
-          if (planResult.action === "reply") {
-            // 频率检查
-            if (!rateLimiter.canProcess(userId, groupId, text)) return;
-            rateLimiter.record(userId, groupId, text);
-            await processChat(e, cfg, { skipPlanner: true });
-          }
-          // wait/complete → 不回复
-          return;
-        }
-      }
-
-      if (!triggered) return;
-
-      // 频率检查
-      if (!rateLimiter.canProcess(userId, groupId, text)) return;
-      rateLimiter.record(userId, groupId, text);
-
-      await processChat(e, cfg);
+      // 没有触发任何条件，不回复
+      return;
     });
 
     // ==================== 戳一戳处理 ====================
@@ -806,12 +797,27 @@ const chatPlugin: MiokuPlugin = {
             msg = humanize.typoGenerator.apply(msg);
 
             const segments: any[] = [];
-            if (i === 0 && result.pendingQuote) {
-              segments.push(ctx.segment.reply(String(result.pendingQuote)));
+            // 引用段（第一条消息）
+            if (i === 0 && result.pendingQuote !== undefined) {
+              segments.push({ type: "reply", id: String(result.pendingQuote) });
             }
             if (i === 0 && result.pendingAt.length > 0) {
               for (const atId of result.pendingAt) {
                 segments.push(ctx.segment.at(atId));
+              }
+            }
+
+            // 戳一下（仅群聊，第一条消息）
+            if (i === 0 && result.pendingPoke.length > 0) {
+              for (const pokeId of result.pendingPoke) {
+                try {
+                  await ctx.bot.api("group_poke", {
+                    group_id: groupId,
+                    user_id: pokeId,
+                  });
+                } catch (err) {
+                  ctx.logger.warn(`poke failed: ${err}`);
+                }
               }
             }
 
@@ -836,7 +842,7 @@ const chatPlugin: MiokuPlugin = {
 
           humanize.frequencyController.recordSpeak(groupSessionId);
 
-          // 记录最近回复
+          // 记录最近回复，用于连续对话追踪
           if (groupId && userId) {
             recentReplies.set(`${groupId}:${userId}`, Date.now());
           }

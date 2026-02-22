@@ -61,44 +61,6 @@ export function createTools(
 function createMessageTools(): AITool[] {
   return [
     {
-      name: "at_user",
-      description:
-        "@ mention a user in your reply. Your text response will be sent along with the @ mention.",
-      parameters: {
-        type: "object",
-        properties: {
-          user_id: {
-            type: "number",
-            description: "QQ number of the user to @",
-          },
-        },
-        required: ["user_id"],
-      },
-      handler: async (args) => {
-        return { success: true, user_id: args.user_id };
-      },
-      returnToAI: true,
-    },
-    {
-      name: "quote_reply",
-      description:
-        "Quote-reply a specific message. Your text response will be sent as a reply to that message.",
-      parameters: {
-        type: "object",
-        properties: {
-          message_id: {
-            type: "number",
-            description: "Message ID to quote-reply",
-          },
-        },
-        required: ["message_id"],
-      },
-      handler: async (args) => {
-        return { success: true, message_id: args.message_id };
-      },
-      returnToAI: true,
-    },
-    {
       name: "end_session",
       description:
         "End the current conversation session immediately. Use this when the conversation is complete or you want to stop responding.",

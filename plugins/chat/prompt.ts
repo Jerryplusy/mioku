@@ -106,7 +106,10 @@ function buildEnvironmentSection(ctx: PromptContext): string {
   ];
   const dayOfWeek = dayNames[now.getDay()];
 
-  const lines = [`## Current Time & Environment`, `Time: ${timeStr} (${dayOfWeek})`];
+  const lines = [
+    `## Current Time & Environment`,
+    `Time: ${timeStr} (${dayOfWeek})`,
+  ];
 
   if (ctx.isGroup) {
     lines.push(`Chat type: Group chat`);
@@ -238,14 +241,20 @@ function buildResponseFormatSection(ctx: PromptContext): string {
   const lines = [`## Response Format`];
 
   lines.push(`Your text response IS your reply to the chat. It will be sent directly as a message.
-- To send multiple separate messages, put each on its own paragraph separated by \`---\` on a line by itself.
-- Do NOT use \`---\` for any other purpose (not as markdown horizontal rules, not as decoration).
-- If you need to @ someone, use the at_user tool. Your text response will be sent along with the @ mention.
-- If you need to quote-reply a message, use the quote_reply tool with the message_id from the chat history.
-- If you want to end the conversation early, use the end_session tool.
-- You may call tools AND include text in the same response. The text will be sent as your reply.
-- If you only call tools with no text, no message will be sent (appropriate for admin actions).
-- If you have nothing to say, respond with empty text and no tool calls.`);
+- **IMPORTANT: Output ONLY your final reply text. Do NOT include your thinking process, reasoning, analysis, or internal thoughts.**
+- Do NOT prefix your response with phrases like "Let me think", "I should", "I need to", "Based on", "Looking at", etc.
+- Do NOT explain what you're doing or why. Just say what you want to say directly.
+- **MULTIPLE MESSAGES: Each line (separated by Enter/Return) will be sent as a SEPARATE message.**
+  - If you want to send multiple messages, just press Enter and write the next line
+  - Each line = one message sent to the chat
+  - Example: "你好呀~" + Enter + "今天过得怎么样？" will send two separate messages
+- **SPECIAL ACTIONS in your text (auto-parsed and removed from message):**
+  - Use [[[at:123456]]] in your text to @ someone (123456 is the QQ number)
+  - Use [[[poke:123456]]] in your text to poke someone
+  - Use [[[reply:123456]]] at the START of a line to quote-reply that message (123456 is message_id)
+  - These markers will be automatically parsed and removed from your sent message
+  - Example: "你好呀 [[[at:123456]]" will send "你好呀" with an @ to user 123456
+  - Example: "\[[[reply:456789]]]我来回复这条消息" will quote-reply message 456789 with the text "我来回复这条消息"`);
 
   // Admin tools note
   if (
@@ -273,9 +282,10 @@ Admin rules:
   if (ctx.config.enableExternalSkills) {
     const skillsMap = ctx.aiService.getAllSkills?.();
     const skillEntries = skillsMap ? [...skillsMap.values()] : [];
-    const skillList = skillEntries.length > 0
-      ? skillEntries.map((s) => `- ${s.name}: ${s.description}`).join("\n")
-      : "";
+    const skillList =
+      skillEntries.length > 0
+        ? skillEntries.map((s) => `- ${s.name}: ${s.description}`).join("\n")
+        : "";
 
     if (skillList) {
       lines.push(`

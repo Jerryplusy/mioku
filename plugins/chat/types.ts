@@ -92,7 +92,8 @@ export interface ExpressionConfig {
 export interface ChatConfig {
   apiUrl: string;
   apiKey: string;
-  model: string;
+  model: string; // 主模型，用于聊天
+  workingModel: string; // 工作模型，用于 planner 等轻量任务
   isMultimodal: boolean;
   nicknames: string[];
   persona: string;
@@ -224,6 +225,7 @@ export interface ToolContext {
 export interface ChatResult {
   messages: string[];
   pendingAt: number[];
+  pendingPoke: number[];
   pendingQuote?: number;
   toolCalls: { name: string; args: any; result: any }[];
   emojiPath?: string | null;

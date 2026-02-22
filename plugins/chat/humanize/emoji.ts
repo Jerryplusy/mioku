@@ -197,7 +197,7 @@ Emotion label must be one of: happy, sad, angry, surprised, disgusted, scared, n
               ],
             },
           ],
-          model: this.config.model,
+          model: this.config.workingModel || this.config.model,
           temperature: 0.3,
           max_tokens: 150,
         });
@@ -222,7 +222,7 @@ Emotion label must be one of: happy, sad, angry, surprised, disgusted, scared, n
 Available labels: happy, sad, angry, surprised, disgusted, scared, neutral, funny, cute, confused, excited, tired, love
 Output only the label, nothing else.`,
         messages: [{ role: "user", content: text }],
-        model: this.config.model,
+        model: this.config.workingModel || this.config.model,
         temperature: 0.3,
         max_tokens: 20,
       });

@@ -70,22 +70,58 @@ wait - Stay silent for now. Suitable when:
 
 complete - The current chat is temporarily over, the other person left, no more topics. Wait for them to speak again before continuing.
 
-Choose the appropriate action. Output strictly in JSON format:
-{"action": "reply|wait|complete", "reason": "reason for choice", "wait_seconds": 0}
-Note: wait_seconds is only valid when action=wait, representing suggested wait time in seconds (10-300).`,
+IMPORTANT: You MUST output ONLY valid JSON, no other text. The JSON must be in this exact format:
+{"action": "reply", "reason": "your reason here", "wait_seconds": 0}
+
+OR for wait:
+{"action": "wait", "reason": "your reason here", "wait_seconds": 30}
+
+OR for complete:
+{"action": "complete", "reason": "your reason here", "wait_seconds": 0}
+
+DO NOT include any explanation, markdown formatting, or additional text. Only output the JSON.`,
         messages: [],
-        model: this.config.model,
-        temperature: 0.5,
-        max_tokens: 200,
+        model: this.config.workingModel || this.config.model,
+        temperature: 0.2,
+        max_tokens: 500,
       });
 
+      // 如果返回内容为空，使用默认值
+      if (!content || !content.trim()) {
+        logger.warn(`[ActionPlanner] Empty response from AI, using default reply`);
+        return { action: "reply", reason: "empty response" };
+      }
+
+      // 调试日志
+      logger.info(`[ActionPlanner] Raw response: ${content.substring(0, 200)}`);
+
+      // 尝试提取 JSON 块
+      let jsonStr = "";
       const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        logger.warn(`[ActionPlanner] Failed to parse JSON response: ${content.substring(0, 100)}`);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0];
+      }
+
+      if (!jsonStr) {
+        logger.warn(`[ActionPlanner] Failed to find JSON in response: ${content.substring(0, 100)}`);
         return { action: "reply", reason: "parse failed" };
       }
 
-      const parsed = JSON.parse(jsonMatch[0]);
+      // 尝试解析 JSON
+      let parsed: any;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch {
+        // 尝试修复常见的 JSON 错误
+        try {
+          // 移除可能存在的尾随逗号
+          jsonStr = jsonStr.replace(/,\s*}/g, "}").replace(/,\s*]/g, "]");
+          parsed = JSON.parse(jsonStr);
+        } catch (e) {
+          logger.warn(`[ActionPlanner] Failed to parse JSON: ${jsonStr.substring(0, 100)}`);
+          return { action: "reply", reason: "parse failed" };
+        }
+      }
       const action: PlannerAction =
         parsed.action === "wait"
           ? "wait"

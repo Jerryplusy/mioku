@@ -2,6 +2,7 @@ export const BASE_CONFIG = {
   apiUrl: "https://api.openai.com/v1",
   apiKey: "",
   model: "gpt-4o",
+  workingModel: "gpt-4o-mini", // 工作模型，用于 planner 等轻量任务
   isMultimodal: true,
   maxContextTokens: 128,
   temperature: 0.8,

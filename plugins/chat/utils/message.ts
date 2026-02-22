@@ -9,28 +9,10 @@ export function shouldTrigger(
 ): boolean {
   if (e.message_type === "private") return false;
 
-  // Check if message contains a reply segment
-  const hasReply = e.message?.some((seg: any) => seg.type === "reply") ?? false;
-
-  // Check if message @s the bot (seg format: {type: "at", qq: "123456"})
+  // Only check if message @s the bot (seg format: {type: "at", qq: "123456"})
   const atSeg = e.message?.find((seg: any) => seg.type === "at");
   if (atSeg && String(atSeg.qq) === String(ctx.bot.uin)) {
     return true;
-  }
-
-  // If message is a reply but didn't @ bot, don't trigger here
-  // (quote-bot detection is handled separately in index.ts via isQuotingBot)
-  if (hasReply) {
-    return false;
-  }
-
-  if (cfg.nicknames.length > 0) {
-    const lowerText = text.toLowerCase();
-    for (const nick of cfg.nicknames) {
-      if (lowerText.includes(nick.toLowerCase())) {
-        return true;
-      }
-    }
   }
 
   return false;

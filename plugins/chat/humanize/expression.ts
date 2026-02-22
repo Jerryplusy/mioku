@@ -86,7 +86,7 @@ Output strictly in JSON format:
 
 If the messages are too generic with no distinctive features, output {"expressions": []}`,
           messages: [],
-          model: this.config.model,
+          model: this.config.workingModel || this.config.model,
           temperature: 0.3,
           max_tokens: 500,
         });

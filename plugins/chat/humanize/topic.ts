@@ -96,7 +96,7 @@ Output strictly in JSON format:
   ]
 }`,
         messages: [],
-        model: this.config.model,
+        model: this.config.workingModel || this.config.model,
         temperature: 0.3,
         max_tokens: 1000,
       });

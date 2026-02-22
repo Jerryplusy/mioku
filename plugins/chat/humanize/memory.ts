@@ -69,7 +69,7 @@ Analyze the chat and consider:
 If you think memory retrieval is needed to respond properly, output a single key question (no prefix).
 If no retrieval is needed, output exactly: NO_RETRIEVAL_NEEDED`,
         messages: [],
-        model: this.config.model,
+        model: this.config.workingModel || this.config.model,
         temperature: 0.3,
         max_tokens: 150,
       });
@@ -169,7 +169,7 @@ Think about whether current info is sufficient. If not, use tools to search. If 
 
       try {
         const resp = await this.ai.complete({
-          model: this.config.model,
+          model: this.config.workingModel || this.config.model,
           messages,
           tools,
           temperature: 0.3,
