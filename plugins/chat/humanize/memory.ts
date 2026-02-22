@@ -29,12 +29,14 @@ export class MemoryRetrieval {
     );
     if (!question) return null;
 
-    logger.info(`[记忆检索] 生成问题: ${question}`);
+    logger.info(`[MemoryRetrieval] Generated question: ${question}`);
 
     const answer = await this.reactSearch(sessionId, question);
     if (!answer) return null;
 
-    logger.info(`[记忆检索] 找到答案: ${answer.substring(0, 100)}...`);
+    logger.info(
+      `[MemoryRetrieval] Found answer: ${answer.substring(0, 100)}...`,
+    );
     return answer;
   }
 
@@ -49,33 +51,33 @@ export class MemoryRetrieval {
       .join("\n");
 
     const now = new Date();
-    const timeStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const timeStr = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
     try {
       const result = await this.ai.generateText({
-        prompt: `现在是${timeStr}。
-群里正在进行的聊天内容：
+        prompt: `Current time: ${timeStr}.
+Ongoing chat:
 ${historyText}
 
-现在，${sender}发送了内容: ${message}
+Now, ${sender} sent: ${message}
 
-请分析聊天内容，考虑：
-1. 对话中是否提到了过去发生的事情、人物、事件或信息
-2. 是否有需要回忆的内容（比如"之前说过"、"上次"、"以前"等）
-3. 是否提到了某个人的习惯、喜好、经历等需要从记忆中获取的信息
+Analyze the chat and consider:
+1. Does the conversation reference past events, people, or information?
+2. Are there cues suggesting memory retrieval is needed (e.g. "you said before", "last time", "remember when")?
+3. Does it mention someone's habits, preferences, or experiences that need to be recalled?
 
-如果你认为需要从记忆中检索信息来回答，请直接输出一个最关键的问题（不要加任何前缀）。
-如果不需要检索记忆，请输出"无需检索"。`,
+If you think memory retrieval is needed to respond properly, output a single key question (no prefix).
+If no retrieval is needed, output exactly: NO_RETRIEVAL_NEEDED`,
         messages: [],
         model: this.config.model,
         temperature: 0.3,
         max_tokens: 150,
       });
 
-      if (result === "无需检索" || result.includes("无需检索")) return null;
+      if (result.includes("NO_RETRIEVAL_NEEDED")) return null;
       return result.trim() || null;
     } catch (err) {
-      logger.warn(`[记忆检索] 问题生成失败: ${err}`);
+      logger.warn(`[MemoryRetrieval] Question generation failed: ${err}`);
       return null;
     }
   }
@@ -94,11 +96,12 @@ ${historyText}
         type: "function" as const,
         function: {
           name: "search_chat_history",
-          description: "搜索历史聊天记录中包含关键词的消息",
+          description:
+            "Search chat history for messages containing a keyword",
           parameters: {
             type: "object",
             properties: {
-              keyword: { type: "string", description: "搜索关键词" },
+              keyword: { type: "string", description: "Search keyword" },
             },
             required: ["keyword"],
           },
@@ -108,11 +111,11 @@ ${historyText}
         type: "function" as const,
         function: {
           name: "search_user_history",
-          description: "搜索某个用户的历史发言",
+          description: "Search a specific user's message history",
           parameters: {
             type: "object",
             properties: {
-              user_id: { type: "number", description: "用户QQ号" },
+              user_id: { type: "number", description: "User QQ number" },
             },
             required: ["user_id"],
           },
@@ -122,12 +125,19 @@ ${historyText}
         type: "function" as const,
         function: {
           name: "found_answer",
-          description: "已找到足够信息，输出最终答案",
+          description:
+            "Enough information has been found. Output the final answer.",
           parameters: {
             type: "object",
             properties: {
-              answer: { type: "string", description: "找到的答案/信息摘要" },
-              found: { type: "boolean", description: "是否找到了有用信息" },
+              answer: {
+                type: "string",
+                description: "The found answer/information summary",
+              },
+              found: {
+                type: "boolean",
+                description: "Whether useful information was found",
+              },
             },
             required: ["answer", "found"],
           },
@@ -138,22 +148,22 @@ ${historyText}
     const messages: any[] = [
       {
         role: "system",
-        content: `你正在搜集信息来回答问题，帮助你参与聊天。
-当前需要解答的问题：${question}
-已收集的信息：${collectedInfo || "暂无"}
+        content: `You are searching for information to answer a question and help participate in a chat.
+Question to answer: ${question}
+Collected info so far: ${collectedInfo || "none"}
 
-工具说明：
-- search_chat_history: 搜索聊天记录中的关键词
-- search_user_history: 查看某个用户的历史发言
-- found_answer: 信息足够时结束搜索
+Tools:
+- search_chat_history: Search chat history by keyword
+- search_user_history: View a user's message history
+- found_answer: End search when you have enough info
 
-先思考当前信息是否足够回答问题，如果不足则使用工具查询，如果足够则使用 found_answer 结束。`,
+Think about whether current info is sufficient. If not, use tools to search. If sufficient, use found_answer to finish.`,
       },
     ];
 
     for (let i = 0; i < maxIter; i++) {
       if (Date.now() - startTime > timeout) {
-        logger.warn("[记忆检索] 超时退出");
+        logger.warn("[MemoryRetrieval] Timeout");
         break;
       }
 
@@ -186,9 +196,9 @@ ${historyText}
                     `[${new Date(m.timestamp).toLocaleString("zh-CN")}] ${m.userName || "unknown"}: ${m.content}`,
                 )
                 .join("\n");
-              collectedInfo += `\n关键词"${args.keyword}"的搜索结果:\n${result}`;
+              collectedInfo += `\nSearch results for "${args.keyword}":\n${result}`;
             } else {
-              result = `未找到包含"${args.keyword}"的聊天记录`;
+              result = `No messages found containing "${args.keyword}"`;
             }
           } else if (tc.name === "search_user_history") {
             const msgs = this.db.getMessagesByUser(args.user_id, sessionId, 15);
@@ -199,9 +209,9 @@ ${historyText}
                     `[${new Date(m.timestamp).toLocaleString("zh-CN")}] ${m.content}`,
                 )
                 .join("\n");
-              collectedInfo += `\n用户${args.user_id}的发言记录:\n${result}`;
+              collectedInfo += `\nUser ${args.user_id} messages:\n${result}`;
             } else {
-              result = `未找到该用户的发言记录`;
+              result = `No messages found for this user`;
             }
           } else if (tc.name === "found_answer") {
             if (args.found) return args.answer;
@@ -215,7 +225,7 @@ ${historyText}
           });
         }
       } catch (err) {
-        logger.warn(`[记忆检索] ReAct 迭代失败: ${err}`);
+        logger.warn(`[MemoryRetrieval] ReAct iteration failed: ${err}`);
         break;
       }
     }

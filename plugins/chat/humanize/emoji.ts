@@ -5,6 +5,17 @@ import { logger } from "mioki";
 import type { ChatDatabase } from "../db";
 import type { ChatConfig } from "../types";
 
+const QUICK_EMOTION_RULES: [string[], string][] = [
+  [["哈哈", "笑死", "lol", "233", "草", "xswl", "笑"], "funny"],
+  [["好可爱", "可爱", "萌", "aww"], "cute"],
+  [["难过", "伤心", "哭", "呜", "555", "QAQ"], "sad"],
+  [["生气", "气死", "烦", "滚", "cnm"], "angry"],
+  [["爱", "喜欢", "❤", "么么"], "love"],
+  [["累", "困", "睡", "摸鱼"], "tired"],
+  [["！！", "天哪", "卧槽", "woc", "震惊"], "surprised"],
+  [["开心", "耶", "好耶", "太好了", "nice"], "happy"],
+];
+
 export class EmojiSystem {
   private ai: AIInstance;
   private config: ChatConfig;
@@ -23,7 +34,7 @@ export class EmojiSystem {
 
     const emojiDir = this.config.emoji.emojiDir;
     if (!emojiDir || !fs.existsSync(emojiDir)) {
-      logger.warn(`[表情包] 目录不存在: ${emojiDir}`);
+      logger.warn(`[EmojiSystem] Directory not found: ${emojiDir}`);
       return;
     }
 
@@ -41,10 +52,12 @@ export class EmojiSystem {
       return;
     }
 
-    logger.info(`[表情包] 发现 ${newFiles.length} 个新表情包，开始注册...`);
+    logger.info(
+      `[EmojiSystem] Found ${newFiles.length} new emojis, registering...`,
+    );
 
-    const batch = newFiles.slice(0, 10);
-    for (const fileName of batch) {
+    // Process all new files (no batch limit)
+    for (const fileName of newFiles) {
       try {
         const filePath = path.join(emojiDir, fileName);
         const emotion = await this.analyzeEmotion(filePath);
@@ -56,19 +69,27 @@ export class EmojiSystem {
           createdAt: Date.now(),
         });
       } catch (err) {
-        logger.warn(`[表情包] 注册失败 ${fileName}: ${err}`);
+        logger.warn(`[EmojiSystem] Registration failed ${fileName}: ${err}`);
       }
     }
 
     this.initialized = true;
-    logger.info(`[表情包] 注册完成，共 ${batch.length} 个`);
+    logger.info(
+      `[EmojiSystem] Registration complete, ${newFiles.length} total`,
+    );
   }
 
   async pickEmoji(replyContent: string): Promise<string | null> {
     if (!this.config.emoji?.enabled) return null;
     if (Math.random() > (this.config.emoji.sendProbability ?? 0.2)) return null;
 
-    const emotion = await this.detectEmotion(replyContent);
+    // Try quick keyword detection first
+    let emotion = this.quickDetectEmotion(replyContent);
+
+    // Fall back to AI detection
+    if (!emotion) {
+      emotion = await this.detectEmotion(replyContent);
+    }
     if (!emotion) return null;
 
     const emojis = this.db.getEmojiByEmotion(emotion, 5);
@@ -125,10 +146,19 @@ export class EmojiSystem {
         createdAt: Date.now(),
       });
 
-      logger.info(`[表情包] 收集新表情: ${fileName} (${emotion.emotion})`);
+      logger.info(
+        `[EmojiSystem] Collected new emoji: ${fileName} (${emotion.emotion})`,
+      );
     } catch (err) {
-      logger.warn(`[表情包] 收集失败: ${err}`);
+      logger.warn(`[EmojiSystem] Collection failed: ${err}`);
     }
+  }
+
+  private quickDetectEmotion(text: string): string | null {
+    for (const [keywords, emotion] of QUICK_EMOTION_RULES) {
+      if (keywords.some((k) => text.includes(k))) return emotion;
+    }
+    return null;
   }
 
   private async analyzeEmotion(
@@ -159,10 +189,10 @@ export class EmojiSystem {
                 },
                 {
                   type: "text",
-                  text: `这是一个表情包/表情图片。请分析它表达的情感。
-严格以 JSON 格式输出：
-{"description": "简短描述", "emotion": "情感标签"}
-情感标签只能是以下之一：happy, sad, angry, surprised, disgusted, scared, neutral, funny, cute, confused, excited, tired, love`,
+                  text: `This is a sticker/emoji image. Analyze the emotion it expresses.
+Output strictly in JSON format:
+{"description": "brief description", "emotion": "emotion label"}
+Emotion label must be one of: happy, sad, angry, surprised, disgusted, scared, neutral, funny, cute, confused, excited, tired, love`,
                 },
               ],
             },
@@ -177,7 +207,7 @@ export class EmojiSystem {
           return JSON.parse(jsonMatch[0]);
         }
       } catch (err) {
-        logger.warn(`[表情包] 图像分析失败: ${err}`);
+        logger.warn(`[EmojiSystem] Image analysis failed: ${err}`);
       }
     }
 
@@ -188,9 +218,9 @@ export class EmojiSystem {
   private async detectEmotion(text: string): Promise<string | null> {
     try {
       const result = await this.ai.generateText({
-        prompt: `分析以下文本的情感，只输出一个情感标签。
-可选标签：happy, sad, angry, surprised, disgusted, scared, neutral, funny, cute, confused, excited, tired, love
-只输出标签，不要其他内容。`,
+        prompt: `Analyze the emotion of the following text. Output only one emotion label.
+Available labels: happy, sad, angry, surprised, disgusted, scared, neutral, funny, cute, confused, excited, tired, love
+Output only the label, nothing else.`,
         messages: [{ role: "user", content: text }],
         model: this.config.model,
         temperature: 0.3,

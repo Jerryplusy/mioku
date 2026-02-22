@@ -1,5 +1,6 @@
 import type { MiokiContext } from "mioki";
 import type { AIService } from "../../src/services/ai";
+import type { AITool } from "../../src";
 import type { ChatDatabase } from "./db";
 
 /**
@@ -150,6 +151,29 @@ export interface ChatMessage {
 }
 
 /**
+ * 触发消息
+ */
+export interface TargetMessage {
+  userName: string;
+  userId: number;
+  userRole: string;
+  userTitle?: string;
+  content: string;
+  messageId?: number;
+  timestamp: number;
+}
+
+/**
+ * 技能会话（per group session）
+ */
+export interface SkillSession {
+  skillName: string;
+  tools: Map<string, AITool>;
+  loadedAt: number;
+  expiresAt: number; // loadedAt + 1h
+}
+
+/**
  * 一次性监听器
  */
 export interface OneTimeListener {
@@ -190,8 +214,17 @@ export interface ToolContext {
   aiService: AIService;
   db: ChatDatabase;
   botRole: "owner" | "admin" | "member";
-  /** 错别字生成器（可选，由真人化引擎提供） */
-  typoApply?: (text: string) => string;
+}
+
+/**
+ * 聊天结果
+ */
+export interface ChatResult {
+  messages: string[];
+  pendingAt: number[];
+  pendingQuote?: number;
+  toolCalls: { name: string; args: any; result: any }[];
+  emojiPath?: string | null;
 }
 
 // ==================== 真人化系统数据类型 ====================

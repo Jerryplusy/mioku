@@ -9,18 +9,19 @@ export function shouldTrigger(
 ): boolean {
   if (e.message_type === "private") return false;
 
+  // Check if message contains a reply segment
+  const hasReply = e.message?.some((seg: any) => seg.type === "reply") ?? false;
+
   if (e.at) {
     if (String(e.at) === String(ctx.bot.uin)) {
       return true;
     }
   }
 
-  if (e.message) {
-    for (const seg of e.message) {
-      if (seg.type === "reply") {
-        return false;
-      }
-    }
+  // If message is a reply but didn't @ bot, don't trigger here
+  // (quote-bot detection is handled separately in index.ts via isQuotingBot)
+  if (hasReply) {
+    return false;
   }
 
   if (cfg.nicknames.length > 0) {
@@ -83,9 +84,9 @@ export function extractContent(
           image_url: { url: seg.data.url, detail: "auto" },
         });
       } else if (seg.type === "record") {
-        parts.push({ type: "text", text: "[用户发送了一段语音]" });
+        parts.push({ type: "text", text: "[User sent a voice message]" });
       } else if (seg.type === "video") {
-        parts.push({ type: "text", text: "[用户发送了一段视频]" });
+        parts.push({ type: "text", text: "[User sent a video]" });
       }
     }
   }

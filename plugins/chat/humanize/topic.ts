@@ -34,7 +34,7 @@ export class TopicTracker {
       this.messageCounters.set(sessionId, 0);
       this.lastCheckTime.set(sessionId, now);
       this.analyzeTopics(sessionId).catch((err) =>
-        logger.warn(`[话题跟踪] 分析失败: ${err}`),
+        logger.warn(`[TopicTracker] Analysis failed: ${err}`),
       );
     }
   }
@@ -51,11 +51,11 @@ export class TopicTracker {
       let keywords: string[] = [];
       try {
         keywords = JSON.parse(t.keywords);
-      } catch { }
-      return `- ${t.title}（${time}）关键词: ${keywords.join(", ")}\n  ${t.summary}`;
+      } catch {}
+      return `- ${t.title} (${time}) Keywords: ${keywords.join(", ")}\n  ${t.summary}`;
     });
 
-    return `## 最近话题\n${lines.join("\n")}`;
+    return `## Recent Topics\n${lines.join("\n")}`;
   }
 
   private async analyzeTopics(sessionId: string): Promise<void> {
@@ -71,26 +71,26 @@ export class TopicTracker {
 
     try {
       const content = await this.ai.generateText({
-        prompt: `你是一个话题分析助手。请分析聊天记录中的话题。
+        prompt: `You are a topic analysis assistant. Analyze the topics in the following chat log.
 
-历史话题标题列表：
-${historyTopicTitles || "（暂无）"}
+Existing topic titles:
+${historyTopicTitles || "(none)"}
 
-本次聊天记录：
+Chat log:
 ${messagesBlock}
 
-请完成以下任务：
-1. 识别聊天记录中正在进行的话题
-2. 判断是否有历史话题在本次聊天中延续
-3. 对每个话题提取关键词和概括
+Tasks:
+1. Identify ongoing topics in the chat log
+2. Determine if any existing topics are continuing in this chat
+3. Extract keywords and summarize each topic
 
-请严格以 JSON 格式输出：
+Output strictly in JSON format:
 {
   "topics": [
     {
-      "title": "话题标题",
-      "keywords": ["关键词1", "关键词2"],
-      "summary": "50-200字的概括",
+      "title": "Topic title (use the chat's language)",
+      "keywords": ["keyword1", "keyword2"],
+      "summary": "50-200 character summary (use the chat's language)",
       "is_continuation": false
     }
   ]
@@ -136,17 +136,11 @@ ${messagesBlock}
         }
       }
 
-      const maxTopics = this.config.topic?.maxTopicsPerSession ?? 20;
-      const allTopics = this.db.getTopics(sessionId, maxTopics + 10);
-      if (allTopics.length > maxTopics) {
-        // 旧话题自然被 getTopics 的 ORDER BY updated_at DESC LIMIT 排除
-      }
-
       logger.info(
-        `[话题跟踪] 会话 ${sessionId} 分析完成，识别 ${parsed.topics.length} 个话题`,
+        `[TopicTracker] Session ${sessionId}: identified ${parsed.topics.length} topics`,
       );
     } catch (err) {
-      logger.warn(`[话题跟踪] 分析失败: ${err}`);
+      logger.warn(`[TopicTracker] Analysis failed: ${err}`);
     }
   }
 

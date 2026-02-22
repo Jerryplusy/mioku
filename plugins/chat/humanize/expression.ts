@@ -28,7 +28,7 @@ export class ExpressionLearner {
     if (pending.length >= this.BATCH_SIZE) {
       this.pendingMessages.set(sessionId, []);
       this.learn(sessionId, pending).catch((err) =>
-        logger.warn(`[表达学习] 学习失败: ${err}`),
+        logger.warn(`[ExpressionLearner] Learning failed: ${err}`),
       );
     }
   }
@@ -42,12 +42,11 @@ export class ExpressionLearner {
     const selected = shuffled.slice(0, sampleSize);
 
     const habits = selected.map(
-      (expr) => `- 当${expr.situation}时：${expr.style}（例：${expr.example}）`,
+      (expr) =>
+        `- When ${expr.situation}: ${expr.style} (e.g. "${expr.example}")`,
     );
 
-    return `## 语言习惯参考
-在回复时，你可以参考以下从群友那里学到的语言习惯：
-${habits.join("\n")}`;
+    return `## Expression Habits\nExpression habits learned from chat members. You may reference these in your replies:\n${habits.join("\n")}`;
   }
 
   private async learn(
@@ -65,25 +64,27 @@ ${habits.join("\n")}`;
     for (const [userId, userMsgs] of byUser) {
       if (userMsgs.length < 3) continue;
 
-      const userName = userMsgs[0].userName || `用户${userId}`;
+      const userName = userMsgs[0].userName || `User${userId}`;
       const msgTexts = userMsgs.map((m) => m.content).join("\n");
 
       try {
         const content = await this.ai.generateText({
-          prompt: `分析以下用户"${userName}"的聊天消息，提取其说话风格和表达习惯。
+          prompt: `Analyze the following chat messages from user "${userName}" and extract their speaking style and expression habits.
 
-消息内容：
+Messages:
 ${msgTexts}
 
-请提取 2-4 个有代表性的表达习惯，每个包含：
-- situation: 使用场景（如"表示赞同"、"吐槽时"、"开心时"）
-- style: 表达风格描述（如"喜欢用'6'表示厉害"、"句尾常加'哈哈'"）
-- example: 原始消息中的例子
+Extract 2-4 representative expression habits, each containing:
+- situation: usage context (e.g. "expressing agreement", "complaining", "happy")
+- style: style description (e.g. "likes using '6' to mean 'awesome'", "often ends sentences with 'haha'")
+- example: an example from the original messages
 
-严格以 JSON 格式输出：
+IMPORTANT: Output situation, style, and example in the SAME LANGUAGE as the chat messages.
+
+Output strictly in JSON format:
 {"expressions": [{"situation": "...", "style": "...", "example": "..."}]}
 
-如果消息太普通没有明显特征，输出 {"expressions": []}`,
+If the messages are too generic with no distinctive features, output {"expressions": []}`,
           messages: [],
           model: this.config.model,
           temperature: 0.3,
@@ -118,10 +119,10 @@ ${msgTexts}
         }
 
         logger.info(
-          `[表达学习] 从 ${userName} 学到 ${parsed.expressions.length} 个表达习惯`,
+          `[ExpressionLearner] Learned ${parsed.expressions.length} habits from ${userName}`,
         );
       } catch (err) {
-        logger.warn(`[表达学习] 分析失败: ${err}`);
+        logger.warn(`[ExpressionLearner] Analysis failed: ${err}`);
       }
     }
   }
