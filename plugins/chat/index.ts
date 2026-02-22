@@ -479,10 +479,8 @@ const chatPlugin: MiokuPlugin = {
               const line = lines[j];
 
               // 解析消息中的标记并按顺序构建消息段
-              const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(
-                line,
-                i === 0 && j === 0 ? undefined : "skip",
-              );
+              const { cleanText, atUsers, pokeUsers, quoteId } =
+                parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
 
               // 戳人
               if (groupId && pokeUsers.length > 0) {
@@ -632,25 +630,44 @@ const chatPlugin: MiokuPlugin = {
         cfg.nicknames.length > 0 &&
         text.toLowerCase().includes(cfg.nicknames[0].toLowerCase());
 
-      // @bot -> 直接回复，不走 planner
-      if (atBot) {
-        if (!rateLimiter.canProcess(userId, groupId, text)) return;
-        rateLimiter.record(userId, groupId, text);
-        await processChat(e, cfg, { skipPlanner: true });
-        return;
-      }
-
-      // 引用 bot 消息 或 昵称触发 或 3分钟内对话 -> 走 planner
       const isFollowUp = (() => {
         if (!isGroup || !groupId) return false;
         const replyKey = `${groupId}:${userId}`;
         const lastReplyTime = recentReplies.get(replyKey) ?? 0;
-        recentReplies.delete(replyKey); // 清除记录，防止重复触发
         return Date.now() - lastReplyTime < FOLLOW_UP_WINDOW_MS;
       })();
 
+      // 检查是否已在处理中
+      const triggerKey = isGroup
+        ? `group:${groupId}:${userId}`
+        : `personal:${userId}`;
+      if (processingSet.has(triggerKey)) {
+        return;
+      }
+
+      if (atBot) {
+        processingSet.add(triggerKey);
+        if (!rateLimiter.canProcess(userId, groupId, text)) {
+          processingSet.delete(triggerKey);
+          return;
+        }
+        rateLimiter.record(userId, groupId, text);
+        try {
+          await processChat(e, cfg, { skipPlanner: true });
+        } finally {
+          processingSet.delete(triggerKey);
+        }
+        return;
+      }
+
       if (quotedBot || mentionedNickname || isFollowUp) {
+        // 清除 recentReplies 记录，防止重复触发
+        if (isGroup && groupId) {
+          recentReplies.delete(`${groupId}:${userId}`);
+        }
+
         const groupSessionId = `group:${groupId}`;
+        processingSet.add(triggerKey);
         const rawHistory = await getGroupHistory(
           groupId!,
           ctx,
@@ -677,9 +694,18 @@ const chatPlugin: MiokuPlugin = {
         );
 
         if (planResult.action === "reply") {
-          if (!rateLimiter.canProcess(userId, groupId, text)) return;
+          if (!rateLimiter.canProcess(userId, groupId, text)) {
+            processingSet.delete(triggerKey);
+            return;
+          }
           rateLimiter.record(userId, groupId, text);
-          await processChat(e, cfg, { skipPlanner: true });
+          try {
+            await processChat(e, cfg, { skipPlanner: true });
+          } finally {
+            processingSet.delete(triggerKey);
+          }
+        } else {
+          processingSet.delete(triggerKey);
         }
         return;
       }
@@ -803,10 +829,8 @@ const chatPlugin: MiokuPlugin = {
               const line = lines[j];
 
               // 解析消息中的标记并按顺序构建消息段
-              const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(
-                line,
-                i === 0 && j === 0 ? undefined : "skip",
-              );
+              const { cleanText, atUsers, pokeUsers, quoteId } =
+                parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
 
               // 戳人
               if (pokeUsers.length > 0) {
