@@ -98,6 +98,24 @@ function createMessageTools(): AITool[] {
       },
       returnToAI: true,
     },
+    {
+      name: "end_session",
+      description:
+        "End the current conversation session immediately. Use this when the conversation is complete or you want to stop responding.",
+      parameters: {
+        type: "object",
+        properties: {
+          reason: {
+            type: "string",
+            description: "Reason for ending the session (optional)",
+          },
+        },
+      },
+      handler: async (args) => {
+        return { success: true, ended: true, reason: args.reason };
+      },
+      returnToAI: false, // 不需要返回给 AI，直接结束
+    },
   ];
 }
 

@@ -102,6 +102,7 @@ export interface ChatConfig {
   blacklistGroups: number[];
   whitelistGroups: number[];
   maxSessions: number;
+  maxIterations: number; // AI 迭代次数限制，-1 表示不限制
   enableGroupAdmin: boolean;
   enableExternalSkills: boolean;
   // 真人化机制配置

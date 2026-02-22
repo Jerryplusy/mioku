@@ -19,8 +19,6 @@ import type { SkillSessionManager } from "./tools";
 import { createTools } from "./tools";
 import { buildSystemPrompt } from "./prompt";
 
-const MAX_ITERATIONS = 5;
-
 /**
  * Run a single chat turn — AI responds directly via text, tools are side-effects
  */
@@ -49,7 +47,10 @@ export async function runChat(
     `[chat-engine] Session ${toolCtx.sessionId} | target: ${targetMessage.userName}(${targetMessage.userId}): "${targetMessage.content}"`,
   );
 
-  for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+  // 获取迭代次数限制
+  const maxIterations = toolCtx.config.maxIterations ?? 20;
+
+  for (let iteration = 0; maxIterations === -1 || iteration < maxIterations; iteration++) {
     // Build prompt fresh each iteration
     const activeSkillsInfo = skillManager.getActiveSkillsInfo(
       toolCtx.sessionId,
@@ -117,7 +118,7 @@ export async function runChat(
         continue;
       }
 
-      // Special handling for at_user and quote_reply
+      // Special handling for at_user
       if (tc.name === "at_user") {
         if (args.user_id) pendingAt.push(args.user_id);
         allToolCalls.push({ name: tc.name, args, result: { success: true } });
@@ -125,11 +126,20 @@ export async function runChat(
         continue;
       }
 
-      if (tc.name === "quote_reply") {
-        if (args.message_id) pendingQuote = args.message_id;
-        allToolCalls.push({ name: tc.name, args, result: { success: true } });
-        logger.info(`[chat-engine] Quote reply: #${args.message_id}`);
-        continue;
+      // quote_reply 需要返回给 AI 继续处理，不使用 continue
+
+      // end_session 工具：立即结束会话
+      if (tc.name === "end_session") {
+        const result = await handler.tool.handler(args);
+        logger.info(`[chat-engine] Session ended: ${args.reason || "no reason"}`);
+        // 不发送任何消息，直接结束
+        return {
+          messages: [],
+          pendingAt: [],
+          pendingQuote: undefined,
+          toolCalls: allToolCalls,
+          emojiPath: null,
+        };
       }
 
       // Execute handler
