@@ -101,7 +101,13 @@ export class ServiceManager {
         return false;
       }
 
-      const serviceModule = await import(entryPoint);
+      // Windows path fix: convert to file:// URL for ESM
+      let importPath = entryPoint;
+      if (process.platform === "win32") {
+        importPath = "file:///" + entryPoint.replace(/\\/g, "/");
+      }
+
+      const serviceModule = await import(importPath);
       const service: MiokuService = serviceModule.default || serviceModule;
 
       if (!service || typeof service.init !== "function") return false;

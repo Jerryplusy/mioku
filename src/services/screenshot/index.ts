@@ -45,14 +45,58 @@ class ScreenshotServiceImpl implements ScreenshotService {
   }
 
   async init(): Promise<void> {
-    this.browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-      ],
-    });
+    const isWindows = process.platform === "win32";
+    
+    let executablePath: string | undefined;
+    let channel: "chrome" | undefined;
+    
+    if (isWindows) {
+      // Try Edge first on Windows
+      const edgePaths = [
+        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+        "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      ];
+      
+      for (const p of edgePaths) {
+        if (fs.existsSync(p)) {
+          executablePath = p;
+          break;
+        }
+      }
+      
+      if (!executablePath) {
+        // Fallback to Chrome
+        channel = "chrome";
+      }
+    }
+    
+    try {
+      this.browser = await puppeteer.launch({
+        headless: true,
+        executablePath,
+        channel,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+        ],
+      });
+    } catch (err) {
+      // Fallback: try with default Chrome
+      if (!channel && !executablePath) {
+        logger.warn("screenshot-service: Chrome/Edge not found, trying default...");
+        this.browser = await puppeteer.launch({
+          headless: true,
+          args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+          ],
+        });
+      } else {
+        throw err;
+      }
+    }
   }
 
   private generateId(): string {
