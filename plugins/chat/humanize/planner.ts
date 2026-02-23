@@ -105,14 +105,21 @@ Message that triggered you: ${lastTriggerMessage}
 
 Available actions:
 
-reply - Respond. You can naturally continue the ongoing conversation or naturally ask a question.
+reply - Respond ONLY when truly necessary:
+- Someone directly asked you a question
+- Someone mentioned you specifically
+- Something needs explanation or clarification
+- There's an obvious opportunity to add real value
 
-wait - Stay silent for now. Suitable when:
-- You've expressed yourself clearly and want to give the other person space
-- You feel the other person hasn't finished speaking, or you've just sent several consecutive messages
-- You want to stay quiet and focus on "listening" rather than immediately replying
+wait - DEFAULT choice. Stay silent when:
+- You have nothing meaningful to add
+- The conversation doesn't need you
+- Someone else is already handling it
+- You're just being polite but have nothing to say
 
-complete - The current chat is temporarily over, the other person left, no more topics. Wait for them to speak again before continuing.
+complete - The chat is over, no activity for a while
+
+IMPORTANT: Silence is golden. When in doubt, WAIT. Don't speak just because you can.
 
 IMPORTANT: You MUST output ONLY valid JSON, no other text. The JSON must be in this exact format:
 {"action": "reply", "reason": "your reason here", "wait_seconds": 0}
