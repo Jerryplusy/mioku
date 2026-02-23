@@ -11,6 +11,8 @@ export interface ChatDatabase {
   getSession(id: string): SessionMeta | null;
   saveMessage(msg: ChatMessage): void;
   getMessages(sessionId: string, limit?: number, before?: number): ChatMessage[];
+  // 获取 bot 发送的消息
+  getBotMessages(groupId: number, limit?: number): ChatMessage[];
   getMessagesByUser(userId: number, sessionId?: string, limit?: number): ChatMessage[];
   searchMessages(sessionId: string, keyword: string, limit?: number): ChatMessage[];
   updateCompressedContext(sessionId: string, context: string): void;
@@ -132,6 +134,9 @@ export function initDatabase(): ChatDatabase {
     getMessagesBefore: db.prepare(`
       SELECT * FROM messages WHERE session_id = ? AND timestamp < ? ORDER BY timestamp DESC, id DESC LIMIT ?
     `),
+    getBotMessages: db.prepare(`
+      SELECT * FROM messages WHERE group_id = ? AND role = 'assistant' ORDER BY timestamp DESC LIMIT ?
+    `),
     getMessagesByUser: db.prepare(`
       SELECT * FROM messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?
     `),
@@ -238,6 +243,26 @@ export function initDatabase(): ChatDatabase {
         ? (stmts.getMessagesBefore.all(sessionId, before, limit) as any[])
         : (stmts.getMessages.all(sessionId, limit) as any[]);
 
+      return rows
+        .map((row) => ({
+          id: row.id,
+          sessionId: row.session_id,
+          role: row.role,
+          content: row.content,
+          userId: row.user_id,
+          userName: row.user_name,
+          userRole: row.user_role,
+          userTitle: row.user_title,
+          groupId: row.group_id,
+          groupName: row.group_name,
+          timestamp: row.timestamp,
+          messageId: row.message_id,
+        }))
+        .reverse(); // 按时间正序
+    },
+
+    getBotMessages(groupId: number, limit: number = 50): ChatMessage[] {
+      const rows = stmts.getBotMessages.all(groupId, limit) as any[];
       return rows
         .map((row) => ({
           id: row.id,
