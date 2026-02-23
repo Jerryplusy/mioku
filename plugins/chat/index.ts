@@ -42,7 +42,7 @@ const chatPlugin: MiokuPlugin = {
     description: "智能 AI 聊天插件",
     commands: [
       { cmd: "/重置会话", desc: "重置自己的AI聊天记录" },
-      { cmd: "/重置群会话", desc: "[管理] 重置当前群的AI聊天记录" },
+      { cmd: "/重置群会话", desc: "重置当前群的AI聊天记录", role: "admin" },
     ],
   },
 

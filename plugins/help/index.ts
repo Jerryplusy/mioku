@@ -1,8 +1,28 @@
 import type { MiokuPlugin } from "../../src";
 import type { HelpService } from "../../src/services/help";
+import type { CommandRole, AISkill, AITool } from "../../src";
+import type { AIService } from "../../src/services/ai";
 import type { ScreenshotService } from "../../src/services/screenshot";
 import type { MiokiContext } from "mioki";
 import * as fs from "fs";
+
+const ROLE_CONFIG: Record<
+  CommandRole,
+  { label: string; color: string; bgColor: string }
+> = {
+  master: {
+    label: "主人",
+    color: "text-amber-400",
+    bgColor: "bg-amber-500/20",
+  },
+  admin: { label: "管理", color: "text-red-400", bgColor: "bg-red-500/20" },
+  owner: {
+    label: "群主",
+    color: "text-purple-400",
+    bgColor: "bg-purple-500/20",
+  },
+  member: { label: "成员", color: "text-blue-400", bgColor: "bg-blue-500/20" },
+};
 
 const helpPlugin: MiokuPlugin = {
   name: "help",
@@ -31,7 +51,14 @@ const helpPlugin: MiokuPlugin = {
       const text = ctx.text(e);
       if (!text) return;
 
-      if (text.includes("help") || text.includes("帮助")) {
+      const trimmed = text.trim().toLowerCase();
+      const isHelpCommand = /^[#/]?(help|帮助)$/.test(trimmed);
+
+      if (isHelpCommand) {
+        if (!screenshotService) {
+          await e.reply("screenshot 服务未加载，无法生成帮助图片");
+          return;
+        }
         try {
           const allHelp = helpService.getAllHelp();
 
@@ -145,14 +172,19 @@ function generateHelpHtml(
   for (const [pluginName, help] of helpMap) {
     const commands = help.commands || [];
     const commandsHtml = commands
-      .map(
-        (cmd: any) => `
+      .map((cmd: any) => {
+        const role = cmd.role as CommandRole | undefined;
+        const roleConfig = role && ROLE_CONFIG[role] ? ROLE_CONFIG[role] : null;
+        return `
         <div class="${styles.commandBg} backdrop-blur-sm rounded-lg px-3 py-2 mb-2 border ${styles.commandBorder}">
-          <div class="${styles.commandTitleColor} font-mono text-xs font-bold mb-1">${escapeHtml(cmd.cmd)}</div>
+          <div class="flex items-center justify-between mb-1">
+            <div class="${styles.commandTitleColor} font-mono text-xs font-bold">${escapeHtml(cmd.cmd)}</div>
+            ${roleConfig ? `<span class="text-[10px] px-1.5 py-0.5 rounded ${roleConfig.bgColor} ${roleConfig.color} font-medium">${roleConfig.label}</span>` : ""}
+          </div>
           <div class="${styles.commandDescColor} text-xs leading-snug">${escapeHtml(cmd.desc)}</div>
         </div>
-      `,
-      )
+      `;
+      })
       .join("");
 
     plugins.push(`

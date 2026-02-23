@@ -25,6 +25,11 @@ export interface AISkill {
 }
 
 /**
+ * 指令权限级别
+ */
+export type CommandRole = "master" | "admin" | "owner" | "member";
+
+/**
  * 插件帮助信息
  */
 export interface PluginHelp {
@@ -34,6 +39,7 @@ export interface PluginHelp {
     cmd: string;
     desc: string;
     usage?: string;
+    role?: CommandRole;
   }>;
 }
 
