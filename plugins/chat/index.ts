@@ -232,7 +232,12 @@ const chatPlugin: MiokuPlugin = {
       const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
 
       // 获取群聊历史
-      const rawHistory = await getGroupHistory(groupId, ctx, cfg.historyCount, db);
+      const rawHistory = await getGroupHistory(
+        groupId,
+        ctx,
+        cfg.historyCount,
+        db,
+      );
       const history: ChatMessage[] = rawHistory.map((msg) => ({
         sessionId: groupSessionId,
         role: "user" as const,
@@ -813,8 +818,12 @@ const chatPlugin: MiokuPlugin = {
         cfg.nicknames.length > 0 &&
         text.toLowerCase().includes(cfg.nicknames[0].toLowerCase());
 
+      // 检查消息是否有文字内容
+      const hasTextContent = text.trim().length > 0;
+
       const isFollowUp = (() => {
         if (!isGroup || !groupId) return false;
+        if (!hasTextContent) return false;
         const replyKey = `${groupId}:${userId}`;
         const lastReplyTime = recentReplies.get(replyKey) ?? 0;
         return Date.now() - lastReplyTime < FOLLOW_UP_WINDOW_MS;
@@ -827,11 +836,13 @@ const chatPlugin: MiokuPlugin = {
       // 群消息：检查群是否正在处理
       if (isGroup && groupId && groupSessionId) {
         if (processingSet.has(groupSessionId)) {
-          // 群正在处理中，将新消息加入队列等待追加
-          queueManager.enqueue(groupSessionId, e, cfg);
-          ctx.logger.info(
-            `[Queue] 群 ${groupId} 正在处理，新消息加入队列，当前队列长度: ${queueManager.getQueueLength(groupSessionId)}`,
-          );
+          // 群正在处理中，只有 @bot 或提到昵称的消息才加入队列
+          if (atBot || mentionedNickname) {
+            queueManager.enqueue(groupSessionId, e, cfg);
+            ctx.logger.info(
+              `[Queue] 群 ${groupId} 正在处理，有效消息加入队列，当前队列长度: ${queueManager.getQueueLength(groupSessionId)}`,
+            );
+          }
           return;
         }
 
