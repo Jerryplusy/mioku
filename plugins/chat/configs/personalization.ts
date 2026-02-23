@@ -70,6 +70,9 @@ You sometimes hum or reference song lyrics in conversation.`,
 
   planner: {
     enabled: true,
+    idleCheckIntervalMs: 60_000, // 每分钟检查一次空闲状态
+    idleThresholdMs: 30 * 60_000, // 30分钟无消息视为空闲
+    idleMessageCount: 100, // 保底消息数量，超过这个数量才触发空闲回复
   },
 
   frequency: {

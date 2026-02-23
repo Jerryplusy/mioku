@@ -20,6 +20,12 @@ export interface PromptContext {
   chatHistory: ChatMessage[];
   targetMessage: TargetMessage;
   plannerThoughts?: string;
+  // Reply context - tells AI what type of reply this is
+  replyContext?: {
+    type: "reply" | "comment" | "idle" | "react";
+    targetUser?: string;
+    targetMessage?: string;
+  };
 }
 
 /**
@@ -62,7 +68,12 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   // 8. Target Message
   sections.push(buildTargetMessageSection(ctx.targetMessage));
 
-  // 9. Planner's Thoughts
+  // 9. Reply Context - tells AI what kind of reply this is
+  if (ctx.replyContext) {
+    sections.push(buildReplyContextSection(ctx.replyContext));
+  }
+
+  // 10. Planner's Thoughts
   if (ctx.plannerThoughts) {
     sections.push(`## Planner's Analysis\n${ctx.plannerThoughts}`);
   }
@@ -89,7 +100,60 @@ function buildToolResultsSection(
       typeof tr.result === "string" ? tr.result : JSON.stringify(tr.result);
     return `- **${tr.toolName}**: ${resultStr}`;
   });
-  return `## Tool Call Results\nResults from your previous tool calls:\n${lines.join("\n")}`;
+
+  // Check if any operation was successful (no need to repeat)
+  const hasSuccess = toolResults.some(
+    (tr) => tr.result && tr.result.success === true,
+  );
+
+  const hint =
+    hasSuccess &&
+    `
+
+⚠️ IMPORTANT: A tool has successfully completed its operation (success: true). The operation is DONE - do NOT call the same tool again with the same or similar arguments. If you need to verify the result, use a query tool (like get_group_member_info or get_group_member_list) instead of repeating the action.`;
+
+  return `## Tool Call Results\nResults from your previous tool calls:\n${lines.join("\n")}${hint || ""}`;
+}
+
+function buildReplyContextSection(
+  replyCtx: PromptContext["replyContext"],
+): string {
+  if (!replyCtx) return "";
+
+  const lines = [`## This Response Context`];
+
+  switch (replyCtx.type) {
+    case "reply":
+      lines.push(
+        `You are replying to **${replyCtx.targetUser}** who said: "${replyCtx.targetMessage || "(message content)"}"`,
+      );
+      lines.push(
+        `**Keep it SHORT and DIRECT** - just answer their point, 2-3 paragraphs max. No explanation needed.`,
+      );
+      break;
+    case "comment":
+      lines.push(
+        `You are commenting on or reacting to recent activity in the group.`,
+      );
+      lines.push(
+        `**Keep it SHORT** - a quick reaction or brief thought, 1 or 2 paragraph. Don't elaborate.`,
+      );
+      break;
+    case "idle":
+      lines.push(
+        `This is an idle check - no specific trigger. You're deciding whether to speak up.`,
+      );
+      lines.push(
+        `If you reply, keep it very short – a paragraph or two, or even a few words`,
+      );
+      break;
+    case "react":
+      lines.push(`You're reacting to something that happened.`);
+      lines.push(`**Keep it BRIEF** - quick reaction, 1 sentence.`);
+      break;
+  }
+
+  return lines.join("\n");
 }
 
 function buildEnvironmentSection(ctx: PromptContext): string {
@@ -244,10 +308,12 @@ function buildResponseFormatSection(ctx: PromptContext): string {
 - **IMPORTANT: Output ONLY your final reply text. Do NOT include your thinking process, reasoning, analysis, or internal thoughts.**
 - Do NOT prefix your response with phrases like "Let me think", "I should", "I need to", "Based on", "Looking at", etc.
 - Do NOT explain what you're doing or why. Just say what you want to say directly.
-- **MULTIPLE MESSAGES: Each line (separated by Enter/Return) will be sent as a SEPARATE message.**
+- **MULTIPLE MESSAGES (CRITICAL!): Each line (separated by Enter/Return) will be sent as a SEPARATE message.**
   - If you want to send multiple messages, just press Enter and write the next line
   - Each line = one message sent to the chat
-  - Example: "你好呀~" + Enter + "今天过得怎么样？" will send two separate messages
+  - **If your reply has multiple sentences or different points, ALWAYS use newlines to separate them!**
+  - Example WRONG: "晚上好呀~ 现在是21点13分哦！✨ 夜深了，大家要早点休息呢"
+  - Example RIGHT: "晚上好呀~现在是21点13分哦！✨" + newline + "夜深了，大家要早点休息呢"
 - **SPECIAL ACTIONS in your text (auto-parsed and removed from message):**
   - Use [[[at:123456]]] in your text to @ someone (123456 is the QQ number)
   - Use [[[poke:123456]]] in your text to poke someone

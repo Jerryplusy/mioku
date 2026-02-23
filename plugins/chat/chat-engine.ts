@@ -207,18 +207,13 @@ export async function runChat(
 }
 
 /**
- * Remove all action markers from text for storage/display
+ * Remove action markers from text for storage/display
+ * Note: ALL markers are preserved here - they'll be parsed by parseLineMarkers in index.ts
  */
 function cleanMarkers(text: string): string {
-  return text
-    .replace(/\[\[\[at:\d+\]\]\]/g, "")
-    .replace(/\(\(\(at:\d+\)\)\)/g, "")
-    .replace(/\(\(\(\d+\)\)\)/g, "")
-    .replace(/\[\[\[poke:\d+\]\]\]/g, "")
-    .replace(/\(\(\(poke:\d+\)\)\)/g, "")
-    .replace(/\[\[\[reply:\d+\]\]\]/g, "")
-    .replace(/\(\(\(reply:\d+\)\)\)/g, "")
-    .trim();
+  // Don't remove any markers here - let parseLineMarkers handle them
+  // This ensures AT, poke, and reply markers are available for message construction
+  return text.trim();
 }
 
 /**

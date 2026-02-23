@@ -124,18 +124,20 @@ export function parseLineMarkers(
     /\(\(\((\d+)\)\)\)/g,
   ];
   for (const pattern of atPatterns) {
-    const matches = line.matchAll(pattern);
+    const matches = [...line.matchAll(pattern)];
     for (const match of matches) {
-      atUsers.push(parseInt(match[1], 10));
+      const userId = parseInt(match[1], 10);
+      atUsers.push(userId);
     }
   }
 
   // 提取戳人标记
-  const pokePatterns = [/\[\[\[poke:(\d+)\]\]\]/g, /\(\(\(poke:\d+\)\)\)/g];
+  const pokePatterns = [/\[\[\[poke:(\d+)\]\]\]/g, /\(\(\(poke:(\d+)\)\)\)/g];
   for (const pattern of pokePatterns) {
-    const matches = line.matchAll(pattern);
+    const matches = [...line.matchAll(pattern)];
     for (const match of matches) {
-      pokeUsers.push(parseInt(match[1], 10));
+      const userId = parseInt(match[1], 10);
+      pokeUsers.push(userId);
     }
   }
 
@@ -143,10 +145,10 @@ export function parseLineMarkers(
   if (quoteMode !== "skip") {
     const replyPatterns = [
       /\[\[\[reply:(\d+)\]\]\]/g,
-      /\(\(\(reply:\d+\)\)\)/g,
+      /\(\(\(reply:(\d+)\)\)\)/g,
     ];
     for (const pattern of replyPatterns) {
-      const matches = line.matchAll(pattern);
+      const matches = [...line.matchAll(pattern)];
       for (const match of matches) {
         if (quoteId === undefined) {
           quoteId = parseInt(match[1], 10);

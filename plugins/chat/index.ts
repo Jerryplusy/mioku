@@ -140,13 +140,228 @@ const chatPlugin: MiokuPlugin = {
 
     // 连续对话追踪：记录 bot 最近回复的用户和时间
     const recentReplies = new Map<string, number>();
-    const FOLLOW_UP_WINDOW_MS = 3 * 60_000; // 3 分钟内的后续消息走 planner
+    const FOLLOW_UP_WINDOW_MS = 0.5 * 60_000; // 1 分钟内的后续消息走 planner
+
+    // 群最后活动时间追踪（用于空闲检测）
+    const groupLastActivityTime = new Map<string, number>();
+    // 群消息计数（用于空闲检测的保底数量）
+    const groupMessageCount = new Map<string, number>();
+    // 群最后一次空闲检查时间
+    const groupLastIdleCheckTime = new Map<string, number>();
+    // 群是否正在处理（用于空闲检测避免并发）
+    const idleCheckProcessing = new Set<string>();
 
     // 定期清理过期技能会话
     const cleanupInterval = setInterval(
       () => skillManager.cleanup(),
       10 * 60_000,
     );
+
+    // 空闲检测定时器（每秒检查，但实际触发由配置决定）
+    const idleCheckInterval = setInterval(async () => {
+      try {
+        const cfg = await getConfig();
+        if (!cfg.apiKey || !cfg.planner?.enabled) return;
+
+        const now = Date.now();
+        const idleThreshold = cfg.planner.idleThresholdMs ?? 30 * 60_000;
+        const messageCountThreshold = cfg.planner.idleMessageCount ?? 100;
+        const checkInterval = cfg.planner.idleCheckIntervalMs ?? 60_000;
+
+        for (const [groupSessionId, lastTime] of groupLastActivityTime) {
+          // 每分钟才真正执行一次检查
+          const lastCheckTime = groupLastIdleCheckTime.get(groupSessionId) ?? 0;
+          if (now - lastCheckTime < checkInterval) continue;
+
+          // 跳过正在处理的群
+          if (
+            processingSet.has(groupSessionId) ||
+            idleCheckProcessing.has(groupSessionId)
+          ) {
+            continue;
+          }
+
+          const groupId = parseInt(groupSessionId.split(":")[1], 10);
+          if (!isGroupAllowed(groupId, cfg)) continue;
+
+          // 检查是否超过空闲阈值
+          if (now - lastTime < idleThreshold) continue;
+
+          // 检查消息数量是否达到保底阈值
+          const messageCount = groupMessageCount.get(groupSessionId) ?? 0;
+          if (messageCount < messageCountThreshold) continue;
+
+          // 标记正在处理
+          idleCheckProcessing.add(groupSessionId);
+
+          try {
+            ctx.logger.info(`[IdleCheck] 群 ${groupId} 触发空闲检测`);
+
+            // 获取群聊历史
+            const rawHistory = await getGroupHistory(
+              groupId,
+              ctx,
+              cfg.historyCount,
+              db,
+            );
+            const history: ChatMessage[] = rawHistory.map((msg) => ({
+              sessionId: groupSessionId,
+              role: "user" as const,
+              content: msg.content,
+              userId: msg.userId,
+              userName: msg.userName,
+              userRole: msg.userRole,
+              groupId,
+              timestamp: msg.timestamp,
+              messageId: msg.messageId,
+            }));
+
+            const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+
+            // 使用 planner 进行空闲检测
+            const planResult = await humanize.actionPlanner.plan(
+              groupSessionId,
+              botNickname,
+              history,
+              "[Check if you want to answer the call]",
+              true, // isIdleCheck = true
+            );
+
+            if (planResult.action === "reply") {
+              // 构建 targetMessage
+              const targetMessage: TargetMessage = {
+                userName: "system",
+                userId: 0,
+                userRole: "member",
+                content: "[No one in the group is talking? I'll answer!]",
+                messageId: 0,
+                timestamp: now,
+              };
+
+              const toolCtx: ToolContext = {
+                ctx,
+                event: null,
+                sessionId: groupSessionId,
+                groupId,
+                userId: 0,
+                config: cfg,
+                aiService: aiService!,
+                db,
+                botRole: await getBotRole(groupId, ctx),
+              };
+
+              // 构建 planner 思考内容，告诉 AI 群里的情况和可以怎么回复
+              const plannerThoughts = `No one in the group has spoken for a long time, so come and answer the group
+Planned reason: ${planResult.reason}
+1. Participate in group chat topics naturally
+2. Quote messages from group friends appropriately (using [[[reply:message ID]]] format)
+3. Start a new topic or respond to a previous conversation
+4. Don't mention your intentions like "I'm here to answer" or something like a normal chat`;
+
+              const result = await runChat(
+                aiInstance,
+                toolCtx,
+                history,
+                targetMessage,
+                {
+                  config: cfg,
+                  botNickname,
+                  botRole: toolCtx.botRole,
+                  aiService: aiService!,
+                  isGroup: true,
+                  plannerThoughts,
+                  replyContext: {
+                    type: "idle",
+                  },
+                },
+                sessionManager,
+                humanize,
+                skillManager,
+              );
+
+              // 发送消息（复用现有的发送逻辑）
+              if (result.messages.length > 0) {
+                for (let i = 0; i < result.messages.length; i++) {
+                  let msg = result.messages[i];
+                  msg = humanize.typoGenerator.apply(msg);
+
+                  const lines = msg.split("\n").filter((l) => l.trim());
+                  for (let j = 0; j < lines.length; j++) {
+                    const line = lines[j];
+
+                    const { cleanText, atUsers, pokeUsers, quoteId } =
+                      parseLineMarkers(
+                        line,
+                        i === 0 && j === 0 ? undefined : "skip",
+                      );
+
+                    // 戳人
+                    if (pokeUsers.length > 0) {
+                      for (const pokeId of pokeUsers) {
+                        try {
+                          await ctx.bot.api("group_poke", {
+                            group_id: groupId,
+                            user_id: pokeId,
+                          });
+                        } catch (err) {
+                          ctx.logger.warn(`[戳人] 失败: ${err}`);
+                        }
+                      }
+                    }
+
+                    const lineSegments: any[] = [];
+
+                    if (quoteId !== undefined && i === 0 && j === 0) {
+                      lineSegments.push({ type: "reply", id: String(quoteId) });
+                    }
+
+                    for (const atId of atUsers) {
+                      lineSegments.push(ctx.segment.at(atId));
+                    }
+
+                    if (cleanText) {
+                      lineSegments.push(ctx.segment.text(cleanText));
+                    }
+
+                    if (lineSegments.length > 0) {
+                      await ctx.bot.sendGroupMsg(groupId, lineSegments);
+                    }
+
+                    if (j < lines.length - 1) {
+                      await new Promise((r) => setTimeout(r, 300));
+                    }
+                  }
+
+                  if (i < result.messages.length - 1) {
+                    await new Promise((r) => setTimeout(r, 300));
+                  }
+                }
+
+                humanize.frequencyController.recordSpeak(groupSessionId);
+              }
+
+              // 保存 bot 消息
+              const now2 = Date.now();
+              for (const msg of result.messages) {
+                saveBotMessage(groupId, groupSessionId, msg, now2, cfg);
+              }
+
+              ctx.logger.info(`[IdleCheck] 群 ${groupId} 空闲回复完成`);
+            }
+
+            // 重置消息计数
+            groupMessageCount.set(groupSessionId, 0);
+            groupLastIdleCheckTime.set(groupSessionId, now);
+          } catch (err) {
+            ctx.logger.error(`[IdleCheck] 群 ${groupId} 空闲检测失败: ${err}`);
+          } finally {
+            idleCheckProcessing.delete(groupSessionId);
+          }
+        }
+      } catch (err) {
+        // 忽略空闲检测错误
+      }
+    }, 60_000); // 每秒检查一次是否需要执行空闲检测
 
     /**
      * 处理队列中的等待消息
@@ -232,7 +447,12 @@ const chatPlugin: MiokuPlugin = {
       const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
 
       // 获取群聊历史
-      const rawHistory = await getGroupHistory(groupId, ctx, cfg.historyCount, db);
+      const rawHistory = await getGroupHistory(
+        groupId,
+        ctx,
+        cfg.historyCount,
+        db,
+      );
       const history: ChatMessage[] = rawHistory.map((msg) => ({
         sessionId: groupSessionId,
         role: "user" as const,
@@ -286,6 +506,11 @@ const chatPlugin: MiokuPlugin = {
           memoryContext: memoryContext || undefined,
           topicContext: topicContext || undefined,
           expressionContext: expressionContext || undefined,
+          replyContext: {
+            type: "comment",
+            targetUser: targetMessage.userName,
+            targetMessage: targetMessage.content,
+          },
         },
         sessionManager,
         humanize,
@@ -606,6 +831,11 @@ const chatPlugin: MiokuPlugin = {
             memoryContext: memoryContext || undefined,
             topicContext: topicContext || undefined,
             expressionContext: expressionContext || undefined,
+            replyContext: {
+              type: "reply",
+              targetUser: targetMessage.userName,
+              targetMessage: targetMessage.content,
+            },
           },
           sessionManager,
           humanize,
@@ -775,6 +1005,196 @@ const chatPlugin: MiokuPlugin = {
       if (userId === ctx.bot.uin) return;
 
       // 处理命令
+      // /空闲检查 调试指令
+      if (text.startsWith("/空闲检查 ")) {
+        const isOwner = ctx.isOwner?.(e) ?? false;
+        if (!isOwner) {
+          await e.reply("只有主人才能使用这个指令~");
+          return;
+        }
+        const groupIdStr = text.replace("/空闲检查", "").trim();
+        const targetGroupId = parseInt(groupIdStr, 10);
+        if (!targetGroupId) {
+          await e.reply("请指定群号，如：/空闲检查 123456");
+          return;
+        }
+
+        // 手动触发空闲检测（跳过时间限制和消息数量限制）
+        const groupSessionId = `group:${targetGroupId}`;
+        try {
+          // 获取配置
+          const cfg = await getConfig();
+          if (!cfg.apiKey) {
+            await e.reply("未配置 API Key");
+            return;
+          }
+          const now = Date.now();
+          const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+
+          ctx.logger.info(`[Debug] 手动触发空闲检测: 群 ${targetGroupId}`);
+
+          // 获取群聊历史
+          const rawHistory = await getGroupHistory(
+            targetGroupId,
+            ctx,
+            cfg.historyCount,
+            db,
+          );
+          const history: ChatMessage[] = rawHistory.map((msg) => ({
+            sessionId: groupSessionId,
+            role: "user" as const,
+            content: msg.content,
+            userId: msg.userId,
+            userName: msg.userName,
+            userRole: msg.userRole,
+            groupId: targetGroupId,
+            timestamp: msg.timestamp,
+            messageId: msg.messageId,
+          }));
+
+          // 使用 planner 进行空闲检测
+          const planResult = await humanize.actionPlanner.plan(
+            groupSessionId,
+            botNickname,
+            history,
+            "[Check if you want to answer the call]",
+            true,
+          );
+
+          // 如果决定回复，执行真正的聊天
+          if (planResult.action === "reply") {
+            const targetMessage: TargetMessage = {
+              userName: "系统",
+              userId: 0,
+              userRole: "member",
+              content: "[No one in the group is talking? I'll answer!]",
+              messageId: 0,
+              timestamp: now,
+            };
+
+            const toolCtx: ToolContext = {
+              ctx,
+              event: null,
+              sessionId: groupSessionId,
+              groupId: targetGroupId,
+              userId: 0,
+              config: cfg,
+              aiService: aiService!,
+              db,
+              botRole: await getBotRole(targetGroupId, ctx),
+            };
+
+            // 构建 planner 思考内容，告诉 AI 群里的情况和可以怎么回复
+            const plannerThoughts = `No one in the group has spoken for a long time, so come and answer the group
+Planned reason: ${planResult.reason}
+1. Participate in group chat topics naturally
+2. Quote messages from group friends appropriately (using [[[reply:message ID]]] format)
+3. Start a new topic or respond to a previous conversation
+4. Don't mention your intentions like "I'm here to answer" or something like a normal chat`;
+
+            const result = await runChat(
+              aiInstance,
+              toolCtx,
+              history,
+              targetMessage,
+              {
+                config: cfg,
+                botNickname,
+                botRole: toolCtx.botRole,
+                aiService: aiService!,
+                isGroup: true,
+                plannerThoughts,
+                replyContext: {
+                  type: "idle",
+                },
+              },
+              sessionManager,
+              humanize,
+              skillManager,
+            );
+
+            // 发送消息
+            if (result.messages.length > 0) {
+              for (let i = 0; i < result.messages.length; i++) {
+                let msg = result.messages[i];
+                msg = humanize.typoGenerator.apply(msg);
+
+                const lines = msg.split("\n").filter((l) => l.trim());
+                for (let j = 0; j < lines.length; j++) {
+                  const line = lines[j];
+
+                  const { cleanText, atUsers, pokeUsers, quoteId } =
+                    parseLineMarkers(
+                      line,
+                      i === 0 && j === 0 ? undefined : "skip",
+                    );
+
+                  if (pokeUsers.length > 0) {
+                    for (const pokeId of pokeUsers) {
+                      try {
+                        await ctx.bot.api("group_poke", {
+                          group_id: targetGroupId,
+                          user_id: pokeId,
+                        });
+                      } catch (err) {
+                        ctx.logger.warn(`[戳人] 失败: ${err}`);
+                      }
+                    }
+                  }
+
+                  const lineSegments: any[] = [];
+
+                  if (quoteId !== undefined && i === 0 && j === 0) {
+                    lineSegments.push({ type: "reply", id: String(quoteId) });
+                  }
+
+                  for (const atId of atUsers) {
+                    lineSegments.push(ctx.segment.at(atId));
+                  }
+
+                  if (cleanText) {
+                    lineSegments.push(ctx.segment.text(cleanText));
+                  }
+
+                  if (lineSegments.length > 0) {
+                    await ctx.bot.sendGroupMsg(targetGroupId, lineSegments);
+                  }
+
+                  if (j < lines.length - 1) {
+                    await new Promise((r) => setTimeout(r, 300));
+                  }
+                }
+
+                if (i < result.messages.length - 1) {
+                  await new Promise((r) => setTimeout(r, 300));
+                }
+              }
+
+              humanize.frequencyController.recordSpeak(groupSessionId);
+            }
+
+            // 保存 bot 消息
+            const now2 = Date.now();
+            for (const msg of result.messages) {
+              saveBotMessage(targetGroupId, groupSessionId, msg, now2, cfg);
+            }
+
+            await e.reply(
+              `[空闲检测] 群 ${targetGroupId} 已发送回复: ${planResult.reason}`,
+            );
+          } else {
+            await e.reply(
+              `[空闲检测] 群 ${targetGroupId}\n决定: ${planResult.action}\n原因: ${planResult.reason}`,
+            );
+          }
+          return;
+        } catch (err) {
+          ctx.logger.error(`[Debug] 空闲检测失败: ${err}`);
+          await e.reply(`[空闲检测] 失败: ${err}`);
+          return;
+        }
+      }
+
       if (text === "/重置会话") {
         const personalSessionId = `personal:${userId}`;
         sessionManager.reset(personalSessionId);
@@ -813,12 +1233,24 @@ const chatPlugin: MiokuPlugin = {
         cfg.nicknames.length > 0 &&
         text.toLowerCase().includes(cfg.nicknames[0].toLowerCase());
 
+      // 检查消息是否有文字内容
+      const hasTextContent = text.trim().length > 0;
+
       const isFollowUp = (() => {
         if (!isGroup || !groupId) return false;
+        if (!hasTextContent) return false;
         const replyKey = `${groupId}:${userId}`;
         const lastReplyTime = recentReplies.get(replyKey) ?? 0;
         return Date.now() - lastReplyTime < FOLLOW_UP_WINDOW_MS;
       })();
+
+      // 更新群的活动时间（仅群消息）
+      if (isGroup && groupId) {
+        const groupSessionId = `group:${groupId}`;
+        groupLastActivityTime.set(groupSessionId, Date.now());
+        const currentCount = groupMessageCount.get(groupSessionId) ?? 0;
+        groupMessageCount.set(groupSessionId, currentCount + 1);
+      }
 
       // 检查是否已在处理中
       const groupSessionId =
@@ -827,11 +1259,13 @@ const chatPlugin: MiokuPlugin = {
       // 群消息：检查群是否正在处理
       if (isGroup && groupId && groupSessionId) {
         if (processingSet.has(groupSessionId)) {
-          // 群正在处理中，将新消息加入队列等待追加
-          queueManager.enqueue(groupSessionId, e, cfg);
-          ctx.logger.info(
-            `[Queue] 群 ${groupId} 正在处理，新消息加入队列，当前队列长度: ${queueManager.getQueueLength(groupSessionId)}`,
-          );
+          // 群正在处理中，只有 @bot 或提到昵称的消息才加入队列
+          if (atBot || mentionedNickname) {
+            queueManager.enqueue(groupSessionId, e, cfg);
+            ctx.logger.info(
+              `[Queue] 群 ${groupId} 正在处理，有效消息加入队列，当前队列长度: ${queueManager.getQueueLength(groupSessionId)}`,
+            );
+          }
           return;
         }
 
@@ -1015,6 +1449,11 @@ const chatPlugin: MiokuPlugin = {
             botRole,
             aiService: aiService!,
             isGroup: true,
+            replyContext: {
+              type: "reply",
+              targetUser: targetMessage.userName,
+              targetMessage: targetMessage.content,
+            },
           },
           sessionManager,
           humanize,
@@ -1123,9 +1562,14 @@ const chatPlugin: MiokuPlugin = {
       db.close();
       rateLimiter.dispose();
       clearInterval(cleanupInterval);
+      clearInterval(idleCheckInterval);
       processingSet.clear();
       pokeCooldowns.clear();
       recentReplies.clear();
+      groupLastActivityTime.clear();
+      groupMessageCount.clear();
+      groupLastIdleCheckTime.clear();
+      idleCheckProcessing.clear();
       ctx.logger.info("聊天插件已卸载");
     };
   },

@@ -44,6 +44,9 @@ export interface TopicConfig {
  */
 export interface PlannerConfig {
   enabled: boolean;
+  idleCheckIntervalMs: number; // 空闲检查间隔（毫秒）
+  idleThresholdMs: number; // 群聊空闲时间阈值（毫秒）
+  idleMessageCount: number; // 群聊记录保底消息数量
 }
 
 /**
