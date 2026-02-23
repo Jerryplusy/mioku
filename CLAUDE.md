@@ -29,17 +29,20 @@ Plugins (功能层) → Services (服务层) → Core (核心层) → Mioki Fram
 ```
 
 **Core Layer** (`src/core/`):
+
 - `types.ts` - Type definitions for the entire framework
 - `plugin-manager.ts` - Discovers plugin metadata from `plugins/*/package.json`
 - `service-manager.ts` - Loads and manages service lifecycle
 
 **Service Layer** (`src/services/`):
+
 - Each service is an independent workspace with its own `package.json`
 - Services implement `MiokuService` interface with `init()`, `api`, and optional `dispose()`
 - Services are loaded by the boot plugin and accessed via `ctx.services.{name}`
 - Built-in services: `ai`, `config`, `help`
 
 **Plugin Layer** (`plugins/`):
+
 - Each plugin is an independent workspace
 - Plugins extend mioki's `MiokiPlugin` with Mioku-specific fields (`services`, `skill`, `help`)
 - The `boot` plugin (priority: -Infinity) must run first to load all services
@@ -74,11 +77,13 @@ const myPlugin: MiokuPlugin = {
 The Skill system solves tool naming conflicts by providing namespaces:
 
 **Structure**:
+
 - Each plugin registers ONE Skill
 - Each Skill contains multiple Tools
 - Tool invocation format: `{skill_name}.{tool_name}`
 
 **Example**:
+
 ```typescript
 skill: {
   name: "chat",  // Skill name (usually matches plugin name)
@@ -88,15 +93,59 @@ skill: {
       name: "send_message",           // Tool name
       description: "Send a message",  // Called as: chat.send_message
       parameters: { ... },
-      handler: async (args) => { ... },
+      handler: async (args, event) => { ... },  // Second param is event context
       returnToAI: false  // Whether to return result to AI for further processing
     }
   ]
 }
 ```
 
+**Tool Handler with Event Context**:
+AI tool handlers receive a second `event` parameter, allowing tools to send messages directly:
+
+```typescript
+handler: async (args, event) => {
+  // Send image to group
+  const imageBuffer = await generateImage();
+  const base64 = `base64://${imageBuffer.toString("base64")}`;
+  if (event?.reply) {
+    await event.reply(ctx.segment.image(base64));
+    return "Image sent";
+  }
+  return { image: base64 };
+},
+returnToAI: false  // Important: set to false if tool handles sending itself
+```
+
 **Why this matters**: Two plugins can have tools with the same name without conflict:
+
 - `chat.send_message` vs `notification.send_message`
+
+### Help Plugin Role/Permission Options
+
+Commands in help can include a `role` field to indicate permission level:
+
+```typescript
+help: {
+  title: "My Plugin",
+  description: "Plugin description",
+  commands: [
+    { cmd: "/public", desc: "Public command" },
+    { cmd: "/admin", desc: "Admin only", role: "admin" },
+    { cmd: "/owner", desc: "Group owner only", role: "owner" },
+    { cmd: "/master", desc: "Bot master only", role: "master" }
+  ]
+}
+```
+
+**Available roles**:
+
+- `member` - Everyone (default, not shown)
+- `admin` - Group admin or bot master
+- `owner` - Group owner
+- `master` - Bot owner (configured in `mioki.owners`)
+
+The help plugin displays role badges in the generated help image with different colors.
 
 ### Startup Flow
 
@@ -142,6 +191,7 @@ Each plugin and service has its own `package.json` and can have independent depe
 
 1. Create directory in `plugins/`
 2. Add `package.json` with `mioku` field:
+
 ```json
 {
   "name": "mioku-plugin-xxx",
@@ -155,6 +205,7 @@ Each plugin and service has its own `package.json` and can have independent depe
   }
 }
 ```
+
 3. Create `index.ts` with plugin definition
 4. Add plugin name to root `package.json` → `mioki.plugins` array
 5. **Remember**: Reference the plugin object by name, not `this`, in `setup()`
@@ -227,7 +278,7 @@ const myService: MiokuService = {
 
   async dispose() {
     // Cleanup
-  }
+  },
 };
 
 export default myService;
@@ -275,11 +326,16 @@ const helpService = ctx.services?.help as HelpService | undefined;
     properties: { ... },
     required: [...]
   },
-  handler: async (args) => {
+  handler: async (args, event) => {
     // Tool logic
+    // event contains message context for sending replies
+    if (event?.reply) {
+      await event.reply("Response");
+      return "Sent reply";
+    }
     return result;
   },
-  returnToAI: true  // Set to true if AI should process the result
+  returnToAI: true  // Set to false if tool handles sending itself
 }
 ```
 
@@ -297,6 +353,7 @@ ctx.handle("message", async (e: any) => {
 ## Troubleshooting
 
 **Plugins fail to load**: Check that:
+
 1. Plugin exports a default object matching `MiokuPlugin` interface
 2. Plugin is listed in root `package.json` → `mioki.plugins`
 3. Plugin's `setup()` function doesn't use `this` (use plugin object name instead)
@@ -305,6 +362,7 @@ ctx.handle("message", async (e: any) => {
 **Services not available**: Ensure boot plugin runs first (priority: -Infinity or first in plugins array).
 
 **Type errors**: Run `npx tsc --noEmit` to check. Common issues:
+
 - Importing from wrong path (use `../../src/core/types` for plugins)
 - Missing type imports from mioki (`MiokiContext` must come from "mioki")
 - Using `this` in setup function (reference plugin object directly instead)
