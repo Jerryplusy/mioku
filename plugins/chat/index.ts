@@ -140,7 +140,7 @@ const chatPlugin: MiokuPlugin = {
 
     // 连续对话追踪：记录 bot 最近回复的用户和时间
     const recentReplies = new Map<string, number>();
-    const FOLLOW_UP_WINDOW_MS = 3 * 60_000; // 3 分钟内的后续消息走 planner
+    const FOLLOW_UP_WINDOW_MS = 0.5 * 60_000; // 1 分钟内的后续消息走 planner
 
     // 群最后活动时间追踪（用于空闲检测）
     const groupLastActivityTime = new Map<string, number>();

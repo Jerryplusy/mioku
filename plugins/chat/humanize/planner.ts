@@ -32,8 +32,7 @@ export class ActionPlanner {
     }
 
     const history = this.actionHistory.get(sessionId) ?? [];
-    // 只取最近 3 条历史
-    const recentActions = history.slice(-3);
+    const recentActions = history.slice(-10);
     const actionsBlock = recentActions
       .map((a) => `[${new Date(a.time).toLocaleTimeString()}] ${a.action}`)
       .join("\n");
