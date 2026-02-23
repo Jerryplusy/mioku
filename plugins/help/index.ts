@@ -28,13 +28,14 @@ const helpPlugin: MiokuPlugin = {
   name: "help",
   version: "1.0.0",
   description: "帮助插件，生成帮助图片",
-  services: ["help", "screenshot"],
+  services: ["help", "screenshot", "ai"],
 
   async setup(ctx: MiokiContext) {
     const helpService = ctx.services?.help as HelpService | undefined;
     const screenshotService = ctx.services?.screenshot as
       | ScreenshotService
       | undefined;
+    const aiService = ctx.services?.ai as AIService | undefined;
 
     if (!helpService) {
       ctx.logger.warn("help-service 未加载，帮助插件无法运行");
@@ -43,7 +44,97 @@ const helpPlugin: MiokuPlugin = {
 
     if (!screenshotService) {
       ctx.logger.warn("screenshot 服务未加载，帮助插件功能受限");
-      return;
+    }
+
+    async function generateHelpImage(): Promise<string | null> {
+      if (!screenshotService || !helpService) return null;
+      const allHelp = helpService.getAllHelp();
+      const isNightMode = checkNightMode();
+      const htmlContent = generateHelpHtml(allHelp, isNightMode);
+      const pluginCount = allHelp.size;
+      const estimatedHeight = Math.max(1280, Math.ceil(pluginCount / 2) * 280);
+      return screenshotService.screenshot(htmlContent, {
+        width: 720,
+        height: estimatedHeight,
+        fullPage: true,
+        type: "png",
+      });
+    }
+
+    if (aiService) {
+      const helpSkill: AISkill = {
+        name: "help",
+        description: "帮助系统，获取插件帮助信息和发送帮助图片",
+        tools: [
+          {
+            name: "get_help_info",
+            description: "获取所有插件的帮助信息文本",
+            parameters: {
+              type: "object",
+              properties: {},
+              required: [],
+            },
+            handler: async () => {
+              const allHelp = helpService.getAllHelp();
+              const info: string[] = ["=== Mioku Bot 帮助信息 ===\n"];
+              for (const [pluginName, help] of allHelp) {
+                info.push(
+                  `【${help.title || pluginName}】${help.description || ""}`,
+                );
+                if (help.commands?.length) {
+                  for (const cmd of help.commands) {
+                    const roleLabel = cmd.role
+                      ? ` [${ROLE_CONFIG[cmd.role]?.label || cmd.role}]`
+                      : "";
+                    info.push(`  ${cmd.cmd}${roleLabel} - ${cmd.desc}`);
+                  }
+                }
+                info.push("");
+              }
+              return info.join("\n");
+            },
+            returnToAI: true,
+          } as AITool,
+          {
+            name: "send_help_image",
+            description: "生成并发送帮助图片到群聊",
+            parameters: {
+              type: "object",
+              properties: {},
+              required: [],
+            },
+            handler: async (_args: any, event?: any) => {
+              if (!screenshotService) {
+                return "screenshot 服务未加载，无法生成帮助图片";
+              }
+              try {
+                const imagePath = await generateHelpImage();
+                if (!imagePath) {
+                  return "生成帮助图片失败";
+                }
+                if (event?.reply) {
+                  try {
+                    await event.reply(ctx.segment.image(imagePath));
+                  } catch (err) {
+                    const imageBuffer = await fs.promises.readFile(imagePath);
+                    const base64Image = `base64://${imageBuffer.toString("base64")}`;
+                    await event.reply(ctx.segment.image(base64Image));
+                  }
+                  return "已发送帮助图片";
+                }
+                return "帮助图片已发送~";
+              } catch (error) {
+                return `生成帮助图片失败: ${error}`;
+              }
+            },
+            returnToAI: true,
+          } as AITool,
+        ],
+      };
+      aiService.registerSkill(helpSkill);
+      ctx.logger.info("帮助 Skill 已注册到 AI 服务");
+    } else {
+      ctx.logger.warn("ai 服务未加载，help 技能将不可用");
     }
 
     // 监听帮助命令

@@ -11,8 +11,8 @@ export interface AITool {
     properties: Record<string, any>;
     required?: string[];
   };
-  handler: (args: any) => Promise<any> | any;
-  returnToAI?: boolean; // 是否将工具结果返回给 AI 继续处理
+  handler: (args: any, event?: any) => Promise<any> | any;
+  returnToAI?: boolean;
 }
 
 /**

@@ -1,12 +1,8 @@
 import type { AIInstance } from "../../src/services/ai";
-import type {
-  ChatCompletionMessageParam,
-  ChatCompletionTool,
-} from "openai/resources/chat/completions";
+import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { logger } from "mioki";
 import type { AITool } from "../../src";
 import type {
-  ChatConfig,
   ToolContext,
   ChatMessage,
   TargetMessage,
@@ -122,7 +118,7 @@ export async function runChat(
 
       // end_session 工具：立即结束会话
       if (tc.name === "end_session") {
-        const result = await handler.tool.handler(args);
+        const result = await handler.tool.handler(args, toolCtx.event);
         logger.info(
           `[chat-engine] Session ended: ${args.reason || "no reason"}`,
         );
@@ -142,7 +138,7 @@ export async function runChat(
         `[chat-engine] Tool call: ${tc.name}(${JSON.stringify(args).substring(0, 100)})`,
       );
       try {
-        const result = await handler.tool.handler(args);
+        const result = await handler.tool.handler(args, toolCtx.event);
         allToolCalls.push({ name: tc.name, args, result });
 
         if (handler.tool.returnToAI) {
