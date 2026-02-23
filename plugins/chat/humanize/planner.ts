@@ -1,6 +1,11 @@
 import type { AIInstance } from "../../../src/services/ai";
 import { logger } from "mioki";
-import type { ChatConfig, ChatMessage, PlannerAction, PlannerResult } from "../types";
+import type {
+  ChatConfig,
+  ChatMessage,
+  PlannerAction,
+  PlannerResult,
+} from "../types";
 
 export class ActionPlanner {
   private ai: AIInstance;
@@ -27,15 +32,14 @@ export class ActionPlanner {
     }
 
     const history = this.actionHistory.get(sessionId) ?? [];
-    const actionsBlock = history
-      .slice(-5)
-      .map(
-        (a) => `[${new Date(a.time).toLocaleTimeString()}] ${a.action}`,
-      )
+    // 只取最近 3 条历史
+    const recentActions = history.slice(-3);
+    const actionsBlock = recentActions
+      .map((a) => `[${new Date(a.time).toLocaleTimeString()}] ${a.action}`)
       .join("\n");
 
     const chatBlock = recentHistory
-      .slice(-20)
+      .slice(-100)
       .map((m) => {
         const time = new Date(m.timestamp);
         const timeStr = `${String(time.getHours()).padStart(2, "0")}:${String(time.getMinutes()).padStart(2, "0")}`;
@@ -52,28 +56,30 @@ export class ActionPlanner {
       // 空闲检测模式：没有明确触发消息，观察群友聊天并决定是否要融入对话
       prompt = `It is ${timeStr}. Your name is ${botName}.
 
-Here is the recent chat content:
-${chatBlock}
+Here is the recent chat content (from oldest to most recent):
+${chatBlock || "(no chat history)"}
 
-Action history:
-${actionsBlock || "(none)"}
+IMPORTANT: There is no specific trigger message this time. You are being proactively invited to observe the group chat and decide whether to speak up.
 
-IMPORTANT: There is no specific trigger message this time. You need to observe the group chat and decide whether to speak up and融入他们的对话.
+REPLY when ANY of these is true:
+- The conversation mentions ${botName} (you), AI, or any topic you know about
+- There's any question unanswered
+- The conversation is about school, life, tech, or anything you can contribute to
+- Even fragmented/random messages - you can start a new topic or comment on something!
+
+WAIT only when:
+- The conversation is clearly done and everyone left
+- There's absolutely nothing you can think of to say
+
+IMPORTANT: When in doubt, REPLY! Group chats are often casual and fragmented - that's okay! Your message doesn't need to be perfect, just be natural and friendly.
 
 Available actions:
 
-reply - Send a message to naturally join the conversation. Suitable when:
-- There's an interesting topic you can contribute to
-- The conversation has settled and you can add something valuable
-- You notice something worth responding to
-IMPORTANT: Keep your reply SHORT and natural (1-2 sentences max). Don't dominate the conversation.
+reply - Send a message to naturally join the conversation (1-2 sentences max, be concise!)
 
-wait - Stay silent and continue observing. Suitable when:
-- The conversation is already active and doesn't need your input
-- You're not sure what to say
-- The topic doesn't interest you or you have nothing valuable to add
+wait - Stay silent and continue observing
 
-complete - The chat is over or you should stop for now.
+complete - The chat is dead, no one is talking
 
 IMPORTANT: You MUST output ONLY valid JSON, no other text. The JSON must be in this exact format:
 {"action": "reply", "reason": "your reason here", "wait_seconds": 0}
@@ -121,7 +127,9 @@ DO NOT include any explanation, markdown formatting, or additional text. Only ou
     }
 
     try {
-      logger.info(`[ActionPlanner] Planning action for session ${sessionId}, last message: "${lastTriggerMessage.substring(0, 50)}...", isIdleCheck: ${isIdleCheck}`);
+      logger.info(
+        `[ActionPlanner] Planning action for session ${sessionId}, last message: "${lastTriggerMessage.substring(0, 50)}...", isIdleCheck: ${isIdleCheck}`,
+      );
 
       const content = await this.ai.generateText({
         prompt,
@@ -133,7 +141,9 @@ DO NOT include any explanation, markdown formatting, or additional text. Only ou
 
       // 如果返回内容为空，使用默认值
       if (!content || !content.trim()) {
-        logger.warn(`[ActionPlanner] Empty response from AI, using default reply`);
+        logger.warn(
+          `[ActionPlanner] Empty response from AI, using default reply`,
+        );
         return { action: "reply", reason: "empty response" };
       }
 
@@ -148,7 +158,9 @@ DO NOT include any explanation, markdown formatting, or additional text. Only ou
       }
 
       if (!jsonStr) {
-        logger.warn(`[ActionPlanner] Failed to find JSON in response: ${content.substring(0, 100)}`);
+        logger.warn(
+          `[ActionPlanner] Failed to find JSON in response: ${content.substring(0, 100)}`,
+        );
         return { action: "reply", reason: "parse failed" };
       }
 
@@ -163,7 +175,9 @@ DO NOT include any explanation, markdown formatting, or additional text. Only ou
           jsonStr = jsonStr.replace(/,\s*}/g, "}").replace(/,\s*]/g, "]");
           parsed = JSON.parse(jsonStr);
         } catch (e) {
-          logger.warn(`[ActionPlanner] Failed to parse JSON: ${jsonStr.substring(0, 100)}`);
+          logger.warn(
+            `[ActionPlanner] Failed to parse JSON: ${jsonStr.substring(0, 100)}`,
+          );
           return { action: "reply", reason: "parse failed" };
         }
       }
@@ -191,7 +205,9 @@ DO NOT include any explanation, markdown formatting, or additional text. Only ou
       if (actions.length > 20) actions.splice(0, actions.length - 20);
       this.actionHistory.set(sessionId, actions);
 
-      logger.info(`[ActionPlanner] Session ${sessionId}: action=${action}, reason="${result.reason}"${result.waitMs ? `, waitMs=${result.waitMs}` : ''}`);
+      logger.info(
+        `[ActionPlanner] Session ${sessionId}: action=${action}, reason="${result.reason}"${result.waitMs ? `, waitMs=${result.waitMs}` : ""}`,
+      );
       return result;
     } catch (err) {
       logger.error(`[ActionPlanner] Error: ${err}`);
