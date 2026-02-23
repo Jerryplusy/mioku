@@ -248,7 +248,17 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
             args.user_id,
             args.duration,
           );
-          return { success: true };
+          const action = args.duration > 0 ? "muted" : "unmuted";
+          return {
+            success: true,
+            action,
+            user_id: args.user_id,
+            duration: args.duration,
+            message:
+              args.duration > 0
+                ? `已禁言用户 ${args.user_id} ${args.duration} 秒`
+                : `已解除用户 ${args.user_id} 的禁言`,
+          };
         } catch (err) {
           return { error: `Failed: ${err}` };
         }
@@ -271,7 +281,12 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
             toolCtx.groupId!,
             args.user_id,
           );
-          return { success: true };
+          return {
+            success: true,
+            action: "kicked",
+            user_id: args.user_id,
+            message: `已将用户 ${args.user_id} 移出群聊`,
+          };
         } catch (err) {
           return { error: `Failed: ${err}` };
         }
@@ -296,7 +311,13 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
             args.user_id,
             args.card,
           );
-          return { success: true };
+          return {
+            success: true,
+            action: "card_set",
+            user_id: args.user_id,
+            card: args.card,
+            message: `已将用户 ${args.user_id} 的群名片设置为 "${args.card}"`,
+          };
         } catch (err) {
           return { error: `Failed: ${err}` };
         }
@@ -321,7 +342,13 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
             args.user_id,
             args.title,
           );
-          return { success: true };
+          return {
+            success: true,
+            action: "title_set",
+            user_id: args.user_id,
+            title: args.title,
+            message: `已将用户 ${args.user_id} 的专属头衔设置为 "${args.title}"`,
+          };
         } catch (err) {
           return { error: `Failed: ${err}` };
         }
@@ -343,11 +370,15 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
       },
       handler: async (args) => {
         try {
-          await (toolCtx.ctx.bot as any).setGroupWholeBan(
-            toolCtx.groupId!,
-            args.enable,
-          );
-          return { success: true };
+          await toolCtx.ctx.bot.api("set_group_whole_ban", {
+            group_id: toolCtx.groupId,
+            enable: args.enable,
+          });
+          return {
+            success: true,
+            action: args.enable ? "group_muted" : "group_unmuted",
+            message: args.enable ? "全体禁言已开启" : "全体禁言已关闭",
+          };
         } catch (err) {
           return { error: `Failed: ${err}` };
         }

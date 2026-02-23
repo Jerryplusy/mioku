@@ -89,7 +89,19 @@ function buildToolResultsSection(
       typeof tr.result === "string" ? tr.result : JSON.stringify(tr.result);
     return `- **${tr.toolName}**: ${resultStr}`;
   });
-  return `## Tool Call Results\nResults from your previous tool calls:\n${lines.join("\n")}`;
+
+  // Check if any operation was successful (no need to repeat)
+  const hasSuccess = toolResults.some(
+    (tr) => tr.result && tr.result.success === true,
+  );
+
+  const hint =
+    hasSuccess &&
+    `
+
+⚠️ IMPORTANT: A tool has successfully completed its operation (success: true). The operation is DONE - do NOT call the same tool again with the same or similar arguments. If you need to verify the result, use a query tool (like get_group_member_info or get_group_member_list) instead of repeating the action.`;
+
+  return `## Tool Call Results\nResults from your previous tool calls:\n${lines.join("\n")}${hint || ""}`;
 }
 
 function buildEnvironmentSection(ctx: PromptContext): string {
