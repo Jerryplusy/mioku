@@ -3,20 +3,18 @@ import type { AIService, AIInstance } from "../../src/services/ai";
 import type { HelpService } from "../../src/services/help";
 import type { ConfigService } from "../../src/services/config";
 import { MiokiContext } from "mioki";
-import type { AITool } from "../../src";
 import type {
   ChatConfig,
   ToolContext,
   ChatMessage,
   TargetMessage,
-  SkillSession,
 } from "./types";
 import { initDatabase } from "./db";
 import { SessionManager } from "./session";
 import { RateLimiter } from "./rate-limiter";
 import { runChat } from "./chat-engine";
 import { HumanizeEngine } from "./humanize";
-import type { SkillSessionManager } from "./tools";
+import { SkillSessionManager } from "./skill-session";
 import {
   shouldTrigger,
   isQuotingBot,
@@ -29,101 +27,7 @@ import {
 import { BASE_CONFIG } from "./configs/base";
 import { SETTINGS_CONFIG } from "./configs/settings";
 import { PERSONALIZATION_CONFIG } from "./configs/personalization";
-
-// ==================== SkillSessionManager ====================
-
-class SkillSessionManagerImpl implements SkillSessionManager {
-  private sessions: Map<string, Map<string, SkillSession>> = new Map();
-  private EXPIRY_MS = 60 * 60 * 1000; // 1 hour
-
-  getTools(sessionId: string): Map<string, AITool> {
-    const result = new Map<string, AITool>();
-    const sessionSkills = this.sessions.get(sessionId);
-    if (!sessionSkills) return result;
-
-    const now = Date.now();
-    for (const [skillName, session] of sessionSkills) {
-      if (now > session.expiresAt) {
-        sessionSkills.delete(skillName);
-        continue;
-      }
-      for (const [toolName, tool] of session.tools) {
-        result.set(toolName, tool);
-      }
-    }
-    return result;
-  }
-
-  loadSkill(
-    sessionId: string,
-    skillName: string,
-    tools: AITool[],
-  ): SkillSession {
-    let sessionSkills = this.sessions.get(sessionId);
-    if (!sessionSkills) {
-      sessionSkills = new Map();
-      this.sessions.set(sessionId, sessionSkills);
-    }
-
-    const now = Date.now();
-    const toolMap = new Map<string, AITool>();
-    for (const tool of tools) {
-      toolMap.set(`${skillName}.${tool.name}`, tool);
-    }
-
-    const session: SkillSession = {
-      skillName,
-      tools: toolMap,
-      loadedAt: now,
-      expiresAt: now + this.EXPIRY_MS,
-    };
-    sessionSkills.set(skillName, session);
-    return session;
-  }
-
-  unloadSkill(sessionId: string, skillName: string): boolean {
-    const sessionSkills = this.sessions.get(sessionId);
-    if (!sessionSkills) return false;
-    return sessionSkills.delete(skillName);
-  }
-
-  getActiveSkillsInfo(sessionId: string): string {
-    const sessionSkills = this.sessions.get(sessionId);
-    if (!sessionSkills || sessionSkills.size === 0) return "";
-
-    const now = Date.now();
-    const lines: string[] = [];
-
-    for (const [skillName, session] of sessionSkills) {
-      if (now > session.expiresAt) {
-        sessionSkills.delete(skillName);
-        continue;
-      }
-      const remainingMin = Math.ceil((session.expiresAt - now) / 60000);
-      const toolNames = [...session.tools.keys()].join(", ");
-      lines.push(
-        `- ${skillName} (expires in ${remainingMin}min): ${toolNames}`,
-      );
-    }
-
-    if (lines.length === 0) return "";
-    return `## Loaded External Skills\n${lines.join("\n")}`;
-  }
-
-  cleanup(): void {
-    const now = Date.now();
-    for (const [sessionId, sessionSkills] of this.sessions) {
-      for (const [skillName, session] of sessionSkills) {
-        if (now > session.expiresAt) {
-          sessionSkills.delete(skillName);
-        }
-      }
-      if (sessionSkills.size === 0) {
-        this.sessions.delete(sessionId);
-      }
-    }
-  }
-}
+import { MessageQueueManager, parseLineMarkers } from "./queue";
 
 // ==================== Plugin ====================
 
@@ -204,7 +108,7 @@ const chatPlugin: MiokuPlugin = {
     const db = initDatabase();
     const sessionManager = new SessionManager(db, config.maxSessions);
     const rateLimiter = new RateLimiter();
-    const skillManager = new SkillSessionManagerImpl();
+    const skillManager = new SkillSessionManager();
 
     // 通过 AI 服务创建实例并设为默认
     if (!aiService) {
@@ -228,8 +132,11 @@ const chatPlugin: MiokuPlugin = {
     const pokeCooldowns = new Map<number, number>();
     const POKE_COOLDOWN_MS = 10 * 60_000;
 
-    // 正在处理的会话，防止并发
+    // 正在处理的会话（按群 ID），防止并发
     const processingSet = new Set<string>();
+
+    // 消息队列管理器
+    const queueManager = new MessageQueueManager();
 
     // 连续对话追踪：记录 bot 最近回复的用户和时间
     const recentReplies = new Map<string, number>();
@@ -242,12 +149,242 @@ const chatPlugin: MiokuPlugin = {
     );
 
     /**
+     * 处理队列中的等待消息
+     * 将队列中所有消息合并后一次性发送给 AI，只请求一次
+     */
+    async function processQueuedMessages(
+      groupSessionId: string,
+      cfg: ChatConfig,
+    ): Promise<void> {
+      // 获取当前队列中的所有消息
+      const queue = queueManager.getQueue(groupSessionId);
+      if (!queue || queue.length === 0) {
+        queueManager.clearActiveTarget(groupSessionId);
+        return;
+      }
+
+      ctx.logger.info(
+        `[Queue] 群 ${groupSessionId} 批量处理队列，队列长度: ${queue.length}`,
+      );
+
+      // 收集所有队列消息的内容（使用纯文本格式，与第一个消息一致）
+      const queuedContents: string[] = [];
+      for (const item of queue) {
+        const { text: extractedText, multimodal } = extractContent(
+          item.event,
+          cfg,
+          ctx,
+        );
+        let content = multimodal ? JSON.stringify(multimodal) : extractedText;
+        if (content) {
+          queuedContents.push(content);
+        }
+      }
+
+      // 清空队列
+      queueManager.clearQueue(groupSessionId);
+
+      if (queuedContents.length === 0) {
+        queueManager.clearActiveTarget(groupSessionId);
+        return;
+      }
+
+      // 不管是否有 activeTarget，都直接用队列消息构建新的 targetMessage
+      // 已处理的消息不需要保留
+      const firstItem = queue[0];
+      const userName =
+        firstItem.event.sender?.card ||
+        firstItem.event.sender?.nickname ||
+        String(firstItem.event.user_id);
+
+      // 将所有队列消息合并，用换行分隔（不用 --- 分隔）
+      const mergedContent = queuedContents.join("\n");
+
+      const targetMessage: TargetMessage = {
+        userName,
+        userId: firstItem.event.user_id || firstItem.event.sender?.user_id,
+        userRole: firstItem.event.sender?.role || "member",
+        content: mergedContent,
+        messageId: firstItem.event.message_id,
+        timestamp: Date.now(),
+      };
+
+      ctx.logger.info(
+        `[Queue] 群 ${groupSessionId} 批量处理 ${queue.length} 条消息`,
+      );
+
+      // 清理旧的 activeTarget
+      queueManager.clearActiveTarget(groupSessionId);
+
+      const groupId = parseInt(groupSessionId.split(":")[1], 10);
+      const toolCtx: ToolContext = {
+        ctx,
+        event: null, // 复用之前的 context
+        sessionId: groupSessionId,
+        groupId,
+        userId: targetMessage.userId,
+        config: cfg,
+        aiService: aiService!,
+        db,
+        botRole: await getBotRole(groupId, ctx),
+      };
+
+      const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+
+      // 获取群聊历史
+      const rawHistory = await getGroupHistory(groupId, ctx, cfg.historyCount, db);
+      const history: ChatMessage[] = rawHistory.map((msg) => ({
+        sessionId: groupSessionId,
+        role: "user" as const,
+        content: msg.content,
+        userId: msg.userId,
+        userName: msg.userName,
+        userRole: msg.userRole,
+        groupId,
+        timestamp: msg.timestamp,
+        messageId: msg.messageId,
+      }));
+
+      // 记忆检索
+      const memoryContext = await humanize.memoryRetrieval.retrieve(
+        groupSessionId,
+        targetMessage.content,
+        targetMessage.userName,
+        history,
+      );
+
+      // 话题上下文
+      const topicContext =
+        humanize.topicTracker.getTopicContext(groupSessionId);
+
+      // 表达习惯上下文
+      const expressionContext =
+        humanize.expressionLearner.getExpressionContext(groupSessionId);
+
+      let groupName: string | undefined;
+      let memberCount: number | undefined;
+      try {
+        const groupInfo = await ctx.bot.getGroupInfo(groupId);
+        groupName = (groupInfo as any)?.group_name;
+        memberCount = (groupInfo as any)?.member_count;
+      } catch {}
+
+      // 重新运行 AI
+      const result = await runChat(
+        aiInstance,
+        toolCtx,
+        history,
+        targetMessage,
+        {
+          config: cfg,
+          groupName,
+          memberCount,
+          botNickname,
+          botRole: toolCtx.botRole,
+          aiService: aiService!,
+          isGroup: true,
+          memoryContext: memoryContext || undefined,
+          topicContext: topicContext || undefined,
+          expressionContext: expressionContext || undefined,
+        },
+        sessionManager,
+        humanize,
+        skillManager,
+      );
+
+      // 发送消息
+      if (result.messages.length > 0) {
+        for (let i = 0; i < result.messages.length; i++) {
+          let msg = result.messages[i];
+          msg = humanize.typoGenerator.apply(msg);
+
+          const lines = msg.split("\n").filter((l) => l.trim());
+          for (let j = 0; j < lines.length; j++) {
+            const line = lines[j];
+
+            const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(
+              line,
+              i === 0 && j === 0 ? undefined : "skip",
+            );
+
+            if (pokeUsers.length > 0) {
+              for (const pokeId of pokeUsers) {
+                try {
+                  await ctx.bot.api("group_poke", {
+                    group_id: groupId,
+                    user_id: pokeId,
+                  });
+                } catch (err) {
+                  ctx.logger.warn(`[戳人] 失败: ${err}`);
+                }
+              }
+            }
+
+            const lineSegments: any[] = [];
+
+            if (quoteId !== undefined && i === 0 && j === 0) {
+              lineSegments.push({ type: "reply", id: String(quoteId) });
+            }
+
+            for (const atId of atUsers) {
+              lineSegments.push(ctx.segment.at(atId));
+            }
+
+            if (cleanText) {
+              lineSegments.push(ctx.segment.text(cleanText));
+            }
+
+            if (lineSegments.length > 0) {
+              await ctx.bot.sendGroupMsg(groupId, lineSegments);
+            }
+
+            if (j < lines.length - 1) {
+              await new Promise((r) => setTimeout(r, 300));
+            }
+          }
+
+          if (i < result.messages.length - 1) {
+            await new Promise((r) => setTimeout(r, 300));
+          }
+        }
+
+        humanize.frequencyController.recordSpeak(groupSessionId);
+      }
+
+      // 发送表情包
+      if (result.emojiPath) {
+        try {
+          const emojiSegment = ctx.segment.image(`file://${result.emojiPath}`);
+          await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
+        } catch (err) {
+          ctx.logger.warn(`[表情包] 发送失败: ${err}`);
+        }
+      }
+
+      // 保存 bot 发送的消息到数据库
+      const now = Date.now();
+      for (const msg of result.messages) {
+        saveBotMessage(groupId, groupSessionId, msg, now, cfg);
+      }
+
+      // 清理
+      queueManager.clearActiveTarget(groupSessionId);
+      sessionManager.touch(groupSessionId);
+
+      ctx.logger.info(`[Queue] 群 ${groupSessionId} 队列消息处理完成`);
+    }
+
+    /**
      * 处理 AI 聊天核心流程
      */
     async function processChat(
       e: any,
       cfg: ChatConfig,
-      options?: { skipPlanner?: boolean; triggerReason?: string },
+      options?: {
+        skipPlanner?: boolean;
+        triggerReason?: string;
+        appendToActive?: boolean;
+      },
     ): Promise<void> {
       const isGroup = e.message_type === "group";
       const groupId: number | undefined = isGroup ? e.group_id : undefined;
@@ -258,9 +395,8 @@ const chatPlugin: MiokuPlugin = {
         : `personal:${userId}`;
       const personalSessionId = `personal:${userId}`;
 
-      // 防止并发处理
-      if (processingSet.has(groupSessionId)) return;
-      processingSet.add(groupSessionId);
+      // 防止并发处理（已在调用方处理）
+      // 如果 appendToActive 为 true，说明是追加模式，不添加 processingSet
 
       try {
         // 获取/创建会话
@@ -341,7 +477,7 @@ const chatPlugin: MiokuPlugin = {
 
         // 加载群聊历史消息
         const rawHistory = groupId
-          ? await getGroupHistory(groupId, ctx, cfg.historyCount)
+          ? await getGroupHistory(groupId, ctx, cfg.historyCount, db)
           : [];
 
         // 转换为 ChatMessage 格式
@@ -372,7 +508,10 @@ const chatPlugin: MiokuPlugin = {
             ctx.logger.info(
               `[动作规划] 会话 ${groupSessionId} 结束对话: ${planResult.reason}`,
             );
-            processingSet.delete(groupSessionId);
+            // 清理活跃消息
+            if (groupId) {
+              queueManager.clearActiveTarget(groupSessionId);
+            }
             return;
           }
 
@@ -380,7 +519,10 @@ const chatPlugin: MiokuPlugin = {
             ctx.logger.info(
               `[动作规划] 会话 ${groupSessionId} 等待: ${planResult.reason}`,
             );
-            processingSet.delete(groupSessionId);
+            // 清理活跃消息
+            if (groupId) {
+              queueManager.clearActiveTarget(groupSessionId);
+            }
             return;
           }
         }
@@ -428,6 +570,11 @@ const chatPlugin: MiokuPlugin = {
           messageId: e.message_id,
           timestamp: Date.now(),
         };
+
+        // 保存到活跃消息映射（用于队列追加）
+        if (groupId) {
+          queueManager.setActiveTarget(groupSessionId, targetMessage);
+        }
 
         // 构建工具上下文
         const toolCtx: ToolContext = {
@@ -555,7 +702,17 @@ const chatPlugin: MiokuPlugin = {
           }
         }
 
+        // 保存 bot 发送的消息到数据库
+        if (groupId) {
+          const now = Date.now();
+          for (const msg of result.messages) {
+            saveBotMessage(groupId, groupSessionId, msg, now, cfg);
+          }
+        }
+
         sessionManager.touch(groupSessionId);
+
+        // 不在这里清理 activeTarget，让 processQueuedMessages 处理
       } catch (err) {
         const errStr = String(err);
         // 429 rate limit 错误，等待后重试
@@ -563,8 +720,7 @@ const chatPlugin: MiokuPlugin = {
           ctx.logger.warn(`[Chat] Rate limit hit, waiting 5s to retry...`);
           await new Promise((r) => setTimeout(r, 5000));
           try {
-            // 重置并重试，跳过 planner
-            processingSet.delete(groupSessionId);
+            // 重置并重试，跳过 planner（不重新添加 processingSet，由调用方处理）
             await processChat(e, cfg, { ...options, skipPlanner: true });
             return;
           } catch (retryErr) {
@@ -573,9 +729,36 @@ const chatPlugin: MiokuPlugin = {
         } else {
           ctx.logger.error(`Chat processing failed: ${err}`);
         }
-      } finally {
-        processingSet.delete(groupSessionId);
+
+        // 清理活跃消息（错误）
+        if (groupId) {
+          queueManager.clearActiveTarget(groupSessionId);
+        }
       }
+    }
+
+    /**
+     * 保存 bot 发送的消息到数据库
+     */
+    function saveBotMessage(
+      groupId: number,
+      groupSessionId: string,
+      content: string,
+      timestamp: number,
+      cfg: ChatConfig,
+    ): void {
+      const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Miku";
+      const botMsg: ChatMessage = {
+        sessionId: groupSessionId,
+        role: "assistant",
+        content,
+        userId: ctx.bot.uin,
+        userName: botNickname,
+        userRole: "member",
+        groupId,
+        timestamp,
+      };
+      db.saveMessage(botMsg);
     }
 
     // ==================== 消息处理 ====================
@@ -638,78 +821,89 @@ const chatPlugin: MiokuPlugin = {
       })();
 
       // 检查是否已在处理中
-      const triggerKey = isGroup
-        ? `group:${groupId}:${userId}`
-        : `personal:${userId}`;
-      if (processingSet.has(triggerKey)) {
-        return;
-      }
+      const groupSessionId =
+        isGroup && groupId ? `group:${groupId}` : undefined;
 
-      if (atBot) {
-        processingSet.add(triggerKey);
-        if (!rateLimiter.canProcess(userId, groupId, text)) {
-          processingSet.delete(triggerKey);
+      // 群消息：检查群是否正在处理
+      if (isGroup && groupId && groupSessionId) {
+        if (processingSet.has(groupSessionId)) {
+          // 群正在处理中，将新消息加入队列等待追加
+          queueManager.enqueue(groupSessionId, e, cfg);
+          ctx.logger.info(
+            `[Queue] 群 ${groupId} 正在处理，新消息加入队列，当前队列长度: ${queueManager.getQueueLength(groupSessionId)}`,
+          );
           return;
         }
-        rateLimiter.record(userId, groupId, text);
-        try {
-          await processChat(e, cfg, { skipPlanner: true });
-        } finally {
-          processingSet.delete(triggerKey);
+
+        // 标记群正在处理
+        processingSet.add(groupSessionId);
+      } else {
+        // 私聊仍然基于用户
+        const triggerKey = `personal:${userId}`;
+        if (processingSet.has(triggerKey)) {
+          return;
         }
-        return;
+        processingSet.add(triggerKey);
       }
 
-      if (quotedBot || mentionedNickname || isFollowUp) {
-        // 清除 recentReplies 记录，防止重复触发
-        if (isGroup && groupId) {
-          recentReplies.delete(`${groupId}:${userId}`);
-        }
-
-        const groupSessionId = `group:${groupId}`;
-        processingSet.add(triggerKey);
-        const rawHistory = await getGroupHistory(
-          groupId!,
-          ctx,
-          cfg.historyCount,
-        );
-        const history: ChatMessage[] = rawHistory.map((msg) => ({
-          sessionId: groupSessionId,
-          role: "user" as const,
-          content: msg.content,
-          userId: msg.userId,
-          userName: msg.userName,
-          userRole: msg.userRole,
-          groupId,
-          timestamp: msg.timestamp,
-          messageId: msg.messageId,
-        }));
-        const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
-
-        const planResult = await humanize.actionPlanner.plan(
-          groupSessionId,
-          botNickname,
-          history,
-          text,
-        );
-
-        if (planResult.action === "reply") {
+      try {
+        if (atBot) {
           if (!rateLimiter.canProcess(userId, groupId, text)) {
-            processingSet.delete(triggerKey);
             return;
           }
           rateLimiter.record(userId, groupId, text);
-          try {
-            await processChat(e, cfg, { skipPlanner: true });
-          } finally {
-            processingSet.delete(triggerKey);
-          }
-        } else {
-          processingSet.delete(triggerKey);
+          await processChat(e, cfg, { skipPlanner: true });
+          return;
         }
-        return;
-      }
 
+        if (quotedBot || mentionedNickname || isFollowUp) {
+          // 清除 recentReplies 记录，防止重复触发
+          recentReplies.delete(`${groupId}:${userId}`);
+
+          const rawHistory = await getGroupHistory(
+            groupId!,
+            ctx,
+            cfg.historyCount,
+            db,
+          );
+          const history: ChatMessage[] = rawHistory.map((msg) => ({
+            sessionId: groupSessionId!,
+            role: "user" as const,
+            content: msg.content,
+            userId: msg.userId,
+            userName: msg.userName,
+            userRole: msg.userRole,
+            groupId,
+            timestamp: msg.timestamp,
+            messageId: msg.messageId,
+          }));
+          const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+
+          const planResult = await humanize.actionPlanner.plan(
+            groupSessionId!,
+            botNickname,
+            history,
+            text,
+          );
+
+          if (planResult.action === "reply") {
+            if (!rateLimiter.canProcess(userId, groupId, text)) {
+              return;
+            }
+            rateLimiter.record(userId, groupId, text);
+            await processChat(e, cfg, { skipPlanner: true });
+          }
+          return;
+        }
+      } finally {
+        if (isGroup && groupId && groupSessionId) {
+          processingSet.delete(groupSessionId);
+          // 处理队列中的消息
+          await processQueuedMessages(groupSessionId, cfg);
+        } else {
+          processingSet.delete(`personal:${userId}`);
+        }
+      }
       // 没有触发任何条件，不回复
       return;
     });
@@ -731,7 +925,16 @@ const chatPlugin: MiokuPlugin = {
       pokeCooldowns.set(groupId, Date.now());
 
       const groupSessionId = `group:${groupId}`;
-      if (processingSet.has(groupSessionId)) return;
+
+      // 检查群是否正在处理，如果是则加入队列
+      if (processingSet.has(groupSessionId)) {
+        queueManager.enqueue(groupSessionId, e, cfg);
+        ctx.logger.info(
+          `[Queue] 群 ${groupId} 戳一戳加入队列，当前队列长度: ${queueManager.getQueueLength(groupSessionId)}`,
+        );
+        return;
+      }
+
       processingSet.add(groupSessionId);
 
       // 确保 session 存在
@@ -765,6 +968,7 @@ const chatPlugin: MiokuPlugin = {
           groupId,
           ctx,
           cfg.historyCount,
+          db,
         );
         const history: ChatMessage[] = rawHistory.map((msg) => ({
           sessionId: groupSessionId,
@@ -849,7 +1053,7 @@ const chatPlugin: MiokuPlugin = {
               // 构建消息段
               const lineSegments: any[] = [];
 
-              // 引用（仅第一条消息的第一行）
+              // 引用
               if (quoteId !== undefined && i === 0 && j === 0) {
                 lineSegments.push({ type: "reply", id: String(quoteId) });
               }
@@ -886,6 +1090,12 @@ const chatPlugin: MiokuPlugin = {
           }
         }
 
+        // 保存 bot 发送的消息到数据库
+        const now = Date.now();
+        for (const msg of result.messages) {
+          saveBotMessage(groupId, groupSessionId, msg, now, cfg);
+        }
+
         // 发送表情包
         if (result.emojiPath) {
           try {
@@ -915,81 +1125,10 @@ const chatPlugin: MiokuPlugin = {
       clearInterval(cleanupInterval);
       processingSet.clear();
       pokeCooldowns.clear();
+      recentReplies.clear();
       ctx.logger.info("聊天插件已卸载");
     };
   },
 };
-
-// ==================== 消息标记解析 ====================
-
-/**
- * 解析单行文本中的标记，按顺序提取 AT、戳人、引用
- * @param line 要解析的文本
- * @param quoteMode "skip" 跳过引用标记，其他值处理引用
- */
-function parseLineMarkers(
-  line: string,
-  quoteMode?: "skip",
-): {
-  cleanText: string;
-  atUsers: number[];
-  pokeUsers: number[];
-  quoteId?: number;
-} {
-  const atUsers: number[] = [];
-  const pokeUsers: number[] = [];
-  let quoteId: number | undefined;
-
-  // 提取 AT 标记
-  const atPatterns = [
-    /\[\[\[at:(\d+)\]\]\]/g,
-    /\(\(\(at:(\d+)\)\)\)/g,
-    /\(\(\((\d+)\)\)\)/g,
-  ];
-  for (const pattern of atPatterns) {
-    const matches = line.matchAll(pattern);
-    for (const match of matches) {
-      atUsers.push(parseInt(match[1], 10));
-    }
-  }
-
-  // 提取戳人标记
-  const pokePatterns = [/\[\[\[poke:(\d+)\]\]\]/g, /\(\(\(poke:(\d+)\)\)\)/g];
-  for (const pattern of pokePatterns) {
-    const matches = line.matchAll(pattern);
-    for (const match of matches) {
-      pokeUsers.push(parseInt(match[1], 10));
-    }
-  }
-
-  // 提取引用标记（仅在允许时）
-  if (quoteMode !== "skip") {
-    const replyPatterns = [
-      /\[\[\[reply:(\d+)\]\]\]/g,
-      /\(\(\(reply:(\d+)\)\)\)/g,
-    ];
-    for (const pattern of replyPatterns) {
-      const matches = line.matchAll(pattern);
-      for (const match of matches) {
-        if (quoteId === undefined) {
-          quoteId = parseInt(match[1], 10);
-        }
-      }
-    }
-  }
-
-  // 清理标记
-  let cleanText = line
-    .replace(/\[\[\[at:\d+\]\]\]/g, "")
-    .replace(/\(\(\(at:\d+\)\)\)/g, "")
-    .replace(/\(\(\(\d+\)\)\)/g, "")
-    .replace(/\[\[\[poke:\d+\]\]\]/g, "")
-    .replace(/\(\(\(poke:\d+\)\)\)/g, "")
-    .replace(/\[\[\[reply:\d+\]\]\]/g, "")
-    .replace(/\(\(\(reply:\d+\)\)\)/g, "")
-    .trim();
-
-  return { cleanText, atUsers, pokeUsers, quoteId };
-}
 
 export default chatPlugin;

@@ -1,5 +1,5 @@
 import { logger, MiokiContext } from "mioki";
-import type { ChatConfig } from "../types";
+import type { ChatConfig, ChatMessage } from "../types";
 
 export function shouldTrigger(
   e: any,
@@ -162,6 +162,7 @@ export async function getGroupHistory(
   groupId: number,
   ctx: MiokiContext,
   count: number = 100,
+  db?: { getBotMessages(groupId: number, limit: number): ChatMessage[] },
 ): Promise<
   Array<{
     userId: number;
@@ -172,6 +173,30 @@ export async function getGroupHistory(
     timestamp: number;
   }>
 > {
+  // 先获取 bot 从数据库发送的消息
+  const botMessages: Array<{
+    userId: number;
+    userName: string;
+    userRole: string;
+    content: string;
+    messageId: number;
+    timestamp: number;
+  }> = [];
+
+  if (db) {
+    const storedBotMessages = db.getBotMessages(groupId, count);
+    for (const msg of storedBotMessages) {
+      botMessages.push({
+        userId: msg.userId ?? 0,
+        userName: msg.userName || "Miku",
+        userRole: msg.userRole || "member",
+        content: msg.content,
+        messageId: msg.messageId ?? 0,
+        timestamp: msg.timestamp,
+      });
+    }
+  }
+
   try {
     // 调用 OneBot API 获取群聊历史
     const result = await (ctx.bot as any).api("get_group_msg_history", {
@@ -186,7 +211,7 @@ export async function getGroupHistory(
     const messages = result?.messages || result?.data?.messages || [];
     if (!Array.isArray(messages)) {
       logger.warn("[getGroupHistory] API 返回格式异常:", result);
-      return [];
+      return botMessages;
     }
 
     const botUin = ctx.bot.uin;
@@ -250,9 +275,18 @@ export async function getGroupHistory(
       });
     }
 
-    return formatted;
+    // 合并 bot 消息和群聊历史，按时间排序
+    const allMessages = [...botMessages, ...formatted];
+    allMessages.sort((a, b) => a.timestamp - b.timestamp);
+
+    // 如果超过 count，截取最新的
+    if (allMessages.length > count) {
+      return allMessages.slice(-count);
+    }
+
+    return allMessages;
   } catch (err) {
     console.error("获取群聊历史失败:", err);
-    return [];
+    return botMessages;
   }
 }
