@@ -29,6 +29,81 @@ import { SETTINGS_CONFIG } from "./configs/settings";
 import { PERSONALIZATION_CONFIG } from "./configs/personalization";
 import { MessageQueueManager, parseLineMarkers } from "./queue";
 
+/**
+ * 发送单条消息（带 markers 解析）
+ */
+async function sendMessage(
+  ctx: MiokiContext,
+  groupId: number | undefined,
+  userId: number,
+  text: string,
+  isFirst: boolean,
+  typoGenerator: {
+    apply: (text: string) => string;
+  },
+): Promise<void> {
+  // 应用错别字生成器
+  let msg = typoGenerator.apply(text);
+
+  // 按换行符分割为多条消息
+  const lines = msg.split("\n").filter((l) => l.trim());
+
+  for (let j = 0; j < lines.length; j++) {
+    const line = lines[j];
+
+    // 解析消息中的标记
+    const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(
+      line,
+      isFirst && j === 0 ? undefined : "skip",
+    );
+
+    // 戳人
+    if (groupId && pokeUsers.length > 0) {
+      for (const pokeId of pokeUsers) {
+        try {
+          await ctx.bot.api("group_poke", {
+            group_id: groupId,
+            user_id: pokeId,
+          });
+        } catch (err) {
+          ctx.logger.warn(`[戳人] 失败: ${err}`);
+        }
+      }
+    }
+
+    // 构建消息段
+    const lineSegments: any[] = [];
+
+    // 引用（仅第一条消息的第一行）
+    if (quoteId !== undefined && isFirst && j === 0) {
+      lineSegments.push({ type: "reply", id: String(quoteId) });
+    }
+
+    // AT
+    for (const atId of atUsers) {
+      lineSegments.push(ctx.segment.at(atId));
+    }
+
+    // 文本
+    if (cleanText) {
+      lineSegments.push(ctx.segment.text(cleanText));
+    }
+
+    // 发送
+    if (lineSegments.length > 0) {
+      if (groupId) {
+        await ctx.bot.sendGroupMsg(groupId, lineSegments);
+      } else {
+        await ctx.bot.sendPrivateMsg(userId, lineSegments);
+      }
+    }
+
+    if (j < lines.length - 1) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+}
+
 // ==================== Plugin ====================
 
 const chatPlugin: MiokuPlugin = {
@@ -248,6 +323,30 @@ const chatPlugin: MiokuPlugin = {
                 aiService: aiService!,
                 db,
                 botRole: await getBotRole(groupId, ctx),
+                // AI 返回文本时立即发送
+                onTextContent: async (text, messageIndex, totalMessages) => {
+                  // 解析消息
+                  const messages = text
+                    .trim()
+                    .split("\n---\n")
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+
+                  // 发送当前消息
+                  if (messages[messageIndex]) {
+                    await sendMessage(
+                      ctx,
+                      groupId,
+                      0,
+                      messages[messageIndex],
+                      messageIndex === 0,
+                      humanize.typoGenerator,
+                    );
+                  }
+
+                  // 记录发言频率
+                  humanize.frequencyController.recordSpeak(groupSessionId);
+                },
               };
 
               // 构建 planner 思考内容，告诉 AI 群里的情况和可以怎么回复
@@ -279,9 +378,15 @@ Planned reason: ${planResult.reason}
                 skillManager,
               );
 
-              // 发送消息（复用现有的发送逻辑）
+              // 发送消息（跳过已通过 onTextContent 回调发送的消息）
+              const sentIndices0 = toolCtx.sentMessageIndices;
               if (result.messages.length > 0) {
                 for (let i = 0; i < result.messages.length; i++) {
+                  // 跳过已发送的消息
+                  if (sentIndices0?.has(i)) {
+                    continue;
+                  }
+
                   let msg = result.messages[i];
                   msg = humanize.typoGenerator.apply(msg);
 
@@ -337,7 +442,10 @@ Planned reason: ${planResult.reason}
                   }
                 }
 
-                humanize.frequencyController.recordSpeak(groupSessionId);
+                // 记录发言
+                if (!sentIndices0 || sentIndices0.size === 0) {
+                  humanize.frequencyController.recordSpeak(groupSessionId);
+                }
               }
 
               // 保存 bot 消息
@@ -442,6 +550,30 @@ Planned reason: ${planResult.reason}
         aiService: aiService!,
         db,
         botRole: await getBotRole(groupId, ctx),
+        // AI 返回文本时立即发送（不等待工具调用完成）
+        onTextContent: async (text, messageIndex, totalMessages) => {
+          // 解析消息
+          const messages = text
+            .trim()
+            .split("\n---\n")
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+          // 发送当前消息
+          if (messages[messageIndex]) {
+            await sendMessage(
+              ctx,
+              groupId,
+              targetMessage.userId,
+              messages[messageIndex],
+              messageIndex === 0,
+              humanize.typoGenerator,
+            );
+          }
+
+          // 记录发言频率
+          humanize.frequencyController.recordSpeak(groupSessionId);
+        },
       };
 
       const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
@@ -518,8 +650,14 @@ Planned reason: ${planResult.reason}
       );
 
       // 发送消息
+      const sentIndices2 = toolCtx.sentMessageIndices;
       if (result.messages.length > 0) {
         for (let i = 0; i < result.messages.length; i++) {
+          // 跳过已发送的消息
+          if (sentIndices2?.has(i)) {
+            continue;
+          }
+
           let msg = result.messages[i];
           msg = humanize.typoGenerator.apply(msg);
 
@@ -573,7 +711,10 @@ Planned reason: ${planResult.reason}
           }
         }
 
-        humanize.frequencyController.recordSpeak(groupSessionId);
+        // 记录发言（如果回调没有发送消息，则在这里记录）
+        if (!sentIndices2 || sentIndices2.size === 0) {
+          humanize.frequencyController.recordSpeak(groupSessionId);
+        }
       }
 
       // 发送表情包
@@ -812,6 +953,30 @@ Planned reason: ${planResult.reason}
           aiService: aiService!,
           db,
           botRole,
+          // AI 返回文本时立即发送
+          onTextContent: async (text, messageIndex, totalMessages) => {
+            // 解析消息
+            const messages = text
+              .trim()
+              .split("\n---\n")
+              .map((s) => s.trim())
+              .filter(Boolean);
+
+            // 发送当前消息
+            if (messages[messageIndex]) {
+              await sendMessage(
+                ctx,
+                groupId,
+                userId,
+                messages[messageIndex],
+                messageIndex === 0,
+                humanize.typoGenerator,
+              );
+            }
+
+            // 记录发言频率
+            humanize.frequencyController.recordSpeak(groupSessionId);
+          },
         };
 
         // 运行 AI
@@ -842,9 +1007,15 @@ Planned reason: ${planResult.reason}
           skillManager,
         );
 
-        // 发送消息
+        // 发送消息（跳过已通过 onTextContent 回调发送的消息）
+        const sentIndices = toolCtx.sentMessageIndices;
         if (result.messages.length > 0) {
           for (let i = 0; i < result.messages.length; i++) {
+            // 跳过已发送的消息
+            if (sentIndices?.has(i)) {
+              continue;
+            }
+
             let msg = result.messages[i];
 
             // 应用错别字生成器
@@ -907,8 +1078,10 @@ Planned reason: ${planResult.reason}
             }
           }
 
-          // 记录发言
-          humanize.frequencyController.recordSpeak(groupSessionId);
+          // 记录发言（如果回调没有发送消息，则在这里记录）
+          if (!sentIndices || sentIndices.size === 0) {
+            humanize.frequencyController.recordSpeak(groupSessionId);
+          }
 
           // 记录最近回复，用于连续对话追踪
           if (groupId && userId) {
@@ -1082,6 +1255,30 @@ Planned reason: ${planResult.reason}
               aiService: aiService!,
               db,
               botRole: await getBotRole(targetGroupId, ctx),
+              // AI 返回文本时立即发送
+              onTextContent: async (text, messageIndex, totalMessages) => {
+                // 解析消息
+                const messages = text
+                  .trim()
+                  .split("\n---\n")
+                  .map((s) => s.trim())
+                  .filter(Boolean);
+
+                // 发送当前消息
+                if (messages[messageIndex]) {
+                  await sendMessage(
+                    ctx,
+                    targetGroupId,
+                    0,
+                    messages[messageIndex],
+                    messageIndex === 0,
+                    humanize.typoGenerator,
+                  );
+                }
+
+                // 记录发言频率
+                humanize.frequencyController.recordSpeak(groupSessionId);
+              },
             };
 
             // 构建 planner 思考内容，告诉 AI 群里的情况和可以怎么回复
@@ -1113,9 +1310,15 @@ Planned reason: ${planResult.reason}
               skillManager,
             );
 
-            // 发送消息
+            // 发送消息（跳过已通过 onTextContent 回调发送的消息）
+            const sentIndices3 = toolCtx.sentMessageIndices;
             if (result.messages.length > 0) {
               for (let i = 0; i < result.messages.length; i++) {
+                // 跳过已发送的消息
+                if (sentIndices3?.has(i)) {
+                  continue;
+                }
+
                 let msg = result.messages[i];
                 msg = humanize.typoGenerator.apply(msg);
 
@@ -1170,7 +1373,10 @@ Planned reason: ${planResult.reason}
                 }
               }
 
-              humanize.frequencyController.recordSpeak(groupSessionId);
+              // 记录发言（如果回调没有发送消息，则在这里记录）
+              if (!sentIndices3 || sentIndices3.size === 0) {
+                humanize.frequencyController.recordSpeak(groupSessionId);
+              }
             }
 
             // 保存 bot 消息
@@ -1434,6 +1640,30 @@ Planned reason: ${planResult.reason}
           aiService: aiService!,
           db,
           botRole,
+          // AI 返回文本时立即发送
+          onTextContent: async (text, messageIndex, totalMessages) => {
+            // 解析消息
+            const messages = text
+              .trim()
+              .split("\n---\n")
+              .map((s) => s.trim())
+              .filter(Boolean);
+
+            // 发送当前消息
+            if (messages[messageIndex]) {
+              await sendMessage(
+                ctx,
+                groupId,
+                userId,
+                messages[messageIndex],
+                messageIndex === 0,
+                humanize.typoGenerator,
+              );
+            }
+
+            // 记录发言频率
+            humanize.frequencyController.recordSpeak(groupSessionId);
+          },
         };
 
         const result = await runChat(
@@ -1461,8 +1691,14 @@ Planned reason: ${planResult.reason}
         );
 
         // 发送消息
+        const sentIndices4 = toolCtx.sentMessageIndices;
         if (result.messages.length > 0) {
           for (let i = 0; i < result.messages.length; i++) {
+            // 跳过已发送的消息
+            if (sentIndices4?.has(i)) {
+              continue;
+            }
+
             let msg = result.messages[i];
             msg = humanize.typoGenerator.apply(msg);
 
@@ -1521,7 +1757,10 @@ Planned reason: ${planResult.reason}
             }
           }
 
-          humanize.frequencyController.recordSpeak(groupSessionId);
+          // 记录发言（如果回调没有发送消息，则在这里记录）
+          if (!sentIndices4 || sentIndices4.size === 0) {
+            humanize.frequencyController.recordSpeak(groupSessionId);
+          }
 
           // 记录最近回复，用于连续对话追踪
           if (groupId && userId) {

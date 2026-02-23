@@ -68,7 +68,8 @@ const helpPlugin: MiokuPlugin = {
         tools: [
           {
             name: "get_help_info",
-            description: "获取所有插件的帮助信息文本",
+            description:
+              "获取所有插件的帮助信息文本，这个仅用于用户向你询问某个功能的具体用法时使用",
             parameters: {
               type: "object",
               properties: {},
@@ -97,7 +98,8 @@ const helpPlugin: MiokuPlugin = {
           } as AITool,
           {
             name: "send_help_image",
-            description: "生成并发送帮助图片到群聊",
+            description:
+              "生成并发送帮助图片到群聊，如果有人说他想看帮助，优先调用图片发送而不是自己查看帮助",
             parameters: {
               type: "object",
               properties: {},
@@ -127,7 +129,7 @@ const helpPlugin: MiokuPlugin = {
                 return `生成帮助图片失败: ${error}`;
               }
             },
-            returnToAI: true,
+            returnToAI: false,
           } as AITool,
         ],
       };

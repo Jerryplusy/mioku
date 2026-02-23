@@ -220,6 +220,19 @@ export interface ToolContext {
   aiService: AIService;
   db: ChatDatabase;
   botRole: "owner" | "admin" | "member";
+  /**
+   * 当 AI 返回文本内容时立即调用（不等待工具调用完成）
+   * 回调接收文本内容、消息索引、总消息数
+   */
+  onTextContent?: (
+    text: string,
+    messageIndex: number,
+    totalMessages: number,
+  ) => void | Promise<void>;
+  /**
+   * 已通过 onTextContent 回调发送的消息索引集合
+   */
+  sentMessageIndices?: Set<number>;
 }
 
 /**

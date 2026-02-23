@@ -90,6 +90,32 @@ export async function runChat(
       logger.info(
         `[chat-engine] AI reply (iter ${iteration}): "${resp.content}"`,
       );
+
+      // 如果有回调函数，立即发送文本内容
+      if (toolCtx.onTextContent && lastTextContent.trim()) {
+        const messages = parseMessages(cleanMarkers(lastTextContent));
+        if (messages.length > 0) {
+          // 记录已发送的消息索引
+          if (!toolCtx.sentMessageIndices) {
+            toolCtx.sentMessageIndices = new Set();
+          }
+          toolCtx.sentMessageIndices.add(0);
+
+          // 异步调用回调，不阻塞工具执行
+          const callbackResult = toolCtx.onTextContent(
+            lastTextContent,
+            0,
+            messages.length,
+          );
+          if (callbackResult && typeof callbackResult.then === "function") {
+            callbackResult.catch((err: any) =>
+              logger.warn(
+                `[chat-engine] onTextContent callback failed: ${err}`,
+              ),
+            );
+          }
+        }
+      }
     }
 
     // No tool calls → done
@@ -97,7 +123,8 @@ export async function runChat(
       break;
     }
 
-    // Process tool calls
+    // Process tool calls in parallel (不阻塞文本发送)
+    const toolPromises: Promise<void>[] = [];
     const newToolResults: { toolName: string; result: any }[] = [];
     let hasReturnToAI = false;
 
@@ -133,29 +160,37 @@ export async function runChat(
         };
       }
 
-      // Execute handler
+      // Execute handler asynchronously
       logger.info(
         `[chat-engine] Tool call: ${tc.name}(${JSON.stringify(args).substring(0, 100)})`,
       );
-      try {
-        const result = await handler.tool.handler(args, toolCtx.event);
-        allToolCalls.push({ name: tc.name, args, result });
 
-        if (handler.tool.returnToAI) {
-          newToolResults.push({ toolName: tc.name, result });
-          hasReturnToAI = true;
-        }
-      } catch (err) {
-        logger.warn(`[chat-engine] Tool ${tc.name} failed: ${err}`);
-        const errorResult = { error: String(err) };
-        allToolCalls.push({ name: tc.name, args, result: errorResult });
+      const toolPromise = (async () => {
+        try {
+          const result = await handler.tool.handler(args, toolCtx.event);
+          allToolCalls.push({ name: tc.name, args, result });
 
-        if (handler.tool.returnToAI) {
-          newToolResults.push({ toolName: tc.name, result: errorResult });
-          hasReturnToAI = true;
+          if (handler.tool.returnToAI) {
+            newToolResults.push({ toolName: tc.name, result });
+            hasReturnToAI = true;
+          }
+        } catch (err) {
+          logger.warn(`[chat-engine] Tool ${tc.name} failed: ${err}`);
+          const errorResult = { error: String(err) };
+          allToolCalls.push({ name: tc.name, args, result: errorResult });
+
+          if (handler.tool.returnToAI) {
+            newToolResults.push({ toolName: tc.name, result: errorResult });
+            hasReturnToAI = true;
+          }
         }
-      }
+      })();
+
+      toolPromises.push(toolPromise);
     }
+
+    // Wait for all tools to complete (but text was already sent via callback)
+    await Promise.all(toolPromises);
 
     // Update tool results for next iteration
     toolResults = newToolResults;
