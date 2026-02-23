@@ -207,7 +207,8 @@ export async function runChat(
 }
 
 /**
- * Remove all action markers from text for storage/display
+ * Remove action markers from text for storage/display
+ * Note: reply markers are preserved for quote extraction in index.ts
  */
 function cleanMarkers(text: string): string {
   return text
@@ -216,8 +217,7 @@ function cleanMarkers(text: string): string {
     .replace(/\(\(\(\d+\)\)\)/g, "")
     .replace(/\[\[\[poke:\d+\]\]\]/g, "")
     .replace(/\(\(\(poke:\d+\)\)\)/g, "")
-    .replace(/\[\[\[reply:\d+\]\]\]/g, "")
-    .replace(/\(\(\(reply:\d+\)\)\)/g, "")
+    // Keep reply markers for now - they'll be parsed when sending messages
     .trim();
 }
 
