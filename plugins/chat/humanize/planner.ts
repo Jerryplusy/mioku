@@ -20,6 +20,7 @@ export class ActionPlanner {
     botName: string,
     recentHistory: ChatMessage[],
     lastTriggerMessage: string,
+    isIdleCheck: boolean = false,
   ): Promise<PlannerResult> {
     if (!this.config.planner?.enabled) {
       return { action: "reply", reason: "planner disabled" };
@@ -45,11 +46,48 @@ export class ActionPlanner {
     const now = new Date();
     const timeStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
-    try {
-      logger.info(`[ActionPlanner] Planning action for session ${sessionId}, last message: "${lastTriggerMessage.substring(0, 50)}..."`);
+    let prompt: string;
 
-      const content = await this.ai.generateText({
-        prompt: `It is ${timeStr}. Your name is ${botName}.
+    if (isIdleCheck) {
+      // 空闲检测模式：没有明确触发消息，观察群友聊天并决定是否要融入对话
+      prompt = `It is ${timeStr}. Your name is ${botName}.
+
+Here is the recent chat content:
+${chatBlock}
+
+Action history:
+${actionsBlock || "(none)"}
+
+IMPORTANT: There is no specific trigger message this time. You need to observe the group chat and decide whether to speak up and融入他们的对话.
+
+Available actions:
+
+reply - Send a message to naturally join the conversation. Suitable when:
+- There's an interesting topic you can contribute to
+- The conversation has settled and you can add something valuable
+- You notice something worth responding to
+IMPORTANT: Keep your reply SHORT and natural (1-2 sentences max). Don't dominate the conversation.
+
+wait - Stay silent and continue observing. Suitable when:
+- The conversation is already active and doesn't need your input
+- You're not sure what to say
+- The topic doesn't interest you or you have nothing valuable to add
+
+complete - The chat is over or you should stop for now.
+
+IMPORTANT: You MUST output ONLY valid JSON, no other text. The JSON must be in this exact format:
+{"action": "reply", "reason": "your reason here", "wait_seconds": 0}
+
+OR for wait:
+{"action": "wait", "reason": "your reason here", "wait_seconds": 60}
+
+OR for complete:
+{"action": "complete", "reason": "your reason here", "wait_seconds": 0}
+
+DO NOT include any explanation, markdown formatting, or additional text. Only output the JSON.`;
+    } else {
+      // 正常模式：由触发消息驱动的 planner
+      prompt = `It is ${timeStr}. Your name is ${botName}.
 
 Here is the chat content:
 ${chatBlock}
@@ -79,11 +117,18 @@ OR for wait:
 OR for complete:
 {"action": "complete", "reason": "your reason here", "wait_seconds": 0}
 
-DO NOT include any explanation, markdown formatting, or additional text. Only output the JSON.`,
+DO NOT include any explanation, markdown formatting, or additional text. Only output the JSON.`;
+    }
+
+    try {
+      logger.info(`[ActionPlanner] Planning action for session ${sessionId}, last message: "${lastTriggerMessage.substring(0, 50)}...", isIdleCheck: ${isIdleCheck}`);
+
+      const content = await this.ai.generateText({
+        prompt,
         messages: [],
         model: this.config.workingModel || this.config.model,
-        temperature: 0.2,
-        max_tokens: 500,
+        temperature: isIdleCheck ? 0.3 : 0.2,
+        max_tokens: isIdleCheck ? 300 : 500,
       });
 
       // 如果返回内容为空，使用默认值

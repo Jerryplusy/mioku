@@ -142,11 +142,203 @@ const chatPlugin: MiokuPlugin = {
     const recentReplies = new Map<string, number>();
     const FOLLOW_UP_WINDOW_MS = 3 * 60_000; // 3 分钟内的后续消息走 planner
 
+    // 群最后活动时间追踪（用于空闲检测）
+    const groupLastActivityTime = new Map<string, number>();
+    // 群消息计数（用于空闲检测的保底数量）
+    const groupMessageCount = new Map<string, number>();
+    // 群最后一次空闲检查时间
+    const groupLastIdleCheckTime = new Map<string, number>();
+    // 群是否正在处理（用于空闲检测避免并发）
+    const idleCheckProcessing = new Set<string>();
+
     // 定期清理过期技能会话
     const cleanupInterval = setInterval(
       () => skillManager.cleanup(),
       10 * 60_000,
     );
+
+    // 空闲检测定时器（每秒检查，但实际触发由配置决定）
+    const idleCheckInterval = setInterval(async () => {
+      try {
+        const cfg = await getConfig();
+        if (!cfg.apiKey || !cfg.planner?.enabled) return;
+
+        const now = Date.now();
+        const idleThreshold = cfg.planner.idleThresholdMs ?? (30 * 60_000);
+        const messageCountThreshold = cfg.planner.idleMessageCount ?? 100;
+        const checkInterval = cfg.planner.idleCheckIntervalMs ?? 60_000;
+
+        for (const [groupSessionId, lastTime] of groupLastActivityTime) {
+          // 每分钟才真正执行一次检查
+          const lastCheckTime = groupLastIdleCheckTime.get(groupSessionId) ?? 0;
+          if (now - lastCheckTime < checkInterval) continue;
+
+          // 跳过正在处理的群
+          if (processingSet.has(groupSessionId) || idleCheckProcessing.has(groupSessionId)) {
+            continue;
+          }
+
+          const groupId = parseInt(groupSessionId.split(":")[1], 10);
+          if (!isGroupAllowed(groupId, cfg)) continue;
+
+          // 检查是否超过空闲阈值
+          if (now - lastTime < idleThreshold) continue;
+
+          // 检查消息数量是否达到保底阈值
+          const messageCount = groupMessageCount.get(groupSessionId) ?? 0;
+          if (messageCount < messageCountThreshold) continue;
+
+          // 标记正在处理
+          idleCheckProcessing.add(groupSessionId);
+
+          try {
+            ctx.logger.info(`[IdleCheck] 群 ${groupId} 触发空闲检测`);
+
+            // 获取群聊历史
+            const rawHistory = await getGroupHistory(groupId, ctx, cfg.historyCount, db);
+            const history: ChatMessage[] = rawHistory.map((msg) => ({
+              sessionId: groupSessionId,
+              role: "user" as const,
+              content: msg.content,
+              userId: msg.userId,
+              userName: msg.userName,
+              userRole: msg.userRole,
+              groupId,
+              timestamp: msg.timestamp,
+              messageId: msg.messageId,
+            }));
+
+            const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+
+            // 使用 planner 进行空闲检测
+            const planResult = await humanize.actionPlanner.plan(
+              groupSessionId,
+              botNickname,
+              history,
+              "[空闲检测：无明确触发消息]",
+              true, // isIdleCheck = true
+            );
+
+            if (planResult.action === "reply") {
+              // 构建 targetMessage
+              const targetMessage: TargetMessage = {
+                userName: "系统",
+                userId: 0,
+                userRole: "member",
+                content: "[空闲检测触发的对话]",
+                messageId: 0,
+                timestamp: now,
+              };
+
+              const toolCtx: ToolContext = {
+                ctx,
+                event: null,
+                sessionId: groupSessionId,
+                groupId,
+                userId: 0,
+                config: cfg,
+                aiService: aiService!,
+                db,
+                botRole: await getBotRole(groupId, ctx),
+              };
+
+              const result = await runChat(
+                aiInstance,
+                toolCtx,
+                history,
+                targetMessage,
+                {
+                  config: cfg,
+                  botNickname,
+                  botRole: toolCtx.botRole,
+                  aiService: aiService!,
+                  isGroup: true,
+                },
+                sessionManager,
+                humanize,
+                skillManager,
+              );
+
+              // 发送消息（复用现有的发送逻辑）
+              if (result.messages.length > 0) {
+                for (let i = 0; i < result.messages.length; i++) {
+                  let msg = result.messages[i];
+                  msg = humanize.typoGenerator.apply(msg);
+
+                  const lines = msg.split("\n").filter((l) => l.trim());
+                  for (let j = 0; j < lines.length; j++) {
+                    const line = lines[j];
+
+                    const { cleanText, atUsers, pokeUsers, quoteId } =
+                      parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
+
+                    // 戳人
+                    if (pokeUsers.length > 0) {
+                      for (const pokeId of pokeUsers) {
+                        try {
+                          await ctx.bot.api("group_poke", {
+                            group_id: groupId,
+                            user_id: pokeId,
+                          });
+                        } catch (err) {
+                          ctx.logger.warn(`[戳人] 失败: ${err}`);
+                        }
+                      }
+                    }
+
+                    const lineSegments: any[] = [];
+
+                    if (quoteId !== undefined && i === 0 && j === 0) {
+                      lineSegments.push({ type: "reply", id: String(quoteId) });
+                    }
+
+                    for (const atId of atUsers) {
+                      lineSegments.push(ctx.segment.at(atId));
+                    }
+
+                    if (cleanText) {
+                      lineSegments.push(ctx.segment.text(cleanText));
+                    }
+
+                    if (lineSegments.length > 0) {
+                      await ctx.bot.sendGroupMsg(groupId, lineSegments);
+                    }
+
+                    if (j < lines.length - 1) {
+                      await new Promise((r) => setTimeout(r, 300));
+                    }
+                  }
+
+                  if (i < result.messages.length - 1) {
+                    await new Promise((r) => setTimeout(r, 300));
+                  }
+                }
+
+                humanize.frequencyController.recordSpeak(groupSessionId);
+              }
+
+              // 保存 bot 消息
+              const now2 = Date.now();
+              for (const msg of result.messages) {
+                saveBotMessage(groupId, groupSessionId, msg, now2, cfg);
+              }
+
+              ctx.logger.info(`[IdleCheck] 群 ${groupId} 空闲回复完成`);
+            }
+
+            // 重置消息计数
+            groupMessageCount.set(groupSessionId, 0);
+            groupLastIdleCheckTime.set(groupSessionId, now);
+          } catch (err) {
+            ctx.logger.error(`[IdleCheck] 群 ${groupId} 空闲检测失败: ${err}`);
+          } finally {
+            idleCheckProcessing.delete(groupSessionId);
+          }
+        }
+      } catch (err) {
+        // 忽略空闲检测错误
+      }
+    }, 60_000); // 每秒检查一次是否需要执行空闲检测
 
     /**
      * 处理队列中的等待消息
@@ -829,6 +1021,14 @@ const chatPlugin: MiokuPlugin = {
         return Date.now() - lastReplyTime < FOLLOW_UP_WINDOW_MS;
       })();
 
+      // 更新群的活动时间（仅群消息）
+      if (isGroup && groupId) {
+        const groupSessionId = `group:${groupId}`;
+        groupLastActivityTime.set(groupSessionId, Date.now());
+        const currentCount = groupMessageCount.get(groupSessionId) ?? 0;
+        groupMessageCount.set(groupSessionId, currentCount + 1);
+      }
+
       // 检查是否已在处理中
       const groupSessionId =
         isGroup && groupId ? `group:${groupId}` : undefined;
@@ -1134,9 +1334,14 @@ const chatPlugin: MiokuPlugin = {
       db.close();
       rateLimiter.dispose();
       clearInterval(cleanupInterval);
+      clearInterval(idleCheckInterval);
       processingSet.clear();
       pokeCooldowns.clear();
       recentReplies.clear();
+      groupLastActivityTime.clear();
+      groupMessageCount.clear();
+      groupLastIdleCheckTime.clear();
+      idleCheckProcessing.clear();
       ctx.logger.info("聊天插件已卸载");
     };
   },
