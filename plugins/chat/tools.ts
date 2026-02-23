@@ -89,7 +89,8 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
   if (toolCtx.groupId) {
     tools.push({
       name: "get_group_member_info",
-      description: "Get detailed info about a group member",
+      description:
+        "Get detailed info about a group member,including gender, age, QQ rating, group level, group title, etc",
       parameters: {
         type: "object",
         properties: {
@@ -107,13 +108,14 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
             args.user_id,
           );
           return {
-            user_id: (info as any).user_id,
-            nickname: (info as any).nickname,
-            card: (info as any).card,
-            role: (info as any).role,
-            title: (info as any).title,
-            join_time: (info as any).join_time,
-            last_sent_time: (info as any).last_sent_time,
+            nickname: info.nickname,
+            card: info.card,
+            sex: info.sex,
+            age: info.age,
+            area: info.area,
+            level: info.level,
+            qq_level: info.qq_level,
+            title: info.title,
           };
         } catch (err) {
           return { error: `Failed to get member info: ${err}` };
