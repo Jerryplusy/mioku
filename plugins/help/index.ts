@@ -1,20 +1,41 @@
 import type { MiokuPlugin } from "../../src";
 import type { HelpService } from "../../src/services/help";
+import type { CommandRole, AISkill, AITool } from "../../src";
+import type { AIService } from "../../src/services/ai";
 import type { ScreenshotService } from "../../src/services/screenshot";
 import type { MiokiContext } from "mioki";
 import * as fs from "fs";
+
+const ROLE_CONFIG: Record<
+  CommandRole,
+  { label: string; color: string; bgColor: string }
+> = {
+  master: {
+    label: "主人",
+    color: "text-amber-400",
+    bgColor: "bg-amber-500/20",
+  },
+  admin: { label: "管理", color: "text-red-400", bgColor: "bg-red-500/20" },
+  owner: {
+    label: "群主",
+    color: "text-purple-400",
+    bgColor: "bg-purple-500/20",
+  },
+  member: { label: "成员", color: "text-blue-400", bgColor: "bg-blue-500/20" },
+};
 
 const helpPlugin: MiokuPlugin = {
   name: "help",
   version: "1.0.0",
   description: "帮助插件，生成帮助图片",
-  services: ["help", "screenshot"],
+  services: ["help", "screenshot", "ai"],
 
   async setup(ctx: MiokiContext) {
     const helpService = ctx.services?.help as HelpService | undefined;
     const screenshotService = ctx.services?.screenshot as
       | ScreenshotService
       | undefined;
+    const aiService = ctx.services?.ai as AIService | undefined;
 
     if (!helpService) {
       ctx.logger.warn("help-service 未加载，帮助插件无法运行");
@@ -23,7 +44,99 @@ const helpPlugin: MiokuPlugin = {
 
     if (!screenshotService) {
       ctx.logger.warn("screenshot 服务未加载，帮助插件功能受限");
-      return;
+    }
+
+    async function generateHelpImage(): Promise<string | null> {
+      if (!screenshotService || !helpService) return null;
+      const allHelp = helpService.getAllHelp();
+      const isNightMode = checkNightMode();
+      const htmlContent = generateHelpHtml(allHelp, isNightMode);
+      const pluginCount = allHelp.size;
+      const estimatedHeight = Math.max(1280, Math.ceil(pluginCount / 2) * 280);
+      return screenshotService.screenshot(htmlContent, {
+        width: 720,
+        height: estimatedHeight,
+        fullPage: true,
+        type: "png",
+      });
+    }
+
+    if (aiService) {
+      const helpSkill: AISkill = {
+        name: "help",
+        description: "帮助系统，获取插件帮助信息和发送帮助图片",
+        tools: [
+          {
+            name: "get_help_info",
+            description:
+              "获取所有插件的帮助信息文本，这个仅用于用户向你询问某个功能的具体用法时使用",
+            parameters: {
+              type: "object",
+              properties: {},
+              required: [],
+            },
+            handler: async () => {
+              const allHelp = helpService.getAllHelp();
+              const info: string[] = ["=== Mioku Bot 帮助信息 ===\n"];
+              for (const [pluginName, help] of allHelp) {
+                info.push(
+                  `【${help.title || pluginName}】${help.description || ""}`,
+                );
+                if (help.commands?.length) {
+                  for (const cmd of help.commands) {
+                    const roleLabel = cmd.role
+                      ? ` [${ROLE_CONFIG[cmd.role]?.label || cmd.role}]`
+                      : "";
+                    info.push(`  ${cmd.cmd}${roleLabel} - ${cmd.desc}`);
+                  }
+                }
+                info.push("");
+              }
+              return info.join("\n");
+            },
+            returnToAI: true,
+          } as AITool,
+          {
+            name: "send_help_image",
+            description:
+              "生成并发送帮助图片到群聊，如果有人说他想看帮助，优先调用图片发送而不是自己查看帮助",
+            parameters: {
+              type: "object",
+              properties: {},
+              required: [],
+            },
+            handler: async (_args: any, event?: any) => {
+              if (!screenshotService) {
+                return "screenshot 服务未加载，无法生成帮助图片";
+              }
+              try {
+                const imagePath = await generateHelpImage();
+                if (!imagePath) {
+                  return "生成帮助图片失败";
+                }
+                if (event?.reply) {
+                  try {
+                    await event.reply(ctx.segment.image(imagePath));
+                  } catch (err) {
+                    const imageBuffer = await fs.promises.readFile(imagePath);
+                    const base64Image = `base64://${imageBuffer.toString("base64")}`;
+                    await event.reply(ctx.segment.image(base64Image));
+                  }
+                  return "已发送帮助图片";
+                }
+                return "帮助图片已发送~";
+              } catch (error) {
+                return `生成帮助图片失败: ${error}`;
+              }
+            },
+            returnToAI: false,
+          } as AITool,
+        ],
+      };
+      aiService.registerSkill(helpSkill);
+      ctx.logger.info("帮助 Skill 已注册到 AI 服务");
+    } else {
+      ctx.logger.warn("ai 服务未加载，help 技能将不可用");
     }
 
     // 监听帮助命令
@@ -31,7 +144,14 @@ const helpPlugin: MiokuPlugin = {
       const text = ctx.text(e);
       if (!text) return;
 
-      if (text.includes("help") || text.includes("帮助")) {
+      const trimmed = text.trim().toLowerCase();
+      const isHelpCommand = /^[#/]?(help|帮助)$/.test(trimmed);
+
+      if (isHelpCommand) {
+        if (!screenshotService) {
+          await e.reply("screenshot 服务未加载，无法生成帮助图片");
+          return;
+        }
         try {
           const allHelp = helpService.getAllHelp();
 
@@ -145,14 +265,19 @@ function generateHelpHtml(
   for (const [pluginName, help] of helpMap) {
     const commands = help.commands || [];
     const commandsHtml = commands
-      .map(
-        (cmd: any) => `
+      .map((cmd: any) => {
+        const role = cmd.role as CommandRole | undefined;
+        const roleConfig = role && ROLE_CONFIG[role] ? ROLE_CONFIG[role] : null;
+        return `
         <div class="${styles.commandBg} backdrop-blur-sm rounded-lg px-3 py-2 mb-2 border ${styles.commandBorder}">
-          <div class="${styles.commandTitleColor} font-mono text-xs font-bold mb-1">${escapeHtml(cmd.cmd)}</div>
+          <div class="flex items-center justify-between mb-1">
+            <div class="${styles.commandTitleColor} font-mono text-xs font-bold">${escapeHtml(cmd.cmd)}</div>
+            ${roleConfig ? `<span class="text-[10px] px-1.5 py-0.5 rounded ${roleConfig.bgColor} ${roleConfig.color} font-medium">${roleConfig.label}</span>` : ""}
+          </div>
           <div class="${styles.commandDescColor} text-xs leading-snug">${escapeHtml(cmd.desc)}</div>
         </div>
-      `,
-      )
+      `;
+      })
       .join("");
 
     plugins.push(`

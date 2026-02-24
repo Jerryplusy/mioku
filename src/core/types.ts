@@ -11,8 +11,8 @@ export interface AITool {
     properties: Record<string, any>;
     required?: string[];
   };
-  handler: (args: any) => Promise<any> | any;
-  returnToAI?: boolean; // 是否将工具结果返回给 AI 继续处理
+  handler: (args: any, event?: any) => Promise<any> | any;
+  returnToAI?: boolean;
 }
 
 /**
@@ -25,6 +25,11 @@ export interface AISkill {
 }
 
 /**
+ * 指令权限级别
+ */
+export type CommandRole = "master" | "admin" | "owner" | "member";
+
+/**
  * 插件帮助信息
  */
 export interface PluginHelp {
@@ -34,6 +39,7 @@ export interface PluginHelp {
     cmd: string;
     desc: string;
     usage?: string;
+    role?: CommandRole;
   }>;
 }
 

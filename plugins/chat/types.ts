@@ -44,22 +44,8 @@ export interface TopicConfig {
  */
 export interface PlannerConfig {
   enabled: boolean;
-  idleCheckIntervalMs: number; // 空闲检查间隔（毫秒）
   idleThresholdMs: number; // 群聊空闲时间阈值（毫秒）
   idleMessageCount: number; // 群聊记录保底消息数量
-}
-
-/**
- * 聊天频率控制配置
- */
-export interface FrequencyConfig {
-  enabled: boolean;
-  minIntervalMs: number; // 最小发言间隔
-  maxIntervalMs: number; // 最大发言间隔
-  speakProbability: number; // 默认发言概率 (0-1)
-  quietHoursStart: number; // 安静时段开始 (0-23)
-  quietHoursEnd: number; // 安静时段结束 (0-23)
-  quietProbabilityMultiplier: number; // 安静时段概率乘数
 }
 
 /**
@@ -109,13 +95,14 @@ export interface ChatConfig {
   maxIterations: number; // AI 迭代次数限制，-1 表示不限制
   enableGroupAdmin: boolean;
   enableExternalSkills: boolean;
+  // 聊天防抖时间（毫秒）：AI 回复完后等待这段时间，收集期间的 @bot 或关键词消息
+  cooldownAfterReplyMs: number;
   // 真人化机制配置
   personality: PersonalityConfig;
   replyStyle: ReplyStyleConfig;
   memory: MemoryConfig;
   topic: TopicConfig;
   planner: PlannerConfig;
-  frequency: FrequencyConfig;
   typo: TypoConfig;
   emoji: EmojiConfig;
   expression: ExpressionConfig;
@@ -220,6 +207,23 @@ export interface ToolContext {
   aiService: AIService;
   db: ChatDatabase;
   botRole: "owner" | "admin" | "member";
+  /**
+   * 当 AI 返回文本内容时立即调用（不等待工具调用完成）
+   * 回调接收文本内容、消息索引、总消息数
+   */
+  onTextContent?: (
+    text: string,
+    messageIndex: number,
+    totalMessages: number,
+  ) => void | Promise<void>;
+  /**
+   * 已通过 onTextContent 回调发送的消息索引集合
+   */
+  sentMessageIndices?: Set<number>;
+  /**
+   * 待附加到下一轮 AI 请求的图片 URL
+   */
+  pendingImageUrls?: string[];
 }
 
 /**

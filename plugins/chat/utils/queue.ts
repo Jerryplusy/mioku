@@ -1,13 +1,13 @@
 import type { MiokiContext } from "mioki";
-import type { ChatConfig, TargetMessage, ChatMessage } from "./types";
-import type { SessionManager } from "./session";
-import type { HumanizeEngine } from "./humanize";
-import type { SkillSessionManager } from "./skill-session";
-import type { AIInstance } from "../../src/services/ai";
-import type { AIService } from "../../src/services/ai";
-import type { ToolContext } from "./types";
-import { runChat } from "./chat-engine";
-import { extractContent, getGroupHistory, getBotRole } from "./utils";
+import type { ChatConfig, TargetMessage, ChatMessage } from "../types";
+import type { SessionManager } from "../manage/session";
+import type { HumanizeEngine } from "../humanize";
+import type { SkillSessionManager } from "../manage/skill-session";
+import type { AIInstance } from "../../../src/services/ai";
+import type { AIService } from "../../../src/services/ai";
+import type { ToolContext } from "../types";
+import { runChat } from "../core/chat-engine";
+import { extractContent, getGroupHistory, getBotRole } from "./index";
 
 /**
  * 等待处理的队列消息

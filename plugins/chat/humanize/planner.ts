@@ -153,9 +153,6 @@ DO NOT include any explanation, markdown formatting, or additional text. Only ou
         return { action: "reply", reason: "empty response" };
       }
 
-      // 调试日志
-      logger.info(`[ActionPlanner] Raw response: ${content.substring(0, 200)}`);
-
       // 尝试提取 JSON 块
       let jsonStr = "";
       const jsonMatch = content.match(/\{[\s\S]*\}/);

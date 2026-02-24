@@ -11,41 +11,32 @@ export function shouldTrigger(
 
   // Only check if message @s the bot (seg format: {type: "at", qq: "123456"})
   const atSeg = e.message?.find((seg: any) => seg.type === "at");
-  if (atSeg && String(atSeg.qq) === String(ctx.bot.uin)) {
-    return true;
-  }
-
-  return false;
+  return !!(atSeg && String(atSeg.qq) === String(ctx.bot.uin));
 }
 
 /**
  * Check if the message quotes a bot message.
  * Returns the quoted message content if quoting bot, null otherwise.
- * Reply seg format: {type: "reply", id: "1048732276"}
  */
 export async function isQuotingBot(
   e: any,
   ctx: MiokiContext,
 ): Promise<{ quoted: true; messageId: string; content: string } | null> {
-  if (!e.message) return null;
-  for (const seg of e.message) {
-    if (seg.type === "reply" && seg.id) {
-      try {
-        const quotedMsg = await ctx.bot.getMsg(seg.id);
-        if (quotedMsg && (quotedMsg as any).user_id === ctx.bot.uin) {
-          // Extract text content from quoted message
-          const quotedText =
-            (quotedMsg as any).raw_message ||
-            (quotedMsg as any).message
-              ?.filter((s: any) => s.type === "text")
-              .map((s: any) => s.text || "")
-              .join("") ||
-            "";
-          return { quoted: true, messageId: seg.id, content: quotedText };
+  if (e.quote_id) {
+    try {
+      const quoteMsg = await ctx.getQuoteMsg(e);
+      if (quoteMsg && String(quoteMsg.sender.user_id) === String(ctx.bot.uin)) {
+        const quotedText = quoteMsg.message
+          ?.filter((s: any) => s.type === "text")
+          .map((s: any) => s.text)
+          .join("");
+        if (quotedText) {
+          return { quoted: true, messageId: e.quote_id, content: quotedText };
         }
-      } catch {
-        // ignore
+        return null;
       }
+    } catch (err) {
+      logger.error(err);
     }
   }
   return null;
@@ -53,37 +44,50 @@ export async function isQuotingBot(
 
 /**
  * Extract quoted content from a message (regardless of who was quoted).
- * Returns the quoted text and message_id, or null if no reply segment.
+ * Returns the quoted text, message_id, sender name, and optional image URL, or null if no reply segment.
  */
 export async function getQuotedContent(
   e: any,
   ctx: MiokiContext,
-): Promise<{ messageId: string; senderName: string; content: string } | null> {
-  if (!e.message) return null;
-  for (const seg of e.message) {
-    if (seg.type === "reply" && seg.id) {
-      try {
-        const quotedMsg = await ctx.bot.getMsg(seg.id);
-        if (!quotedMsg) continue;
-        const senderId = (quotedMsg as any).user_id;
-        const senderName =
-          (quotedMsg as any).sender?.card ||
-          (quotedMsg as any).sender?.nickname ||
-          String(senderId || "unknown");
-        const content =
-          (quotedMsg as any).raw_message ||
-          (quotedMsg as any).message
-            ?.filter((s: any) => s.type === "text")
-            .map((s: any) => s.text || "")
-            .join("") ||
-          "";
-        return { messageId: seg.id, senderName, content };
-      } catch {
-        // ignore
-      }
+): Promise<
+  | {
+      messageId: string;
+      senderName: string;
+      content: string;
+      imageUrl?: string;
+    }
+  | null
+  | undefined
+> {
+  if (e.quote_id) {
+    try {
+      const quotedMsg = await ctx.getQuoteMsg(e);
+      if (quotedMsg && quotedMsg.message) {
+        const senderName = quotedMsg.sender.nickname;
+        // 提取文本内容
+        const textContent = quotedMsg.message
+          .filter((s: any) => s.type === "text")
+          .map((s: any) => s.text || "")
+          .join("");
+
+        // 检测是否有图片
+        let imageUrl: string | undefined;
+        const imageSeg = quotedMsg.message.find((s: any) => s.type === "image");
+        if (imageSeg && typeof imageSeg === "object") {
+          imageUrl = (imageSeg as any).url || (imageSeg as any).data?.url;
+        }
+
+        return {
+          messageId: String(e.quote_id),
+          senderName,
+          content: textContent,
+          imageUrl,
+        };
+      } else return null;
+    } catch (err) {
+      // ignore
     }
   }
-  return null;
 }
 
 export function isGroupAllowed(groupId: number, cfg: ChatConfig): boolean {
@@ -234,29 +238,40 @@ export async function getGroupHistory(
 
       // 提取文本内容
       let content = "";
-      if (msg.message && msg.message.length > 0) {
-        // 先尝试提取所有文本段
-        const textSegs = msg.message.filter((seg: any) => seg.type === "text");
-        const textContent = textSegs
-          .map((seg: any) => seg.data?.text || "")
-          .join("")
-          .trim();
+      try {
+        if (
+          msg.message &&
+          Array.isArray(msg.message) &&
+          msg.message.length > 0
+        ) {
+          // 先尝试提取所有文本段
+          const textSegs = msg.message.filter(
+            (seg: any) => seg.type === "text",
+          );
+          const textContent = textSegs
+            .map((seg: any) => seg.data?.text || "")
+            .join("")
+            .trim();
 
-        if (textContent) {
-          // 有文本内容，使用文本内容
-          content = textContent;
-        } else {
-          // 没有文本内容，显示消息类型
-          const segTypes = msg.message.map((seg: any) => seg.type);
-          // 只显示非 text 的类型（因为 text 为空）
-          const nonTextTypes = segTypes.filter((t: string) => t !== "text");
-          if (nonTextTypes.length > 0) {
-            content = `[${nonTextTypes.join(", ")}]`;
-          } else {
-            // 只有空文本段，跳过
-            continue;
+          if (textContent) {
+            // 有文本内容，使用文本内容
+            content = textContent;
+          } else if (Array.isArray(msg.message)) {
+            // 没有文本内容，显示消息类型
+            const segTypes = msg.message.map((seg: any) => seg.type);
+            // 只显示非 text 的类型（因为 text 为空）
+            const nonTextTypes = segTypes.filter((t: string) => t !== "text");
+            if (nonTextTypes.length > 0) {
+              content = `[${nonTextTypes.join(", ")}]`;
+            } else {
+              // 只有空文本段，跳过
+              continue;
+            }
           }
         }
+      } catch (err) {
+        logger.error("[getGroupHistory] process message error:", err);
+        continue;
       }
 
       // 跳过空消息

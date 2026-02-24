@@ -1,5 +1,5 @@
-import type { AITool } from "../../src";
-import type { SkillSession } from "./types";
+import type { AITool } from "../../../src";
+import type { SkillSession } from "../types";
 
 /**
  * 技能会话管理器

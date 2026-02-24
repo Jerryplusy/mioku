@@ -1,19 +1,15 @@
-import type { AIInstance } from "../../src/services/ai";
-import type {
-  ChatCompletionMessageParam,
-  ChatCompletionTool,
-} from "openai/resources/chat/completions";
+import type { AIInstance, MultimodalMessage } from "../../../src/services/ai";
+import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { logger } from "mioki";
-import type { AITool } from "../../src";
+import type { AITool } from "../../../src";
 import type {
-  ChatConfig,
   ToolContext,
   ChatMessage,
   TargetMessage,
   ChatResult,
-} from "./types";
-import type { SessionManager } from "./session";
-import type { HumanizeEngine } from "./humanize";
+} from "../types";
+import type { SessionManager } from "../manage/session";
+import type { HumanizeEngine } from "../humanize";
 import type { PromptContext } from "./prompt";
 import type { SkillSessionManager } from "./tools";
 import { createTools } from "./tools";
@@ -73,10 +69,44 @@ export async function runChat(
     const skillTools = skillManager.getTools(toolCtx.sessionId);
     const openaiTools = buildOpenAITools(chatTools, skillTools);
 
+    // 构建消息
+    const pendingImages = toolCtx.pendingImageUrls;
+    const isMultimodal = toolCtx.config.isMultimodal;
+    const hasImages = pendingImages && pendingImages.length > 0;
+
+    // 多模态模型需要使用数组格式，文本模型使用字符串格式
+    let messages: any[];
+
+    if (isMultimodal || hasImages) {
+      // system 消息只包含提示词
+      messages = [{ role: "system", content: prompt }];
+
+      // user 消息包含用户内容和图片
+      if (hasImages) {
+        const userContent: any[] = [
+          { type: "text", text: targetMessage.content },
+        ];
+        for (const url of pendingImages) {
+          userContent.push({ type: "image_url", image_url: { url } });
+        }
+        messages.push({ role: "user", content: userContent });
+
+        logger.info(
+          `[chat-engine] Attaching ${pendingImages.length} image(s) to user message`,
+        );
+        // 清除待附加的图片
+        toolCtx.pendingImageUrls = [];
+      } else {
+        messages.push({ role: "user", content: targetMessage.content });
+      }
+    } else {
+      messages = [{ role: "system", content: prompt }];
+    }
+
     // Call AI
     const resp = await ai.complete({
       model: toolCtx.config.model,
-      messages: [{ role: "system", content: prompt }],
+      messages,
       tools: openaiTools.length > 0 ? openaiTools : undefined,
       temperature: toolCtx.config.temperature,
     });
@@ -94,6 +124,32 @@ export async function runChat(
       logger.info(
         `[chat-engine] AI reply (iter ${iteration}): "${resp.content}"`,
       );
+
+      // 如果有回调函数，立即发送文本内容
+      if (toolCtx.onTextContent && lastTextContent.trim()) {
+        const messages = cleanMarkers(lastTextContent);
+        if (messages.length > 0) {
+          // 记录已发送的消息索引
+          if (!toolCtx.sentMessageIndices) {
+            toolCtx.sentMessageIndices = new Set();
+          }
+          toolCtx.sentMessageIndices.add(0);
+
+          // 异步调用回调，不阻塞工具执行
+          const callbackResult = toolCtx.onTextContent(
+            lastTextContent,
+            0,
+            messages.length,
+          );
+          if (callbackResult && typeof callbackResult.then === "function") {
+            callbackResult.catch((err: any) =>
+              logger.warn(
+                `[chat-engine] onTextContent callback failed: ${err}`,
+              ),
+            );
+          }
+        }
+      }
     }
 
     // No tool calls → done
@@ -101,7 +157,8 @@ export async function runChat(
       break;
     }
 
-    // Process tool calls
+    // Process tool calls in parallel (不阻塞文本发送)
+    const toolPromises: Promise<void>[] = [];
     const newToolResults: { toolName: string; result: any }[] = [];
     let hasReturnToAI = false;
 
@@ -122,7 +179,7 @@ export async function runChat(
 
       // end_session 工具：立即结束会话
       if (tc.name === "end_session") {
-        const result = await handler.tool.handler(args);
+        const result = await handler.tool.handler(args, toolCtx.event);
         logger.info(
           `[chat-engine] Session ended: ${args.reason || "no reason"}`,
         );
@@ -137,29 +194,37 @@ export async function runChat(
         };
       }
 
-      // Execute handler
+      // Execute handler asynchronously
       logger.info(
         `[chat-engine] Tool call: ${tc.name}(${JSON.stringify(args).substring(0, 100)})`,
       );
-      try {
-        const result = await handler.tool.handler(args);
-        allToolCalls.push({ name: tc.name, args, result });
 
-        if (handler.tool.returnToAI) {
-          newToolResults.push({ toolName: tc.name, result });
-          hasReturnToAI = true;
-        }
-      } catch (err) {
-        logger.warn(`[chat-engine] Tool ${tc.name} failed: ${err}`);
-        const errorResult = { error: String(err) };
-        allToolCalls.push({ name: tc.name, args, result: errorResult });
+      const toolPromise = (async () => {
+        try {
+          const result = await handler.tool.handler(args, toolCtx.event);
+          allToolCalls.push({ name: tc.name, args, result });
 
-        if (handler.tool.returnToAI) {
-          newToolResults.push({ toolName: tc.name, result: errorResult });
-          hasReturnToAI = true;
+          if (handler.tool.returnToAI) {
+            newToolResults.push({ toolName: tc.name, result });
+            hasReturnToAI = true;
+          }
+        } catch (err) {
+          logger.warn(`[chat-engine] Tool ${tc.name} failed: ${err}`);
+          const errorResult = { error: String(err) };
+          allToolCalls.push({ name: tc.name, args, result: errorResult });
+
+          if (handler.tool.returnToAI) {
+            newToolResults.push({ toolName: tc.name, result: errorResult });
+            hasReturnToAI = true;
+          }
         }
-      }
+      })();
+
+      toolPromises.push(toolPromise);
     }
+
+    // Wait for all tools to complete (but text was already sent via callback)
+    await Promise.all(toolPromises);
 
     // Update tool results for next iteration
     toolResults = newToolResults;
