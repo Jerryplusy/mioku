@@ -344,8 +344,6 @@ const chatPlugin: MiokuPlugin = {
                     );
                   }
 
-                  // 记录发言频率
-                  humanize.frequencyController.recordSpeak(groupSessionId);
                 },
               };
 
@@ -444,7 +442,7 @@ Planned reason: ${planResult.reason}
 
                 // 记录发言
                 if (!sentIndices0 || sentIndices0.size === 0) {
-                  humanize.frequencyController.recordSpeak(groupSessionId);
+                  
                 }
               }
 
@@ -572,7 +570,7 @@ Planned reason: ${planResult.reason}
           }
 
           // 记录发言频率
-          humanize.frequencyController.recordSpeak(groupSessionId);
+          
         },
       };
 
@@ -713,7 +711,7 @@ Planned reason: ${planResult.reason}
 
         // 记录发言（如果回调没有发送消息，则在这里记录）
         if (!sentIndices2 || sentIndices2.size === 0) {
-          humanize.frequencyController.recordSpeak(groupSessionId);
+          
         }
       }
 
@@ -975,7 +973,7 @@ Planned reason: ${planResult.reason}
             }
 
             // 记录发言频率
-            humanize.frequencyController.recordSpeak(groupSessionId);
+            
           },
         };
 
@@ -1080,7 +1078,7 @@ Planned reason: ${planResult.reason}
 
           // 记录发言（如果回调没有发送消息，则在这里记录）
           if (!sentIndices || sentIndices.size === 0) {
-            humanize.frequencyController.recordSpeak(groupSessionId);
+            
           }
 
           // 记录最近回复，用于连续对话追踪
@@ -1277,7 +1275,7 @@ Planned reason: ${planResult.reason}
                 }
 
                 // 记录发言频率
-                humanize.frequencyController.recordSpeak(groupSessionId);
+                
               },
             };
 
@@ -1375,7 +1373,7 @@ Planned reason: ${planResult.reason}
 
               // 记录发言（如果回调没有发送消息，则在这里记录）
               if (!sentIndices3 || sentIndices3.size === 0) {
-                humanize.frequencyController.recordSpeak(groupSessionId);
+                
               }
             }
 
@@ -1662,7 +1660,7 @@ Planned reason: ${planResult.reason}
             }
 
             // 记录发言频率
-            humanize.frequencyController.recordSpeak(groupSessionId);
+            
           },
         };
 
@@ -1759,7 +1757,7 @@ Planned reason: ${planResult.reason}
 
           // 记录发言（如果回调没有发送消息，则在这里记录）
           if (!sentIndices4 || sentIndices4.size === 0) {
-            humanize.frequencyController.recordSpeak(groupSessionId);
+            
           }
 
           // 记录最近回复，用于连续对话追踪

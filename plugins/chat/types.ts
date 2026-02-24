@@ -50,19 +50,6 @@ export interface PlannerConfig {
 }
 
 /**
- * 聊天频率控制配置
- */
-export interface FrequencyConfig {
-  enabled: boolean;
-  minIntervalMs: number; // 最小发言间隔
-  maxIntervalMs: number; // 最大发言间隔
-  speakProbability: number; // 默认发言概率 (0-1)
-  quietHoursStart: number; // 安静时段开始 (0-23)
-  quietHoursEnd: number; // 安静时段结束 (0-23)
-  quietProbabilityMultiplier: number; // 安静时段概率乘数
-}
-
-/**
  * 错别字生成器配置
  */
 export interface TypoConfig {
@@ -115,7 +102,6 @@ export interface ChatConfig {
   memory: MemoryConfig;
   topic: TopicConfig;
   planner: PlannerConfig;
-  frequency: FrequencyConfig;
   typo: TypoConfig;
   emoji: EmojiConfig;
   expression: ExpressionConfig;

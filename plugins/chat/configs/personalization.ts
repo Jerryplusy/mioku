@@ -4,7 +4,6 @@ import type {
   MemoryConfig,
   TopicConfig,
   PlannerConfig,
-  FrequencyConfig,
   TypoConfig,
   EmojiConfig,
   ExpressionConfig,
@@ -17,7 +16,6 @@ export const PERSONALIZATION_CONFIG: {
   memory: MemoryConfig;
   topic: TopicConfig;
   planner: PlannerConfig;
-  frequency: FrequencyConfig;
   typo: TypoConfig;
   emoji: EmojiConfig;
   expression: ExpressionConfig;
@@ -73,16 +71,6 @@ You sometimes hum or reference song lyrics in conversation.`,
     idleCheckIntervalMs: 60_000, // 每分钟检查一次空闲状态
     idleThresholdMs: 30 * 60_000, // 30分钟无消息视为空闲
     idleMessageCount: 100, // 保底消息数量，超过这个数量才触发空闲回复
-  },
-
-  frequency: {
-    enabled: true,
-    minIntervalMs: 3000,
-    maxIntervalMs: 10000,
-    speakProbability: 0.85,
-    quietHoursStart: 23,
-    quietHoursEnd: 7,
-    quietProbabilityMultiplier: 0.3,
   },
 
   typo: {
