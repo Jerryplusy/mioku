@@ -1,4 +1,4 @@
-import type { AIInstance } from "../../src/services/ai";
+import type { AIInstance, MultimodalMessage } from "../../src/services/ai";
 import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { logger } from "mioki";
 import type { AITool } from "../../src";
@@ -69,10 +69,43 @@ export async function runChat(
     const skillTools = skillManager.getTools(toolCtx.sessionId);
     const openaiTools = buildOpenAITools(chatTools, skillTools);
 
+    // 构建消息（如果有待附加的图片，添加到 system 消息中）
+    const pendingImages = toolCtx.pendingImageUrls;
+    let messages: { role: "system"; content: string | { type: "text"; text: string }[] }[];
+
+    if (pendingImages && pendingImages.length > 0) {
+      // 构建带图片的 system 消息
+      const imageContents: { type: "image_url"; image_url: { url: string } }[] =
+        pendingImages.map((url) => ({
+          type: "image_url" as const,
+          image_url: { url },
+        }));
+
+      // 使用 any 类型来绕过严格的类型检查
+      messages = [
+        {
+          role: "system",
+          content: [
+            { type: "text", text: prompt } as any,
+            ...imageContents,
+          ] as any,
+        },
+      ] as any;
+
+      logger.info(
+        `[chat-engine] Attaching ${pendingImages.length} image(s) to request`,
+      );
+
+      // 清除待附加的图片（仅一轮）
+      toolCtx.pendingImageUrls = [];
+    } else {
+      messages = [{ role: "system", content: prompt }];
+    }
+
     // Call AI
     const resp = await ai.complete({
       model: toolCtx.config.model,
-      messages: [{ role: "system", content: prompt }],
+      messages,
       tools: openaiTools.length > 0 ? openaiTools : undefined,
       temperature: toolCtx.config.temperature,
     });
@@ -252,10 +285,15 @@ function cleanMarkers(text: string): string {
  */
 function parseMessages(text: string): string[] {
   if (!text.trim()) return [];
-  return text
-    .split(/\n---\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  try {
+    return text
+      .split(/\n---\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } catch (err) {
+    logger.error("[parseMessages] filter error:", err);
+    return [];
+  }
 }
 
 /**

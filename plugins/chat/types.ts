@@ -219,6 +219,10 @@ export interface ToolContext {
    * 已通过 onTextContent 回调发送的消息索引集合
    */
   sentMessageIndices?: Set<number>;
+  /**
+   * 待附加到下一轮 AI 请求的图片 URL
+   */
+  pendingImageUrls?: string[];
 }
 
 /**

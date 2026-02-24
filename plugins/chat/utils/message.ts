@@ -30,14 +30,18 @@ export async function isQuotingBot(
         const quotedMsg = await ctx.bot.getMsg(seg.id);
         if (quotedMsg && (quotedMsg as any).user_id === ctx.bot.uin) {
           // Extract text content from quoted message
-          const quotedText =
-            (quotedMsg as any).raw_message ||
-            (quotedMsg as any).message
-              ?.filter((s: any) => s.type === "text")
-              .map((s: any) => s.text || "")
-              .join("") ||
-            "";
-          return { quoted: true, messageId: seg.id, content: quotedText };
+          try {
+            const quotedText =
+              (quotedMsg as any).raw_message ||
+              (quotedMsg as any).message
+                ?.filter((s: any) => s.type === "text")
+                .map((s: any) => s.text || "")
+                .join("") ||
+              "";
+            return { quoted: true, messageId: seg.id, content: quotedText };
+          } catch (err) {
+            logger.error("[getBotQuotedMsg] filter error:", err);
+          }
         }
       } catch {
         // ignore
@@ -57,19 +61,21 @@ export async function getQuotedContent(
 ): Promise<
   { messageId: string; senderName: string; content: string } | null | undefined
 > {
-  logger.info(e.message);
   if (e.quote_id) {
     try {
       const quotedMsg = await ctx.getQuoteMsg(e);
-      logger.info(quotedMsg);
-      if (quotedMsg) {
+      if (quotedMsg && quotedMsg.message) {
         const senderName = quotedMsg.sender.nickname;
-        const content = quotedMsg.message
-          .filter((s: any) => s.type === "text")
-          .map((s: any) => s.text || "")
-          .join("");
-        logger.info(senderName, content);
-        return { messageId: e.quote_id, senderName, content };
+        try {
+          const content = quotedMsg.message
+            .filter((s: any) => s.type === "text")
+            .map((s: any) => s.text || "")
+            .join("");
+          return { messageId: e.quote_id, senderName, content };
+        } catch (err) {
+          logger.error("[getQuotedContent] filter error:", err);
+          return null;
+        }
       } else return null;
     } catch (err) {
       // ignore
@@ -225,29 +231,34 @@ export async function getGroupHistory(
 
       // 提取文本内容
       let content = "";
-      if (msg.message && Array.isArray(msg.message) && msg.message.length > 0) {
-        // 先尝试提取所有文本段
-        const textSegs = msg.message.filter((seg: any) => seg.type === "text");
-        const textContent = textSegs
-          .map((seg: any) => seg.data?.text || "")
-          .join("")
-          .trim();
+      try {
+        if (msg.message && Array.isArray(msg.message) && msg.message.length > 0) {
+          // 先尝试提取所有文本段
+          const textSegs = msg.message.filter((seg: any) => seg.type === "text");
+          const textContent = textSegs
+            .map((seg: any) => seg.data?.text || "")
+            .join("")
+            .trim();
 
-        if (textContent) {
-          // 有文本内容，使用文本内容
-          content = textContent;
-        } else {
-          // 没有文本内容，显示消息类型
-          const segTypes = msg.message.map((seg: any) => seg.type);
-          // 只显示非 text 的类型（因为 text 为空）
-          const nonTextTypes = segTypes.filter((t: string) => t !== "text");
-          if (nonTextTypes.length > 0) {
-            content = `[${nonTextTypes.join(", ")}]`;
-          } else {
-            // 只有空文本段，跳过
-            continue;
+          if (textContent) {
+            // 有文本内容，使用文本内容
+            content = textContent;
+          } else if (Array.isArray(msg.message)) {
+            // 没有文本内容，显示消息类型
+            const segTypes = msg.message.map((seg: any) => seg.type);
+            // 只显示非 text 的类型（因为 text 为空）
+            const nonTextTypes = segTypes.filter((t: string) => t !== "text");
+            if (nonTextTypes.length > 0) {
+              content = `[${nonTextTypes.join(", ")}]`;
+            } else {
+              // 只有空文本段，跳过
+              continue;
+            }
           }
         }
+      } catch (err) {
+        logger.error("[getGroupHistory] process message error:", err);
+        continue;
       }
 
       // 跳过空消息

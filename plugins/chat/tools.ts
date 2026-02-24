@@ -1,4 +1,4 @@
-import { logger } from "mioki";
+import { getQuoteImageUrl, logger } from "mioki";
 import type { AITool } from "../../src";
 import type { SkillSession, ToolContext } from "./types";
 
@@ -32,9 +32,6 @@ export function createTools(
 
   // === Info query tools (always available) ===
   tools.push(...createInfoTools(toolCtx));
-
-  // === Defense tools (always available) ===
-  tools.push(...createDefenseTools(toolCtx));
 
   // === Admin tools (conditional) ===
   if (
@@ -150,79 +147,57 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
     });
   }
 
-  return tools;
-}
-
-// ==================== Defense Tools ====================
-
-function createDefenseTools(toolCtx: ToolContext): AITool[] {
-  return [
-    {
-      name: "report_abuse",
-      description: "Report abusive behavior to the bot owner",
-      parameters: {
-        type: "object",
-        properties: {
-          user_id: {
-            type: "number",
-            description: "QQ number of the abuser",
-          },
-          reason: {
-            type: "string",
-            description: "Reason for reporting",
-          },
-        },
-        required: ["user_id", "reason"],
-      },
-      handler: async (args) => {
-        const owners = (toolCtx.ctx as any).config?.owners || [];
-        if (owners.length === 0) {
-          return { error: "No bot owner configured" };
-        }
-
-        const groupInfo = toolCtx.groupId ? ` in group ${toolCtx.groupId}` : "";
-        const msg = `[Abuse Report] User ${args.user_id}${groupInfo}: ${args.reason}`;
-
-        for (const ownerId of owners) {
-          try {
-            await toolCtx.ctx.bot.sendPrivateMsg(ownerId, msg);
-          } catch {
-            // ignore
-          }
-        }
-        return { success: true };
-      },
-      returnToAI: true,
-    },
-    {
-      name: "auto_mute",
+  // 查看图片工具（仅多模态模型可用）
+  if (toolCtx.config.isMultimodal) {
+    tools.push({
+      name: "view_image",
       description:
-        "Self-defense: mute an abusive user for 1 minute. Only use when being personally attacked.",
+        "View an image by its message ID. Use this when you need to see what's in an image to answer the user's question.",
       parameters: {
         type: "object",
         properties: {
-          user_id: {
+          message_id: {
             type: "number",
-            description: "QQ number of the user to mute",
+            description:
+              "The message ID (message_id) of the image. You can get this from the original message that contains the image.",
           },
         },
-        required: ["user_id"],
+        required: ["message_id"],
       },
       handler: async (args) => {
-        if (!toolCtx.groupId) return { error: "Not in a group" };
-        if (toolCtx.botRole !== "admin" && toolCtx.botRole !== "owner") {
-          return { error: "Bot is not admin" };
-        }
         try {
-          await toolCtx.ctx.bot.setGroupBan(toolCtx.groupId, args.user_id, 60);
-          return { success: true, duration: 60 };
+          // 队列处理时 event 为 null，无法获取图片
+          if (!toolCtx.event) {
+            return { error: "No message context available" };
+          }
+
+          // 通过 message_id 获取消息详情
+          const imageUrl = await toolCtx.ctx.getQuoteImageUrl(toolCtx.event);
+
+          if (!imageUrl) {
+            return { error: "Image not found" };
+          }
+          logger.info(imageUrl);
+          if (!toolCtx.pendingImageUrls) {
+            toolCtx.pendingImageUrls = [];
+          }
+          toolCtx.pendingImageUrls.push(imageUrl);
+
+          return {
+            success: true,
+            message_id: args.message_id,
+            image_url: imageUrl,
+            note: "Image URL will be attached to the next AI request",
+          };
         } catch (err) {
-          return { error: `Failed to mute: ${err}` };
+          return { error: `Failed to get image: ${err}` };
         }
       },
       returnToAI: true,
-    },
-  ];
+    });
+  }
+
+  return tools;
 }
 
 // ==================== Admin Tools ====================
@@ -279,10 +254,12 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
       },
       handler: async (args) => {
         try {
-          await (toolCtx.ctx.bot as any).setGroupKick(
-            toolCtx.groupId!,
-            args.user_id,
-          );
+          // 队列处理时 event 为 null，使用 groupId 替代
+          const groupId = toolCtx.event?.group_id ?? toolCtx.groupId;
+          await toolCtx.ctx.bot.api("set_group_kick", {
+            group_id: groupId,
+            user_id: args.user_id,
+          });
           return {
             success: true,
             action: "kicked",
