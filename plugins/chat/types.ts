@@ -44,7 +44,6 @@ export interface TopicConfig {
  */
 export interface PlannerConfig {
   enabled: boolean;
-  idleCheckIntervalMs: number; // 空闲检查间隔（毫秒）
   idleThresholdMs: number; // 群聊空闲时间阈值（毫秒）
   idleMessageCount: number; // 群聊记录保底消息数量
 }
@@ -96,6 +95,8 @@ export interface ChatConfig {
   maxIterations: number; // AI 迭代次数限制，-1 表示不限制
   enableGroupAdmin: boolean;
   enableExternalSkills: boolean;
+  // 聊天防抖时间（毫秒）：AI 回复完后等待这段时间，收集期间的 @bot 或关键词消息
+  cooldownAfterReplyMs: number;
   // 真人化机制配置
   personality: PersonalityConfig;
   replyStyle: ReplyStyleConfig;

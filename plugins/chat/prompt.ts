@@ -22,9 +22,15 @@ export interface PromptContext {
   plannerThoughts?: string;
   // Reply context - tells AI what type of reply this is
   replyContext?: {
-    type: "reply" | "comment" | "idle" | "react";
+    type: "reply" | "comment" | "idle" | "react" | "review";
     targetUser?: string;
     targetMessage?: string;
+  };
+  // Review context - messages collected during cooldown period
+  reviewMessages?: {
+    contents: string[];
+    userNames: string[];
+    messageIds: number[];
   };
 }
 
@@ -70,7 +76,9 @@ export function buildSystemPrompt(ctx: PromptContext): string {
 
   // 9. Reply Context - tells AI what kind of reply this is
   if (ctx.replyContext) {
-    sections.push(buildReplyContextSection(ctx.replyContext));
+    sections.push(
+      buildReplyContextSection(ctx.replyContext, ctx.reviewMessages),
+    );
   }
 
   // 10. Planner's Thoughts
@@ -108,6 +116,7 @@ function buildToolResultsSection(
 
 function buildReplyContextSection(
   replyCtx: PromptContext["replyContext"],
+  reviewMsgs?: PromptContext["reviewMessages"],
 ): string {
   if (!replyCtx) return "";
 
@@ -119,7 +128,7 @@ function buildReplyContextSection(
         `You are replying to **${replyCtx.targetUser}** who said: "${replyCtx.targetMessage || "(message content)"}"`,
       );
       lines.push(
-        `**Keep it SHORT and DIRECT** - just answer their point, 2-3 paragraphs max. No explanation needed.`,
+        `**Keep it SHORT and DIRECT** - just answer their point, 1-2 paragraphs max. No explanation needed.`,
       );
       break;
     case "comment":
@@ -142,7 +151,41 @@ function buildReplyContextSection(
       lines.push(`You're reacting to something that happened.`);
       lines.push(`**Keep it BRIEF** - quick reaction, 1 sentence.`);
       break;
+    case "review":
+      lines.push(
+        `Multiple people are asking you questions or mentioning you after your last message.`,
+      );
+      lines.push(
+        `**Keep it VERY SHORT** - respond to ALL of them in one reply. Use [[[at:QQ号]]] to mention specific people when needed.`,
+      );
+      // Add review messages section
+      if (reviewMsgs && reviewMsgs.contents.length > 0) {
+        lines.push(buildReviewMessagesSection(reviewMsgs));
+      }
+      break;
   }
+
+  return lines.join("\n");
+}
+
+function buildReviewMessagesSection(
+  reviewMsgs: NonNullable<PromptContext["reviewMessages"]>,
+): string {
+  const lines: string[] = [];
+  lines.push(`\n### Messages after your last reply:`);
+
+  for (let i = 0; i < reviewMsgs.contents.length; i++) {
+    const msgIdStr = reviewMsgs.messageIds[i]
+      ? ` #${reviewMsgs.messageIds[i]}`
+      : "";
+    lines.push(
+      `- ${reviewMsgs.userNames[i]}${msgIdStr}: ${reviewMsgs.contents[i]}`,
+    );
+  }
+
+  lines.push(
+    `\nYou can quote these messages using [[[reply:message_id]]] format if relevant.`,
+  );
 
   return lines.join("\n");
 }
