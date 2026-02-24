@@ -100,6 +100,15 @@ export class MessageQueueManager {
 }
 
 /**
+ * 将包含多个 reply 标记的单行文本拆分为多行
+ * 例如 "[[[reply:1]]]文字A[[[reply:2]]]文字B" → ["[[[reply:1]]]文字A", "[[[reply:2]]]文字B"]
+ */
+export function splitByReplyMarkers(line: string): string[] {
+  const parts = line.split(/(?=\[\[\[reply:\d+\]\]\]|\(\(\(reply:\d+\)\)\))/);
+  return parts.filter((p) => p.trim());
+}
+
+/**
  * 解析单行文本中的标记，按顺序提取 AT、戳人、引用
  * @param line 要解析的文本
  * @param quoteMode "skip" 跳过引用标记，其他值处理引用

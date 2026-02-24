@@ -27,7 +27,11 @@ import {
 import { BASE_CONFIG } from "./configs/base";
 import { SETTINGS_CONFIG } from "./configs/settings";
 import { PERSONALIZATION_CONFIG } from "./configs/personalization";
-import { MessageQueueManager, parseLineMarkers } from "./utils/queue";
+import {
+  MessageQueueManager,
+  parseLineMarkers,
+  splitByReplyMarkers,
+} from "./utils/queue";
 import { sendMessage } from "./core/base";
 
 // ==================== Plugin ====================
@@ -425,8 +429,15 @@ const chatPlugin: MiokuPlugin = {
             let lines: string[];
             lines = msg.split("\n").filter((l) => l.trim());
 
-            for (let j = 0; j < lines.length; j++) {
-              const line = lines[j];
+            // 展开包含多个 reply 标记的行
+            const expandedLines: string[] = [];
+            for (const line of lines) {
+              const parts = splitByReplyMarkers(line);
+              expandedLines.push(...parts);
+            }
+
+            for (let j = 0; j < expandedLines.length; j++) {
+              const line = expandedLines[j];
 
               const { cleanText, atUsers, pokeUsers, quoteId } =
                 parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
@@ -1189,8 +1200,15 @@ Planned reason: ${planResult.reason}
             let lines: string[];
             lines = msg.split("\n").filter((l) => l.trim());
 
-            for (let j = 0; j < lines.length; j++) {
-              const line = lines[j];
+            // 展开包含多个 reply 标记的行
+            const expandedLines: string[] = [];
+            for (const line of lines) {
+              const parts = splitByReplyMarkers(line);
+              expandedLines.push(...parts);
+            }
+
+            for (let j = 0; j < expandedLines.length; j++) {
+              const line = expandedLines[j];
 
               const { cleanText, atUsers, pokeUsers, quoteId } =
                 parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
