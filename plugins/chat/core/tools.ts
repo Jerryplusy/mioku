@@ -150,7 +150,9 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
   // 查看图片工具（仅多模态模型可用，且当前没有已附加的图片时）
   const hasPendingImages =
     toolCtx.pendingImageUrls && toolCtx.pendingImageUrls.length > 0;
-  if (toolCtx.config.isMultimodal && !hasPendingImages) {
+  // 如果消息中已经有图片附加，则不再提供 view_image 工具
+  const hasAttachedImages = toolCtx.hasAttachedImages ?? false;
+  if (toolCtx.config.isMultimodal && !hasPendingImages && !hasAttachedImages) {
     tools.push({
       name: "view_image",
       description:

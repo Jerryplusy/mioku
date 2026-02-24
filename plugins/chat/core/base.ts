@@ -41,31 +41,70 @@ export async function sendMessage(
         }
       }
 
-      // @ 某人
-      if (groupId && atUsers.length > 0) {
-        for (const atId of atUsers) {
-          // @ 机器人自己，不处理
-          if (String(atId) === String(ctx.bot.uin)) continue;
-          // 构建回复
-          const atMsg = [ctx.segment.at(atId), ctx.segment.text(cleanText)];
-          if (isFirst && j === 0 && quoteId) {
-            atMsg.unshift(ctx.segment.reply(String(quoteId)));
-          }
-          await ctx.bot.sendGroupMsg(groupId, atMsg);
-          await new Promise((r) => setTimeout(r, 300));
-        }
+      // 构建消息段：保持 @ 在文本中的原始位置
+      const segments: any[] = [];
+
+      // 添加引用（仅第一行）
+      if (isFirst && j === 0 && quoteId) {
+        segments.push({ type: "reply", id: String(quoteId) });
       }
 
-      // 普通文本消息
-      if (cleanText) {
-        let sendMsg: any = cleanText;
-        if (isFirst && j === 0 && quoteId) {
-          sendMsg = [ctx.segment.reply(String(quoteId)), cleanText];
+      if (groupId && atUsers.length > 0) {
+        // 有 @ 用户时，构建消息保持原始位置
+        // 先将原始行按 @ 标记分割，然后重新构建
+        let remaining = line;
+        // 支持三种格式: [[[at:xxx]]], (((at:xxx))), (((xxx)))
+        const atPatterns = [
+          /\[\[\[at:(\d+)\]\]\]/g,
+          /\(\(\(at:(\d+)\)\)\)/g,
+          /\(\(\((\d+)\)\)\)/g,
+        ];
+
+        let lastIndex = 0;
+        let match;
+
+        // 依次处理每种格式
+        for (const atPattern of atPatterns) {
+          atPattern.lastIndex = 0; // 重置正则
+          while ((match = atPattern.exec(remaining)) !== null) {
+            // 添加 @ 之前的文本
+            const beforeAt = remaining.slice(lastIndex, match.index);
+            if (beforeAt) {
+              segments.push({ type: "text", text: beforeAt.trim() });
+            }
+
+            const atId = match[1];
+            // 跳过 @ 机器人自己的情况
+            if (String(atId) !== String(ctx.bot.uin)) {
+              segments.push(ctx.segment.at(atId));
+            }
+
+            lastIndex = match.index + match[0].length;
+          }
         }
-        if (groupId) {
-          await ctx.bot.sendGroupMsg(groupId, sendMsg);
-        } else if (userId) {
-          await ctx.bot.sendPrivateMsg(userId, sendMsg);
+
+        // 添加 @ 之后的文本
+        const afterAt = remaining.slice(lastIndex);
+        if (afterAt) {
+          segments.push({ type: "text", text: afterAt.trim() });
+        }
+
+        // 发送消息
+        if (segments.length > 0) {
+          await ctx.bot.sendGroupMsg(groupId, segments);
+        }
+      } else {
+        // 没有 @ 用户时，发送普通文本消息
+        if (cleanText) {
+          let sendMsg: any = cleanText;
+          if (isFirst && j === 0 && quoteId) {
+            sendMsg = [ctx.segment.reply(String(quoteId)), cleanText];
+          }
+          if (groupId) {
+            await ctx.bot.sendGroupMsg(groupId, sendMsg);
+          } else if (userId) {
+            await ctx.bot.sendPrivateMsg(userId, sendMsg);
+          }
         }
       }
 

@@ -1302,19 +1302,33 @@ Planned reason: ${planResult.reason}
         }
 
         // 提取内容
-        const { text, multimodal } = extractContent(e, cfg, ctx);
-
         // 检测引用内容
         const quotedInfo = await getQuotedContent(e, ctx);
 
-        let messageContent: string;
-        if (multimodal) {
-          messageContent = JSON.stringify(multimodal);
-        } else {
-          messageContent = text;
+        // 收集需要附加的图片 URL
+        const imageUrlsToAttach: string[] = [];
+
+        // 从当前消息中提取图片 URL
+        if (e.message) {
+          for (const seg of e.message) {
+            if (seg.type === "image" && (seg.url || seg.data?.url)) {
+              imageUrlsToAttach.push(seg.url || seg.data.url);
+            }
+          }
         }
 
-        // 注入引用信息
+        // 从引用消息中提取图片 URL
+        if (quotedInfo?.imageUrl) {
+          imageUrlsToAttach.push(quotedInfo.imageUrl);
+        }
+
+        // 标记是否有图片附加
+        const hasAttachedImages = imageUrlsToAttach.length > 0;
+
+        let messageContent: string;
+        let extraContext = "";
+
+        // 注入引用信息（仅文本）
         if (quotedInfo) {
           const parts: string[] = [];
           parts.push(
@@ -1323,7 +1337,15 @@ Planned reason: ${planResult.reason}
           if (quotedInfo.imageUrl) {
             parts.push(`[Quoted message contains an image]`);
           }
-          messageContent = parts.join(" ") + " " + messageContent;
+          extraContext = parts.join(" ");
+        }
+
+        // 获取纯文本
+        const text = ctx.text(e) || "";
+        if (extraContext) {
+          messageContent = extraContext + " " + text;
+        } else {
+          messageContent = text;
         }
 
         if (options?.triggerReason) {
@@ -1474,6 +1496,8 @@ Planned reason: ${planResult.reason}
           aiService: aiService!,
           db,
           botRole,
+          hasAttachedImages,
+          pendingImageUrls: imageUrlsToAttach,
           // AI 返回文本时立即发送
           onTextContent: async (text, messageIndex, totalMessages) => {
             // 解析消息
