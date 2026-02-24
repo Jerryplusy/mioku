@@ -42,65 +42,84 @@ async function sendMessage(
     apply: (text: string) => string;
   },
 ): Promise<void> {
-  // 应用错别字生成器
-  let msg = typoGenerator.apply(text);
+  try {
+    // 应用错别字生成器
+    let msg = typoGenerator.apply(text);
 
-  // 按换行符分割为多条消息
-  const lines = msg.split("\n").filter((l) => l.trim());
+    // 按换行符分割为多条消息
+    let lines: string[];
+    try {
+      lines = msg.split("\n").filter((l) => l.trim());
+    } catch (err) {
+      ctx.logger.error("[sendMessage] split/filter error:", err);
+      lines = [msg];
+    }
 
-  for (let j = 0; j < lines.length; j++) {
-    const line = lines[j];
+    for (let j = 0; j < lines.length; j++) {
+      const line = lines[j];
 
-    // 解析消息中的标记
-    const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(
-      line,
-      isFirst && j === 0 ? undefined : "skip",
-    );
+      // 解析消息中的标记
+      const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(
+        line,
+        isFirst && j === 0 ? undefined : "skip",
+      );
 
-    // 戳人
-    if (groupId && pokeUsers.length > 0) {
-      for (const pokeId of pokeUsers) {
-        try {
-          await ctx.bot.api("group_poke", {
-            group_id: groupId,
-            user_id: pokeId,
-          });
-        } catch (err) {
-          ctx.logger.warn(`[戳人] 失败: ${err}`);
+      // 戳人
+      if (groupId && pokeUsers.length > 0) {
+        for (const pokeId of pokeUsers) {
+          try {
+            await ctx.bot.api("group_poke", {
+              group_id: groupId,
+              user_id: pokeId,
+            });
+          } catch (err) {
+            ctx.logger.warn("[sendMessage] group_poke error:", err);
+          }
         }
       }
-    }
 
-    // 构建消息段
-    const lineSegments: any[] = [];
+      // @ 某人
+      if (groupId && atUsers.length > 0) {
+        for (const atId of atUsers) {
+          // @ 机器人自己，不处理
+          if (String(atId) === String(ctx.bot.uin)) continue;
+          // 构建回复
+          const atMsg = [ctx.segment.at(atId), ctx.segment.text(cleanText)];
+          if (isFirst && j === 0 && quoteId) {
+            atMsg.unshift(ctx.segment.reply(String(quoteId)));
+          }
+          try {
+            await ctx.bot.sendGroupMsg(groupId, atMsg);
+          } catch (err) {
+            ctx.logger.warn("[sendMessage] sendGroupMsg @ error:", err);
+          }
+          await new Promise((r) => setTimeout(r, 300));
+        }
+      }
 
-    // 引用（仅第一条消息的第一行）
-    if (quoteId !== undefined && isFirst && j === 0) {
-      lineSegments.push({ type: "reply", id: String(quoteId) });
-    }
+      // 普通文本消息
+      if (cleanText) {
+        let sendMsg: any = cleanText;
+        if (isFirst && j === 0 && quoteId) {
+          sendMsg = [ctx.segment.reply(String(quoteId)), cleanText];
+        }
+        try {
+          if (groupId) {
+            await ctx.bot.sendGroupMsg(groupId, sendMsg);
+          } else if (userId) {
+            await ctx.bot.sendPrivateMsg(userId, sendMsg);
+          }
+        } catch (err) {
+          ctx.logger.warn("[sendMessage] send msg error:", err);
+        }
+      }
 
-    // AT
-    for (const atId of atUsers) {
-      lineSegments.push(ctx.segment.at(atId));
-    }
-
-    // 文本
-    if (cleanText) {
-      lineSegments.push(ctx.segment.text(cleanText));
-    }
-
-    // 发送
-    if (lineSegments.length > 0) {
-      if (groupId) {
-        await ctx.bot.sendGroupMsg(groupId, lineSegments);
-      } else {
-        await ctx.bot.sendPrivateMsg(userId, lineSegments);
+      if (j < lines.length - 1) {
+        await new Promise((r) => setTimeout(r, 300));
       }
     }
-
-    if (j < lines.length - 1) {
-      await new Promise((r) => setTimeout(r, 300));
-    }
+  } catch (err) {
+    ctx.logger.error("[sendMessage] error:", err);
   }
 }
 
@@ -326,11 +345,17 @@ const chatPlugin: MiokuPlugin = {
                 // AI 返回文本时立即发送
                 onTextContent: async (text, messageIndex, totalMessages) => {
                   // 解析消息
-                  const messages = text
-                    .trim()
-                    .split("\n---\n")
-                    .map((s) => s.trim())
-                    .filter(Boolean);
+                  let messages: string[];
+                  try {
+                    messages = text
+                      .trim()
+                      .split("\n---\n")
+                      .map((s) => s.trim())
+                      .filter(Boolean);
+                  } catch (err) {
+                    ctx.logger.error("[onTextContent] parse messages error:", err);
+                    messages = [text];
+                  }
 
                   // 发送当前消息
                   if (messages[messageIndex]) {
@@ -387,7 +412,13 @@ Planned reason: ${planResult.reason}
                   let msg = result.messages[i];
                   msg = humanize.typoGenerator.apply(msg);
 
-                  const lines = msg.split("\n").filter((l) => l.trim());
+                  let lines: string[];
+                  try {
+                    lines = msg.split("\n").filter((l) => l.trim());
+                  } catch (err) {
+                    ctx.logger.error("[processAIResponse] split/filter error:", err);
+                    lines = [msg];
+                  }
                   for (let j = 0; j < lines.length; j++) {
                     const line = lines[j];
 
@@ -549,11 +580,17 @@ Planned reason: ${planResult.reason}
         // AI 返回文本时立即发送
         onTextContent: async (text, messageIndex, totalMessages) => {
           // 解析消息
-          const messages = text
-            .trim()
-            .split("\n---\n")
-            .map((s) => s.trim())
-            .filter(Boolean);
+          let messages: string[];
+          try {
+            messages = text
+              .trim()
+              .split("\n---\n")
+              .map((s) => s.trim())
+              .filter(Boolean);
+          } catch (err) {
+            ctx.logger.error("[onTextContent2] parse messages error:", err);
+            messages = [text];
+          }
 
           // 发送当前消息
           if (messages[messageIndex]) {
@@ -656,7 +693,13 @@ Planned reason: ${planResult.reason}
           let msg = result.messages[i];
           msg = humanize.typoGenerator.apply(msg);
 
-          const lines = msg.split("\n").filter((l) => l.trim());
+          let lines: string[];
+          try {
+            lines = msg.split("\n").filter((l) => l.trim());
+          } catch (err) {
+            ctx.logger.error("[processAIResponse2] split/filter error:", err);
+            lines = [msg];
+          }
           for (let j = 0; j < lines.length; j++) {
             const line = lines[j];
 
@@ -1004,7 +1047,13 @@ Planned reason: ${planResult.reason}
             msg = humanize.typoGenerator.apply(msg);
 
             // 按换行符分割为多条消息
-            const lines = msg.split("\n").filter((l) => l.trim());
+            let lines: string[];
+            try {
+              lines = msg.split("\n").filter((l) => l.trim());
+            } catch (err) {
+              ctx.logger.error("[processAIResponse3] split/filter error:", err);
+              lines = [msg];
+            }
             for (let j = 0; j < lines.length; j++) {
               const line = lines[j];
 
@@ -1239,14 +1288,20 @@ Planned reason: ${planResult.reason}
               // AI 返回文本时立即发送
               onTextContent: async (text, messageIndex, totalMessages) => {
                 // 解析消息
-                const messages = text
-                  .trim()
-                  .split("\n---\n")
-                  .map((s) => s.trim())
-                  .filter(Boolean);
+            let messages: string[];
+            try {
+              messages = text
+                .trim()
+                .split("\n---\n")
+                .map((s) => s.trim())
+                .filter(Boolean);
+            } catch (err) {
+              ctx.logger.error("[onTextContent3] parse messages error:", err);
+              messages = [text];
+            }
 
-                // 发送当前消息
-                if (messages[messageIndex]) {
+            // 发送当前消息
+            if (messages[messageIndex]) {
                   await sendMessage(
                     ctx,
                     targetGroupId,
@@ -1302,7 +1357,13 @@ Planned reason: ${planResult.reason}
                 let msg = result.messages[i];
                 msg = humanize.typoGenerator.apply(msg);
 
-                const lines = msg.split("\n").filter((l) => l.trim());
+                let lines: string[];
+                try {
+                  lines = msg.split("\n").filter((l) => l.trim());
+                } catch (err) {
+                  ctx.logger.error("[processAIResponse4] split/filter error:", err);
+                  lines = [msg];
+                }
                 for (let j = 0; j < lines.length; j++) {
                   const line = lines[j];
 
@@ -1681,7 +1742,13 @@ Planned reason: ${planResult.reason}
             msg = humanize.typoGenerator.apply(msg);
 
             // 按换行符分割为多条消息
-            const lines = msg.split("\n").filter((l) => l.trim());
+            let lines: string[];
+            try {
+              lines = msg.split("\n").filter((l) => l.trim());
+            } catch (err) {
+              ctx.logger.error("[processAIResponse5] split/filter error:", err);
+              lines = [msg];
+            }
             for (let j = 0; j < lines.length; j++) {
               const line = lines[j];
 
