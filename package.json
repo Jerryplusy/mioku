@@ -28,26 +28,12 @@
   },
   "mioki": {
     "prefix": "/",
+    "owners": [],
+    "admins": [],
+    "plugins": [],
     "log_level": "info",
     "online_push": false,
     "error_push": true,
-    "owners": [
-      3479445703
-    ],
-    "admins": [],
-    "napcat": [
-      {
-        "name": "bot2",
-        "protocol": "ws",
-        "port": 5577,
-        "host": "dev.crystelf.top",
-        "token": "turing"
-      }
-    ],
-    "plugins": [
-      "boot",
-      "help",
-      "chat"
-    ]
+    "napcat": []
   }
 }
