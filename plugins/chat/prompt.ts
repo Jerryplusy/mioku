@@ -204,15 +204,12 @@ function buildChatHistorySection(ctx: PromptContext): string {
     return `[${timeStr}] ${name}(${qqStr}, ${roleLabel}${titleStr})${msgIdStr}): ${msg.content}`;
   });
 
-  return `## Chat History (IMPORTANT - Pay Close Attention!)
-Recent messages in this group chat. This is CRITICAL context for understanding what's happening:
-- Remember what people were talking about before this message
-- Notice who said what and when
-- If someone is responding to a previous topic, acknowledge it
-- If there's an ongoing discussion, contribute naturally
-- DO NOT ignore the conversation history — use it to understand the context
+  return `## Recent Context (Only reference if directly relevant)
+Just the last few messages - don't overthink it or dig into old conversations:
 
-${lines.join("\n")}`;
+${lines.join("\n")}
+
+-- DON'T repeat yourself or bring up old topics - focus on what's being said right now. --`;
 }
 
 function buildTargetMessageSection(target: TargetMessage): string {

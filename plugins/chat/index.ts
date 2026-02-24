@@ -838,7 +838,12 @@ Planned reason: ${planResult.reason}
 
         // 注入引用信息
         if (quotedInfo) {
-          messageContent = `[The user quoted a text sent by ${quotedInfo.senderName}: ${quotedInfo.content}] ${messageContent}`;
+          const parts: string[] = [];
+          parts.push(`[Quoted message #${quotedInfo.messageId} from ${quotedInfo.senderName}: ${quotedInfo.content}]`);
+          if (quotedInfo.imageUrl) {
+            parts.push(`[Quoted message contains an image]`);
+          }
+          messageContent = parts.join(" ") + " " + messageContent;
         }
 
         if (options?.triggerReason) {

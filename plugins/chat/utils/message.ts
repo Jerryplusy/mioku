@@ -53,13 +53,13 @@ export async function isQuotingBot(
 
 /**
  * Extract quoted content from a message (regardless of who was quoted).
- * Returns the quoted text and message_id, or null if no reply segment.
+ * Returns the quoted text, message_id, sender name, and optional image URL, or null if no reply segment.
  */
 export async function getQuotedContent(
   e: any,
   ctx: MiokiContext,
 ): Promise<
-  { messageId: string; senderName: string; content: string } | null | undefined
+  { messageId: string; senderName: string; content: string; imageUrl?: string } | null | undefined
 > {
   if (e.quote_id) {
     try {
@@ -67,11 +67,25 @@ export async function getQuotedContent(
       if (quotedMsg && quotedMsg.message) {
         const senderName = quotedMsg.sender.nickname;
         try {
-          const content = quotedMsg.message
+          // 提取文本内容
+          const textContent = quotedMsg.message
             .filter((s: any) => s.type === "text")
             .map((s: any) => s.text || "")
             .join("");
-          return { messageId: e.quote_id, senderName, content };
+
+          // 检测是否有图片
+          let imageUrl: string | undefined;
+          const imageSeg = quotedMsg.message.find((s: any) => s.type === "image");
+          if (imageSeg && typeof imageSeg === "object") {
+            imageUrl = (imageSeg as any).url || (imageSeg as any).data?.url;
+          }
+
+          return {
+            messageId: String(e.quote_id),
+            senderName,
+            content: textContent,
+            imageUrl,
+          };
         } catch (err) {
           logger.error("[getQuotedContent] filter error:", err);
           return null;
