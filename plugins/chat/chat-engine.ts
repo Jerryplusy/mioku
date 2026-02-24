@@ -78,22 +78,25 @@ export async function runChat(
     let messages: any[];
 
     if (isMultimodal || hasImages) {
-      // 构建多模态格式的 system 消息
-      const contentParts: any[] = [{ type: "text", text: prompt }];
+      // system 消息只包含提示词
+      messages = [{ role: "system", content: prompt }];
 
-      // 添加图片
+      // user 消息包含用户内容和图片
       if (hasImages) {
+        const userContent: any[] = [{ type: "text", text: targetMessage.content }];
         for (const url of pendingImages) {
-          contentParts.push({ type: "image_url", image_url: { url } });
+          userContent.push({ type: "image_url", image_url: { url } });
         }
+        messages.push({ role: "user", content: userContent });
+
         logger.info(
-          `[chat-engine] Attaching ${pendingImages.length} image(s) to request`,
+          `[chat-engine] Attaching ${pendingImages.length} image(s) to user message`,
         );
         // 清除待附加的图片
         toolCtx.pendingImageUrls = [];
+      } else {
+        messages.push({ role: "user", content: targetMessage.content });
       }
-
-      messages = [{ role: "system", content: contentParts }];
     } else {
       messages = [{ role: "system", content: prompt }];
     }

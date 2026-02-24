@@ -147,8 +147,9 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
     });
   }
 
-  // 查看图片工具（仅多模态模型可用）
-  if (toolCtx.config.isMultimodal) {
+  // 查看图片工具（仅多模态模型可用，且当前没有已附加的图片时）
+  const hasPendingImages = toolCtx.pendingImageUrls && toolCtx.pendingImageUrls.length > 0;
+  if (toolCtx.config.isMultimodal && !hasPendingImages) {
     tools.push({
       name: "view_image",
       description:
@@ -185,7 +186,7 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
 
           return {
             success: true,
-            note: "Image URL will be attached to the next AI request",
+            note: "Now that the image has been successfully attached to the session, there is no need to call this tool to view the image, just continue the reasoning",
           };
         } catch (err) {
           return { error: `Failed to get image: ${err}` };

@@ -17,35 +17,26 @@ export function shouldTrigger(
 /**
  * Check if the message quotes a bot message.
  * Returns the quoted message content if quoting bot, null otherwise.
- * Reply seg format: {type: "reply", id: "1048732276"}
  */
 export async function isQuotingBot(
   e: any,
   ctx: MiokiContext,
 ): Promise<{ quoted: true; messageId: string; content: string } | null> {
-  if (!e.message) return null;
-  for (const seg of e.message) {
-    if (seg.type === "reply" && seg.id) {
-      try {
-        const quotedMsg = await ctx.bot.getMsg(seg.id);
-        if (quotedMsg && (quotedMsg as any).user_id === ctx.bot.uin) {
-          // Extract text content from quoted message
-          try {
-            const quotedText =
-              (quotedMsg as any).raw_message ||
-              (quotedMsg as any).message
-                ?.filter((s: any) => s.type === "text")
-                .map((s: any) => s.text || "")
-                .join("") ||
-              "";
-            return { quoted: true, messageId: seg.id, content: quotedText };
-          } catch (err) {
-            logger.error("[getBotQuotedMsg] filter error:", err);
-          }
+  if (e.quote_id) {
+    try {
+      const quoteMsg = await ctx.getQuoteMsg(e);
+      if (quoteMsg && String(quoteMsg.sender.user_id) === String(ctx.bot.uin)) {
+        const quotedText = quoteMsg.message
+          ?.filter((s: any) => s.type === "text")
+          .map((s: any) => s.text)
+          .join("");
+        if (quotedText) {
+          return { quoted: true, messageId: e.quote_id, content: quotedText };
         }
-      } catch {
-        // ignore
+        return null;
       }
+    } catch (err) {
+      logger.error(err);
     }
   }
   return null;
@@ -59,7 +50,14 @@ export async function getQuotedContent(
   e: any,
   ctx: MiokiContext,
 ): Promise<
-  { messageId: string; senderName: string; content: string; imageUrl?: string } | null | undefined
+  | {
+      messageId: string;
+      senderName: string;
+      content: string;
+      imageUrl?: string;
+    }
+  | null
+  | undefined
 > {
   if (e.quote_id) {
     try {
@@ -75,7 +73,9 @@ export async function getQuotedContent(
 
           // 检测是否有图片
           let imageUrl: string | undefined;
-          const imageSeg = quotedMsg.message.find((s: any) => s.type === "image");
+          const imageSeg = quotedMsg.message.find(
+            (s: any) => s.type === "image",
+          );
           if (imageSeg && typeof imageSeg === "object") {
             imageUrl = (imageSeg as any).url || (imageSeg as any).data?.url;
           }
@@ -246,9 +246,15 @@ export async function getGroupHistory(
       // 提取文本内容
       let content = "";
       try {
-        if (msg.message && Array.isArray(msg.message) && msg.message.length > 0) {
+        if (
+          msg.message &&
+          Array.isArray(msg.message) &&
+          msg.message.length > 0
+        ) {
           // 先尝试提取所有文本段
-          const textSegs = msg.message.filter((seg: any) => seg.type === "text");
+          const textSegs = msg.message.filter(
+            (seg: any) => seg.type === "text",
+          );
           const textContent = textSegs
             .map((seg: any) => seg.data?.text || "")
             .join("")
