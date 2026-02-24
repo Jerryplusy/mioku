@@ -197,6 +197,41 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
       },
       returnToAI: true,
     });
+
+    tools.push({
+      name: "view_member_avatar",
+      description:
+        "View a group member's QQ avatar. Use this when you need to see what someone's avatar looks like.",
+      parameters: {
+        type: "object",
+        properties: {
+          user_id: {
+            type: "number",
+            description:
+              "QQ number of the member whose avatar you want to view",
+          },
+        },
+        required: ["user_id"],
+      },
+      handler: async (args) => {
+        try {
+          const avatarUrl = `https://q1.qlogo.cn/g?b=qq&nk=${args.user_id}&s=640`;
+
+          if (!toolCtx.pendingImageUrls) {
+            toolCtx.pendingImageUrls = [];
+          }
+          toolCtx.pendingImageUrls.push(avatarUrl);
+
+          return {
+            success: true,
+            note: "The avatar has been successfully attached to the session. You can now see and describe the avatar and there is no need to call this tool to view the image.",
+          };
+        } catch (err) {
+          return { error: `Failed to get avatar: ${err}` };
+        }
+      },
+      returnToAI: true,
+    });
   }
 
   return tools;
