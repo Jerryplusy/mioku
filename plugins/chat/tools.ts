@@ -185,8 +185,6 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
 
           return {
             success: true,
-            message_id: args.message_id,
-            image_url: imageUrl,
             note: "Image URL will be attached to the next AI request",
           };
         } catch (err) {

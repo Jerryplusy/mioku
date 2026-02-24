@@ -2,7 +2,7 @@ import type { MiokuPlugin } from "../../src";
 import type { AIService, AIInstance } from "../../src/services/ai";
 import type { HelpService } from "../../src/services/help";
 import type { ConfigService } from "../../src/services/config";
-import { MiokiContext } from "mioki";
+import { logger, MiokiContext } from "mioki";
 import type {
   ChatConfig,
   ToolContext,
@@ -353,7 +353,10 @@ const chatPlugin: MiokuPlugin = {
                       .map((s) => s.trim())
                       .filter(Boolean);
                   } catch (err) {
-                    ctx.logger.error("[onTextContent] parse messages error:", err);
+                    ctx.logger.error(
+                      "[onTextContent] parse messages error:",
+                      err,
+                    );
                     messages = [text];
                   }
 
@@ -416,7 +419,10 @@ Planned reason: ${planResult.reason}
                   try {
                     lines = msg.split("\n").filter((l) => l.trim());
                   } catch (err) {
-                    ctx.logger.error("[processAIResponse] split/filter error:", err);
+                    ctx.logger.error(
+                      "[processAIResponse] split/filter error:",
+                      err,
+                    );
                     lines = [msg];
                   }
                   for (let j = 0; j < lines.length; j++) {
@@ -507,274 +513,278 @@ Planned reason: ${planResult.reason}
       cfg: ChatConfig,
     ): Promise<void> {
       // 获取当前队列中的所有消息
-      const queue = queueManager.getQueue(groupSessionId);
-      if (!queue || queue.length === 0) {
-        queueManager.clearActiveTarget(groupSessionId);
-        return;
-      }
-
-      ctx.logger.info(
-        `[Queue] 群 ${groupSessionId} 批量处理队列，队列长度: ${queue.length}`,
-      );
-
-      // 收集所有队列消息的内容（使用纯文本格式，与第一个消息一致）
-      const queuedContents: string[] = [];
-      for (const item of queue) {
-        const { text: extractedText, multimodal } = extractContent(
-          item.event,
-          cfg,
-          ctx,
-        );
-        let content = multimodal ? JSON.stringify(multimodal) : extractedText;
-        if (content) {
-          queuedContents.push(content);
-        }
-      }
-
-      // 清空队列
-      queueManager.clearQueue(groupSessionId);
-
-      if (queuedContents.length === 0) {
-        queueManager.clearActiveTarget(groupSessionId);
-        return;
-      }
-
-      // 不管是否有 activeTarget，都直接用队列消息构建新的 targetMessage
-      // 已处理的消息不需要保留
-      const firstItem = queue[0];
-      const userName =
-        firstItem.event.sender?.card ||
-        firstItem.event.sender?.nickname ||
-        String(firstItem.event.user_id);
-
-      // 将所有队列消息合并，用换行分隔
-      const mergedContent = queuedContents.join("\n");
-
-      const targetMessage: TargetMessage = {
-        userName,
-        userId: firstItem.event.user_id || firstItem.event.sender?.user_id,
-        userRole: firstItem.event.sender?.role || "member",
-        content: mergedContent,
-        messageId: firstItem.event.message_id,
-        timestamp: Date.now(),
-      };
-
-      ctx.logger.info(
-        `[Queue] 群 ${groupSessionId} 批量处理 ${queue.length} 条消息`,
-      );
-
-      // 清理旧的 activeTarget
-      queueManager.clearActiveTarget(groupSessionId);
-
-      const groupId = parseInt(groupSessionId.split(":")[1], 10);
-      const toolCtx: ToolContext = {
-        ctx,
-        event: null, // 复用之前的 context
-        sessionId: groupSessionId,
-        groupId,
-        userId: targetMessage.userId,
-        config: cfg,
-        aiService: aiService!,
-        db,
-        botRole: await getBotRole(groupId, ctx),
-        // AI 返回文本时立即发送
-        onTextContent: async (text, messageIndex, totalMessages) => {
-          // 解析消息
-          let messages: string[];
-          try {
-            messages = text
-              .trim()
-              .split("\n---\n")
-              .map((s) => s.trim())
-              .filter(Boolean);
-          } catch (err) {
-            ctx.logger.error("[onTextContent2] parse messages error:", err);
-            messages = [text];
-          }
-
-          // 发送当前消息
-          if (messages[messageIndex]) {
-            await sendMessage(
-              ctx,
-              groupId,
-              targetMessage.userId,
-              messages[messageIndex],
-              messageIndex === 0,
-              humanize.typoGenerator,
-            );
-          }
-
-          // 记录发言频率
-        },
-      };
-
-      const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
-
-      // 获取群聊历史
-      const rawHistory = await getGroupHistory(
-        groupId,
-        ctx,
-        cfg.historyCount,
-        db,
-      );
-      const history: ChatMessage[] = rawHistory.map((msg) => ({
-        sessionId: groupSessionId,
-        role: "user" as const,
-        content: msg.content,
-        userId: msg.userId,
-        userName: msg.userName,
-        userRole: msg.userRole,
-        groupId,
-        timestamp: msg.timestamp,
-        messageId: msg.messageId,
-      }));
-
-      // 记忆检索
-      const memoryContext = await humanize.memoryRetrieval.retrieve(
-        groupSessionId,
-        targetMessage.content,
-        targetMessage.userName,
-        history,
-      );
-
-      // 话题上下文
-      const topicContext =
-        humanize.topicTracker.getTopicContext(groupSessionId);
-
-      // 表达习惯上下文
-      const expressionContext =
-        humanize.expressionLearner.getExpressionContext(groupSessionId);
-
-      let groupName: string | undefined;
-      let memberCount: number | undefined;
       try {
-        const groupInfo = await ctx.bot.getGroupInfo(groupId);
-        groupName = (groupInfo as any)?.group_name;
-        memberCount = (groupInfo as any)?.member_count;
-      } catch {}
+        const queue = queueManager.getQueue(groupSessionId);
+        if (!queue || queue.length === 0) {
+          queueManager.clearActiveTarget(groupSessionId);
+          return;
+        }
 
-      // 重新运行 AI
-      const result = await runChat(
-        aiInstance,
-        toolCtx,
-        history,
-        targetMessage,
-        {
+        ctx.logger.info(
+          `[Queue] 群 ${groupSessionId} 批量处理队列，队列长度: ${queue.length}`,
+        );
+
+        // 收集所有队列消息的内容
+        const queuedContents: string[] = [];
+        for (const item of queue) {
+          const { text: extractedText, multimodal } = extractContent(
+            item.event,
+            cfg,
+            ctx,
+          );
+          let content = multimodal ? JSON.stringify(multimodal) : extractedText;
+          if (content) {
+            queuedContents.push(content);
+          }
+        }
+
+        // 清空队列
+        queueManager.clearQueue(groupSessionId);
+
+        if (queuedContents.length === 0) {
+          queueManager.clearActiveTarget(groupSessionId);
+          return;
+        }
+
+        // 不管是否有 activeTarget，都直接用队列消息构建新的 targetMessage
+        // 已处理的消息不需要保留
+        const firstItem = queue[0];
+        const userName =
+          firstItem.event.sender?.card ||
+          firstItem.event.sender?.nickname ||
+          String(firstItem.event.user_id);
+
+        // 将所有队列消息合并，用换行分隔
+        const mergedContent = queuedContents.join("\n");
+
+        const targetMessage: TargetMessage = {
+          userName,
+          userId: firstItem.event.user_id || firstItem.event.sender?.user_id,
+          userRole: firstItem.event.sender?.role || "member",
+          content: mergedContent,
+          messageId: firstItem.event.message_id,
+          timestamp: Date.now(),
+        };
+
+        ctx.logger.info(
+          `[Queue] 群 ${groupSessionId} 批量处理 ${queue.length} 条消息`,
+        );
+
+        // 清理旧的 activeTarget
+        queueManager.clearActiveTarget(groupSessionId);
+
+        const groupId = parseInt(groupSessionId.split(":")[1], 10);
+        const toolCtx: ToolContext = {
+          ctx,
+          event: null, // 复用之前的 context
+          sessionId: groupSessionId,
+          groupId,
+          userId: targetMessage.userId,
           config: cfg,
-          groupName,
-          memberCount,
-          botNickname,
-          botRole: toolCtx.botRole,
           aiService: aiService!,
-          isGroup: true,
-          memoryContext: memoryContext || undefined,
-          topicContext: topicContext || undefined,
-          expressionContext: expressionContext || undefined,
-          replyContext: {
-            type: "comment",
-            targetUser: targetMessage.userName,
-            targetMessage: targetMessage.content,
+          db,
+          botRole: await getBotRole(groupId, ctx),
+          // AI 返回文本时立即发送
+          onTextContent: async (text, messageIndex, totalMessages) => {
+            // 解析消息
+            let messages: string[];
+            try {
+              messages = text
+                .trim()
+                .split("\n---\n")
+                .map((s) => s.trim())
+                .filter(Boolean);
+            } catch (err) {
+              ctx.logger.error("[onTextContent2] parse messages error:", err);
+              messages = [text];
+            }
+
+            // 发送当前消息
+            if (messages[messageIndex]) {
+              await sendMessage(
+                ctx,
+                groupId,
+                targetMessage.userId,
+                messages[messageIndex],
+                messageIndex === 0,
+                humanize.typoGenerator,
+              );
+            }
+
+            // 记录发言频率
           },
-        },
-        sessionManager,
-        humanize,
-        skillManager,
-      );
+        };
 
-      // 发送消息
-      const sentIndices2 = toolCtx.sentMessageIndices;
-      if (result.messages.length > 0) {
-        for (let i = 0; i < result.messages.length; i++) {
-          // 跳过已发送的消息
-          if (sentIndices2?.has(i)) {
-            continue;
-          }
+        const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
 
-          let msg = result.messages[i];
-          msg = humanize.typoGenerator.apply(msg);
+        // 获取群聊历史
+        const rawHistory = await getGroupHistory(
+          groupId,
+          ctx,
+          cfg.historyCount,
+          db,
+        );
+        const history: ChatMessage[] = rawHistory.map((msg) => ({
+          sessionId: groupSessionId,
+          role: "user" as const,
+          content: msg.content,
+          userId: msg.userId,
+          userName: msg.userName,
+          userRole: msg.userRole,
+          groupId,
+          timestamp: msg.timestamp,
+          messageId: msg.messageId,
+        }));
 
-          let lines: string[];
-          try {
-            lines = msg.split("\n").filter((l) => l.trim());
-          } catch (err) {
-            ctx.logger.error("[processAIResponse2] split/filter error:", err);
-            lines = [msg];
-          }
-          for (let j = 0; j < lines.length; j++) {
-            const line = lines[j];
+        // 记忆检索
+        const memoryContext = await humanize.memoryRetrieval.retrieve(
+          groupSessionId,
+          targetMessage.content,
+          targetMessage.userName,
+          history,
+        );
 
-            const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(
-              line,
-              i === 0 && j === 0 ? undefined : "skip",
-            );
+        // 话题上下文
+        const topicContext =
+          humanize.topicTracker.getTopicContext(groupSessionId);
 
-            if (pokeUsers.length > 0) {
-              for (const pokeId of pokeUsers) {
-                try {
-                  await ctx.bot.api("group_poke", {
-                    group_id: groupId,
-                    user_id: pokeId,
-                  });
-                } catch (err) {
-                  ctx.logger.warn(`[戳人] 失败: ${err}`);
+        // 表达习惯上下文
+        const expressionContext =
+          humanize.expressionLearner.getExpressionContext(groupSessionId);
+
+        let groupName: string | undefined;
+        let memberCount: number | undefined;
+        try {
+          const groupInfo = await ctx.bot.getGroupInfo(groupId);
+          groupName = (groupInfo as any)?.group_name;
+          memberCount = (groupInfo as any)?.member_count;
+        } catch {}
+
+        // 重新运行 AI
+        const result = await runChat(
+          aiInstance,
+          toolCtx,
+          history,
+          targetMessage,
+          {
+            config: cfg,
+            groupName,
+            memberCount,
+            botNickname,
+            botRole: toolCtx.botRole,
+            aiService: aiService!,
+            isGroup: true,
+            memoryContext: memoryContext || undefined,
+            topicContext: topicContext || undefined,
+            expressionContext: expressionContext || undefined,
+            replyContext: {
+              type: "comment",
+              targetUser: targetMessage.userName,
+              targetMessage: targetMessage.content,
+            },
+          },
+          sessionManager,
+          humanize,
+          skillManager,
+        );
+
+        // 发送消息
+        const sentIndices2 = toolCtx.sentMessageIndices;
+        if (result.messages.length > 0) {
+          for (let i = 0; i < result.messages.length; i++) {
+            // 跳过已发送的消息
+            if (sentIndices2?.has(i)) {
+              continue;
+            }
+
+            let msg = result.messages[i];
+            msg = humanize.typoGenerator.apply(msg);
+
+            let lines: string[];
+            try {
+              lines = msg.split("\n").filter((l) => l.trim());
+            } catch (err) {
+              ctx.logger.error("[processAIResponse2] split/filter error:", err);
+              lines = [msg];
+            }
+            for (let j = 0; j < lines.length; j++) {
+              const line = lines[j];
+
+              const { cleanText, atUsers, pokeUsers, quoteId } =
+                parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
+
+              if (pokeUsers.length > 0) {
+                for (const pokeId of pokeUsers) {
+                  try {
+                    await ctx.bot.api("group_poke", {
+                      group_id: groupId,
+                      user_id: pokeId,
+                    });
+                  } catch (err) {
+                    ctx.logger.warn(`[戳人] 失败: ${err}`);
+                  }
                 }
+              }
+
+              const lineSegments: any[] = [];
+
+              if (quoteId !== undefined && i === 0 && j === 0) {
+                lineSegments.push({ type: "reply", id: String(quoteId) });
+              }
+
+              for (const atId of atUsers) {
+                lineSegments.push(ctx.segment.at(atId));
+              }
+
+              if (cleanText) {
+                lineSegments.push(ctx.segment.text(cleanText));
+              }
+
+              if (lineSegments.length > 0) {
+                await ctx.bot.sendGroupMsg(groupId, lineSegments);
+              }
+
+              if (j < lines.length - 1) {
+                await new Promise((r) => setTimeout(r, 300));
               }
             }
 
-            const lineSegments: any[] = [];
-
-            if (quoteId !== undefined && i === 0 && j === 0) {
-              lineSegments.push({ type: "reply", id: String(quoteId) });
-            }
-
-            for (const atId of atUsers) {
-              lineSegments.push(ctx.segment.at(atId));
-            }
-
-            if (cleanText) {
-              lineSegments.push(ctx.segment.text(cleanText));
-            }
-
-            if (lineSegments.length > 0) {
-              await ctx.bot.sendGroupMsg(groupId, lineSegments);
-            }
-
-            if (j < lines.length - 1) {
+            if (i < result.messages.length - 1) {
               await new Promise((r) => setTimeout(r, 300));
             }
           }
 
-          if (i < result.messages.length - 1) {
-            await new Promise((r) => setTimeout(r, 300));
+          // 记录发言（如果回调没有发送消息，则在这里记录）
+          if (!sentIndices2 || sentIndices2.size === 0) {
           }
         }
 
-        // 记录发言（如果回调没有发送消息，则在这里记录）
-        if (!sentIndices2 || sentIndices2.size === 0) {
+        // 发送表情包
+        if (result.emojiPath) {
+          try {
+            const emojiSegment = ctx.segment.image(
+              `file://${result.emojiPath}`,
+            );
+            await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
+          } catch (err) {
+            ctx.logger.warn(`[表情包] 发送失败: ${err}`);
+          }
         }
-      }
 
-      // 发送表情包
-      if (result.emojiPath) {
-        try {
-          const emojiSegment = ctx.segment.image(`file://${result.emojiPath}`);
-          await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
-        } catch (err) {
-          ctx.logger.warn(`[表情包] 发送失败: ${err}`);
+        // 保存 bot 发送的消息到数据库
+        const now = Date.now();
+        for (const msg of result.messages) {
+          saveBotMessage(groupId, groupSessionId, msg, now, cfg);
         }
+
+        // 清理
+        queueManager.clearActiveTarget(groupSessionId);
+        sessionManager.touch(groupSessionId);
+
+        ctx.logger.info(`[Queue] 群 ${groupSessionId} 队列消息处理完成`);
+      } catch (err) {
+        logger.error(err);
       }
-
-      // 保存 bot 发送的消息到数据库
-      const now = Date.now();
-      for (const msg of result.messages) {
-        saveBotMessage(groupId, groupSessionId, msg, now, cfg);
-      }
-
-      // 清理
-      queueManager.clearActiveTarget(groupSessionId);
-      sessionManager.touch(groupSessionId);
-
-      ctx.logger.info(`[Queue] 群 ${groupSessionId} 队列消息处理完成`);
     }
 
     /**
@@ -1288,20 +1298,23 @@ Planned reason: ${planResult.reason}
               // AI 返回文本时立即发送
               onTextContent: async (text, messageIndex, totalMessages) => {
                 // 解析消息
-            let messages: string[];
-            try {
-              messages = text
-                .trim()
-                .split("\n---\n")
-                .map((s) => s.trim())
-                .filter(Boolean);
-            } catch (err) {
-              ctx.logger.error("[onTextContent3] parse messages error:", err);
-              messages = [text];
-            }
+                let messages: string[];
+                try {
+                  messages = text
+                    .trim()
+                    .split("\n---\n")
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                } catch (err) {
+                  ctx.logger.error(
+                    "[onTextContent3] parse messages error:",
+                    err,
+                  );
+                  messages = [text];
+                }
 
-            // 发送当前消息
-            if (messages[messageIndex]) {
+                // 发送当前消息
+                if (messages[messageIndex]) {
                   await sendMessage(
                     ctx,
                     targetGroupId,
@@ -1361,7 +1374,10 @@ Planned reason: ${planResult.reason}
                 try {
                   lines = msg.split("\n").filter((l) => l.trim());
                 } catch (err) {
-                  ctx.logger.error("[processAIResponse4] split/filter error:", err);
+                  ctx.logger.error(
+                    "[processAIResponse4] split/filter error:",
+                    err,
+                  );
                   lines = [msg];
                 }
                 for (let j = 0; j < lines.length; j++) {

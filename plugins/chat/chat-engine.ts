@@ -69,35 +69,31 @@ export async function runChat(
     const skillTools = skillManager.getTools(toolCtx.sessionId);
     const openaiTools = buildOpenAITools(chatTools, skillTools);
 
-    // 构建消息（如果有待附加的图片，添加到 system 消息中）
+    // 构建消息
     const pendingImages = toolCtx.pendingImageUrls;
-    let messages: { role: "system"; content: string | { type: "text"; text: string }[] }[];
+    const isMultimodal = toolCtx.config.isMultimodal;
+    const hasImages = pendingImages && pendingImages.length > 0;
 
-    if (pendingImages && pendingImages.length > 0) {
-      // 构建带图片的 system 消息
-      const imageContents: { type: "image_url"; image_url: { url: string } }[] =
-        pendingImages.map((url) => ({
-          type: "image_url" as const,
-          image_url: { url },
-        }));
+    // 多模态模型需要使用数组格式，文本模型使用字符串格式
+    let messages: any[];
 
-      // 使用 any 类型来绕过严格的类型检查
-      messages = [
-        {
-          role: "system",
-          content: [
-            { type: "text", text: prompt } as any,
-            ...imageContents,
-          ] as any,
-        },
-      ] as any;
+    if (isMultimodal || hasImages) {
+      // 构建多模态格式的 system 消息
+      const contentParts: any[] = [{ type: "text", text: prompt }];
 
-      logger.info(
-        `[chat-engine] Attaching ${pendingImages.length} image(s) to request`,
-      );
+      // 添加图片
+      if (hasImages) {
+        for (const url of pendingImages) {
+          contentParts.push({ type: "image_url", image_url: { url } });
+        }
+        logger.info(
+          `[chat-engine] Attaching ${pendingImages.length} image(s) to request`,
+        );
+        // 清除待附加的图片
+        toolCtx.pendingImageUrls = [];
+      }
 
-      // 清除待附加的图片（仅一轮）
-      toolCtx.pendingImageUrls = [];
+      messages = [{ role: "system", content: contentParts }];
     } else {
       messages = [{ role: "system", content: prompt }];
     }
