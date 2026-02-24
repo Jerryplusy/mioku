@@ -520,7 +520,7 @@ Planned reason: ${planResult.reason}
         firstItem.event.sender?.nickname ||
         String(firstItem.event.user_id);
 
-      // 将所有队列消息合并，用换行分隔（不用 --- 分隔）
+      // 将所有队列消息合并，用换行分隔
       const mergedContent = queuedContents.join("\n");
 
       const targetMessage: TargetMessage = {
@@ -550,7 +550,7 @@ Planned reason: ${planResult.reason}
         aiService: aiService!,
         db,
         botRole: await getBotRole(groupId, ctx),
-        // AI 返回文本时立即发送（不等待工具调用完成）
+        // AI 返回文本时立即发送
         onTextContent: async (text, messageIndex, totalMessages) => {
           // 解析消息
           const messages = text

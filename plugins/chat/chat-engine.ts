@@ -93,7 +93,7 @@ export async function runChat(
 
       // 如果有回调函数，立即发送文本内容
       if (toolCtx.onTextContent && lastTextContent.trim()) {
-        const messages = parseMessages(cleanMarkers(lastTextContent));
+        const messages = cleanMarkers(lastTextContent);
         if (messages.length > 0) {
           // 记录已发送的消息索引
           if (!toolCtx.sentMessageIndices) {

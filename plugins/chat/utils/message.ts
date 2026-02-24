@@ -11,11 +11,7 @@ export function shouldTrigger(
 
   // Only check if message @s the bot (seg format: {type: "at", qq: "123456"})
   const atSeg = e.message?.find((seg: any) => seg.type === "at");
-  if (atSeg && String(atSeg.qq) === String(ctx.bot.uin)) {
-    return true;
-  }
-
-  return false;
+  return !!(atSeg && String(atSeg.qq) === String(ctx.bot.uin));
 }
 
 /**
@@ -234,7 +230,7 @@ export async function getGroupHistory(
 
       // 提取文本内容
       let content = "";
-      if (msg.message && msg.message.length > 0) {
+      if (msg.message && Array.isArray(msg.message) && msg.message.length > 0) {
         // 先尝试提取所有文本段
         const textSegs = msg.message.filter((seg: any) => seg.type === "text");
         const textContent = textSegs
