@@ -48,12 +48,7 @@ async function sendMessage(
 
     // 按换行符分割为多条消息
     let lines: string[];
-    try {
-      lines = msg.split("\n").filter((l) => l.trim());
-    } catch (err) {
-      ctx.logger.error("[sendMessage] split/filter error:", err);
-      lines = [msg];
-    }
+    lines = msg.split("\n").filter((l) => l.trim());
 
     for (let j = 0; j < lines.length; j++) {
       const line = lines[j];
@@ -67,14 +62,10 @@ async function sendMessage(
       // 戳人
       if (groupId && pokeUsers.length > 0) {
         for (const pokeId of pokeUsers) {
-          try {
-            await ctx.bot.api("group_poke", {
-              group_id: groupId,
-              user_id: pokeId,
-            });
-          } catch (err) {
-            ctx.logger.warn("[sendMessage] group_poke error:", err);
-          }
+          await ctx.bot.api("group_poke", {
+            group_id: groupId,
+            user_id: pokeId,
+          });
         }
       }
 
@@ -88,11 +79,7 @@ async function sendMessage(
           if (isFirst && j === 0 && quoteId) {
             atMsg.unshift(ctx.segment.reply(String(quoteId)));
           }
-          try {
-            await ctx.bot.sendGroupMsg(groupId, atMsg);
-          } catch (err) {
-            ctx.logger.warn("[sendMessage] sendGroupMsg @ error:", err);
-          }
+          await ctx.bot.sendGroupMsg(groupId, atMsg);
           await new Promise((r) => setTimeout(r, 300));
         }
       }
@@ -103,14 +90,10 @@ async function sendMessage(
         if (isFirst && j === 0 && quoteId) {
           sendMsg = [ctx.segment.reply(String(quoteId)), cleanText];
         }
-        try {
-          if (groupId) {
-            await ctx.bot.sendGroupMsg(groupId, sendMsg);
-          } else if (userId) {
-            await ctx.bot.sendPrivateMsg(userId, sendMsg);
-          }
-        } catch (err) {
-          ctx.logger.warn("[sendMessage] send msg error:", err);
+        if (groupId) {
+          await ctx.bot.sendGroupMsg(groupId, sendMsg);
+        } else if (userId) {
+          await ctx.bot.sendPrivateMsg(userId, sendMsg);
         }
       }
 
@@ -346,19 +329,12 @@ const chatPlugin: MiokuPlugin = {
                 onTextContent: async (text, messageIndex, totalMessages) => {
                   // 解析消息
                   let messages: string[];
-                  try {
-                    messages = text
-                      .trim()
-                      .split("\n---\n")
-                      .map((s) => s.trim())
-                      .filter(Boolean);
-                  } catch (err) {
-                    ctx.logger.error(
-                      "[onTextContent] parse messages error:",
-                      err,
-                    );
-                    messages = [text];
-                  }
+
+                  messages = text
+                    .trim()
+                    .split("\n---\n")
+                    .map((s) => s.trim())
+                    .filter(Boolean);
 
                   // 发送当前消息
                   if (messages[messageIndex]) {
@@ -416,15 +392,8 @@ Planned reason: ${planResult.reason}
                   msg = humanize.typoGenerator.apply(msg);
 
                   let lines: string[];
-                  try {
-                    lines = msg.split("\n").filter((l) => l.trim());
-                  } catch (err) {
-                    ctx.logger.error(
-                      "[processAIResponse] split/filter error:",
-                      err,
-                    );
-                    lines = [msg];
-                  }
+                  lines = msg.split("\n").filter((l) => l.trim());
+
                   for (let j = 0; j < lines.length; j++) {
                     const line = lines[j];
 
@@ -437,14 +406,10 @@ Planned reason: ${planResult.reason}
                     // 戳人
                     if (pokeUsers.length > 0) {
                       for (const pokeId of pokeUsers) {
-                        try {
-                          await ctx.bot.api("group_poke", {
-                            group_id: groupId,
-                            user_id: pokeId,
-                          });
-                        } catch (err) {
-                          ctx.logger.warn(`[戳人] 失败: ${err}`);
-                        }
+                        await ctx.bot.api("group_poke", {
+                          group_id: groupId,
+                          user_id: pokeId,
+                        });
                       }
                     }
 
@@ -588,16 +553,11 @@ Planned reason: ${planResult.reason}
           onTextContent: async (text, messageIndex, totalMessages) => {
             // 解析消息
             let messages: string[];
-            try {
-              messages = text
-                .trim()
-                .split("\n---\n")
-                .map((s) => s.trim())
-                .filter(Boolean);
-            } catch (err) {
-              ctx.logger.error("[onTextContent2] parse messages error:", err);
-              messages = [text];
-            }
+            messages = text
+              .trim()
+              .split("\n---\n")
+              .map((s) => s.trim())
+              .filter(Boolean);
 
             // 发送当前消息
             if (messages[messageIndex]) {
@@ -701,12 +661,8 @@ Planned reason: ${planResult.reason}
             msg = humanize.typoGenerator.apply(msg);
 
             let lines: string[];
-            try {
-              lines = msg.split("\n").filter((l) => l.trim());
-            } catch (err) {
-              ctx.logger.error("[processAIResponse2] split/filter error:", err);
-              lines = [msg];
-            }
+            lines = msg.split("\n").filter((l) => l.trim());
+
             for (let j = 0; j < lines.length; j++) {
               const line = lines[j];
 
@@ -715,14 +671,10 @@ Planned reason: ${planResult.reason}
 
               if (pokeUsers.length > 0) {
                 for (const pokeId of pokeUsers) {
-                  try {
-                    await ctx.bot.api("group_poke", {
-                      group_id: groupId,
-                      user_id: pokeId,
-                    });
-                  } catch (err) {
-                    ctx.logger.warn(`[戳人] 失败: ${err}`);
-                  }
+                  await ctx.bot.api("group_poke", {
+                    group_id: groupId,
+                    user_id: pokeId,
+                  });
                 }
               }
 
@@ -839,7 +791,9 @@ Planned reason: ${planResult.reason}
         // 注入引用信息
         if (quotedInfo) {
           const parts: string[] = [];
-          parts.push(`[Quoted message #${quotedInfo.messageId} from ${quotedInfo.senderName}: ${quotedInfo.content}]`);
+          parts.push(
+            `[Quoted message #${quotedInfo.messageId} from ${quotedInfo.senderName}: ${quotedInfo.content}]`,
+          );
           if (quotedInfo.imageUrl) {
             parts.push(`[Quoted message contains an image]`);
           }
@@ -1063,12 +1017,8 @@ Planned reason: ${planResult.reason}
 
             // 按换行符分割为多条消息
             let lines: string[];
-            try {
-              lines = msg.split("\n").filter((l) => l.trim());
-            } catch (err) {
-              ctx.logger.error("[processAIResponse3] split/filter error:", err);
-              lines = [msg];
-            }
+            lines = msg.split("\n").filter((l) => l.trim());
+
             for (let j = 0; j < lines.length; j++) {
               const line = lines[j];
 
@@ -1079,14 +1029,10 @@ Planned reason: ${planResult.reason}
               // 戳人
               if (groupId && pokeUsers.length > 0) {
                 for (const pokeId of pokeUsers) {
-                  try {
-                    await ctx.bot.api("group_poke", {
-                      group_id: groupId,
-                      user_id: pokeId,
-                    });
-                  } catch (err) {
-                    ctx.logger.warn(`[戳人] 失败: ${err}`);
-                  }
+                  await ctx.bot.api("group_poke", {
+                    group_id: groupId,
+                    user_id: pokeId,
+                  });
                 }
               }
 
@@ -1304,19 +1250,11 @@ Planned reason: ${planResult.reason}
               onTextContent: async (text, messageIndex, totalMessages) => {
                 // 解析消息
                 let messages: string[];
-                try {
-                  messages = text
-                    .trim()
-                    .split("\n---\n")
-                    .map((s) => s.trim())
-                    .filter(Boolean);
-                } catch (err) {
-                  ctx.logger.error(
-                    "[onTextContent3] parse messages error:",
-                    err,
-                  );
-                  messages = [text];
-                }
+                messages = text
+                  .trim()
+                  .split("\n---\n")
+                  .map((s) => s.trim())
+                  .filter(Boolean);
 
                 // 发送当前消息
                 if (messages[messageIndex]) {
@@ -1376,15 +1314,8 @@ Planned reason: ${planResult.reason}
                 msg = humanize.typoGenerator.apply(msg);
 
                 let lines: string[];
-                try {
-                  lines = msg.split("\n").filter((l) => l.trim());
-                } catch (err) {
-                  ctx.logger.error(
-                    "[processAIResponse4] split/filter error:",
-                    err,
-                  );
-                  lines = [msg];
-                }
+                lines = msg.split("\n").filter((l) => l.trim());
+
                 for (let j = 0; j < lines.length; j++) {
                   const line = lines[j];
 
@@ -1396,14 +1327,10 @@ Planned reason: ${planResult.reason}
 
                   if (pokeUsers.length > 0) {
                     for (const pokeId of pokeUsers) {
-                      try {
-                        await ctx.bot.api("group_poke", {
-                          group_id: targetGroupId,
-                          user_id: pokeId,
-                        });
-                      } catch (err) {
-                        ctx.logger.warn(`[戳人] 失败: ${err}`);
-                      }
+                      await ctx.bot.api("group_poke", {
+                        group_id: targetGroupId,
+                        user_id: pokeId,
+                      });
                     }
                   }
 

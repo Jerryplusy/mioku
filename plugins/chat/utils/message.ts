@@ -64,32 +64,25 @@ export async function getQuotedContent(
       const quotedMsg = await ctx.getQuoteMsg(e);
       if (quotedMsg && quotedMsg.message) {
         const senderName = quotedMsg.sender.nickname;
-        try {
-          // 提取文本内容
-          const textContent = quotedMsg.message
-            .filter((s: any) => s.type === "text")
-            .map((s: any) => s.text || "")
-            .join("");
+        // 提取文本内容
+        const textContent = quotedMsg.message
+          .filter((s: any) => s.type === "text")
+          .map((s: any) => s.text || "")
+          .join("");
 
-          // 检测是否有图片
-          let imageUrl: string | undefined;
-          const imageSeg = quotedMsg.message.find(
-            (s: any) => s.type === "image",
-          );
-          if (imageSeg && typeof imageSeg === "object") {
-            imageUrl = (imageSeg as any).url || (imageSeg as any).data?.url;
-          }
-
-          return {
-            messageId: String(e.quote_id),
-            senderName,
-            content: textContent,
-            imageUrl,
-          };
-        } catch (err) {
-          logger.error("[getQuotedContent] filter error:", err);
-          return null;
+        // 检测是否有图片
+        let imageUrl: string | undefined;
+        const imageSeg = quotedMsg.message.find((s: any) => s.type === "image");
+        if (imageSeg && typeof imageSeg === "object") {
+          imageUrl = (imageSeg as any).url || (imageSeg as any).data?.url;
         }
+
+        return {
+          messageId: String(e.quote_id),
+          senderName,
+          content: textContent,
+          imageUrl,
+        };
       } else return null;
     } catch (err) {
       // ignore

@@ -83,7 +83,9 @@ export async function runChat(
 
       // user 消息包含用户内容和图片
       if (hasImages) {
-        const userContent: any[] = [{ type: "text", text: targetMessage.content }];
+        const userContent: any[] = [
+          { type: "text", text: targetMessage.content },
+        ];
         for (const url of pendingImages) {
           userContent.push({ type: "image_url", image_url: { url } });
         }
@@ -284,15 +286,10 @@ function cleanMarkers(text: string): string {
  */
 function parseMessages(text: string): string[] {
   if (!text.trim()) return [];
-  try {
-    return text
-      .split(/\n---\n/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-  } catch (err) {
-    logger.error("[parseMessages] filter error:", err);
-    return [];
-  }
+  return text
+    .split(/\n---\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 /**

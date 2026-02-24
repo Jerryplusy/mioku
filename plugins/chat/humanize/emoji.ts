@@ -42,21 +42,14 @@ export class EmojiSystem {
     const existingFiles = new Set(existingEmojis.map((e) => e.fileName));
 
     let files: string[] = [];
-    try {
-      files = fs.readdirSync(emojiDir).filter((f) => {
-        const ext = path.extname(f).toLowerCase();
-        return [".jpg", ".jpeg", ".png", ".gif", ".webp"].includes(ext);
-      });
-    } catch (err) {
-      logger.error("[EmojiSystem] readdir filter error:", err);
-    }
+    files = fs.readdirSync(emojiDir).filter((f) => {
+      const ext = path.extname(f).toLowerCase();
+      return [".jpg", ".jpeg", ".png", ".gif", ".webp"].includes(ext);
+    });
 
     let newFiles: string[] = [];
-    try {
-      newFiles = files.filter((f) => !existingFiles.has(f));
-    } catch (err) {
-      logger.error("[EmojiSystem] filter new files error:", err);
-    }
+    newFiles = files.filter((f) => !existingFiles.has(f));
+
     if (newFiles.length === 0) {
       this.initialized = true;
       return;

@@ -52,11 +52,7 @@ export class RateLimiter {
     // 2. 用户频率检查
     const triggers = this.userTriggers.get(userId) ?? [];
     let recentTriggers: number[] = [];
-    try {
-      recentTriggers = triggers.filter((t) => now - t < this.windowMs);
-    } catch (err) {
-      console.error("[RateLimiter] filter error:", err);
-    }
+    recentTriggers = triggers.filter((t) => now - t < this.windowMs);
     if (recentTriggers.length >= this.maxTriggersPerWindow) {
       return false;
     }
@@ -100,11 +96,8 @@ export class RateLimiter {
 
     for (const [userId, triggers] of this.userTriggers) {
       let valid: number[] = [];
-      try {
-        valid = triggers.filter((t) => now - t < this.windowMs);
-      } catch (err) {
-        console.error("[RateLimiter] cleanup filter error:", err);
-      }
+      valid = triggers.filter((t) => now - t < this.windowMs);
+
       if (valid.length === 0) {
         this.userTriggers.delete(userId);
       } else {
@@ -114,13 +107,7 @@ export class RateLimiter {
 
     for (const [userId, messages] of this.userMessages) {
       let valid: typeof messages = [];
-      try {
-        valid = messages.filter(
-          (m) => now - m.timestamp < this.dedupWindowMs,
-        );
-      } catch (err) {
-        console.error("[RateLimiter] cleanup filter error:", err);
-      }
+      valid = messages.filter((m) => now - m.timestamp < this.dedupWindowMs);
       if (valid.length === 0) {
         this.userMessages.delete(userId);
       } else {
