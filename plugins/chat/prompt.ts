@@ -184,7 +184,7 @@ function buildChatHistorySection(ctx: PromptContext): string {
 
   const lines = chatHistory.map((msg) => {
     const time = new Date(msg.timestamp);
-    const timeStr = `${String(time.getHours()).padStart(2, "0")}:${String(time.getMinutes()).padStart(2, "0")}`;
+    const timeStr = `${String(time.getMonth() + 1).padStart(2, "0")}-${String(time.getDate()).padStart(2, "0")} ${String(time.getHours()).padStart(2, "0")}:${String(time.getMinutes()).padStart(2, "0")}`;
 
     if (msg.role === "assistant") {
       return `[${timeStr}] ${ctx.botNickname}: ${msg.content}`;
@@ -217,7 +217,7 @@ ${lines.join("\n")}`;
 
 function buildTargetMessageSection(target: TargetMessage): string {
   const time = new Date(target.timestamp);
-  const timeStr = `${String(time.getHours()).padStart(2, "0")}:${String(time.getMinutes()).padStart(2, "0")}`;
+  const timeStr = `${String(time.getMonth() + 1).padStart(2, "0")}-${String(time.getDate()).padStart(2, "0")} ${String(time.getHours()).padStart(2, "0")}:${String(time.getMinutes()).padStart(2, "0")}`;
   const msgIdStr = target.messageId ? ` #${target.messageId}` : "";
 
   return `## >>> Target Message (Reply to THIS) <<<
@@ -253,6 +253,7 @@ function buildReplyStyleSection(ctx: PromptContext): string {
  - Keep replies concise and conversational. Avoid long paragraphs unless the topic demands it.
  - Match the language used by others in the chat (if they speak Chinese, reply in Chinese, etc.).
  - Don't repeat yourself or echo what others just said.
+ - **NEVER repeat what you have already said in previous messages** — avoid saying the same things, using the same phrases, or bringing up the same topics again.
  - Don't start every message with someone's name.
  - You can express opinions, disagree, joke around, or stay silent (by not including text).
  - Don't be overly helpful or eager. Real people don't always have answers.
