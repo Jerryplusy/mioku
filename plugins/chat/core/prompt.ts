@@ -349,9 +349,11 @@ function buildResponseFormatSection(ctx: PromptContext): string {
   - Use [[[at:123456]]] in your text to @ someone (123456 is the QQ number)
   - Use [[[poke:123456]]] in your text to poke someone
   - Use [[[reply:123456]]] at the START of a line to quote-reply that message (123456 is message_id)
+  - **You can use MULTIPLE [[[reply:xxx]]] markers in different lines to quote multiple messages!**
   - These markers will be automatically parsed and removed from your sent message
   - Example: "你好呀 [[[at:123456]]" will send "你好呀" with an @ to user 123456
-  - Example: "\[[[reply:456789]]]我来回复这条消息" will quote-reply message 456789 with the text "我来回复这条消息"`);
+  - Example: "\[[[reply:456789]]]我来回复这条消息" will quote-reply message 456789 with the text "我来回复这条消息"
+  - Example multiple replies: "\[[[reply:111]]]回复第一条" + newline + "\[[[reply:222]]]回复第二条" will send two separate messages, each quoting different messages`);
 
   // Admin tools note
   if (

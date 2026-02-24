@@ -1,5 +1,5 @@
 import { MiokiContext } from "mioki";
-import { parseLineMarkers } from "../utils/queue";
+import { parseLineMarkers, splitByReplyMarkers } from "../utils/queue";
 
 /**
  * 发送单条消息（带 markers 解析）
@@ -22,14 +22,18 @@ export async function sendMessage(
     let lines: string[];
     lines = msg.split("\n").filter((l) => l.trim());
 
-    for (let j = 0; j < lines.length; j++) {
-      const line = lines[j];
+    // 展开包含多个 reply 标记的行
+    const expandedLines: string[] = [];
+    for (const line of lines) {
+      const parts = splitByReplyMarkers(line);
+      expandedLines.push(...parts);
+    }
 
-      // 解析消息中的标记
-      const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(
-        line,
-        isFirst && j === 0 ? undefined : "skip",
-      );
+    for (let j = 0; j < expandedLines.length; j++) {
+      const line = expandedLines[j];
+
+      // 每一行都检查引用标记，不跳过
+      const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(line);
 
       // 戳人
       if (groupId && pokeUsers.length > 0) {
@@ -44,8 +48,8 @@ export async function sendMessage(
       // 构建消息段：保持 @ 在文本中的原始位置
       const segments: any[] = [];
 
-      // 添加引用（仅第一行）
-      if (isFirst && j === 0 && quoteId) {
+      // 如果有引用标记就添加，不限制只能第一条消息
+      if (quoteId !== undefined) {
         segments.push({ type: "reply", id: String(quoteId) });
       }
 
@@ -70,7 +74,16 @@ export async function sendMessage(
             // 添加 @ 之前的文本
             const beforeAt = remaining.slice(lastIndex, match.index);
             if (beforeAt) {
-              segments.push({ type: "text", text: beforeAt.trim() });
+              // 清理 reply 和 poke 标记残留
+              const cleaned = beforeAt
+                .replace(/\[\[\[reply:\d+\]\]\]/g, "")
+                .replace(/\(\(\(reply:\d+\)\)\)/g, "")
+                .replace(/\[\[\[poke:\d+\]\]\]/g, "")
+                .replace(/\(\(\(poke:\d+\)\)\)/g, "")
+                .trim();
+              if (cleaned) {
+                segments.push({ type: "text", text: cleaned });
+              }
             }
 
             const atId = match[1];
@@ -86,29 +99,44 @@ export async function sendMessage(
         // 添加 @ 之后的文本
         const afterAt = remaining.slice(lastIndex);
         if (afterAt) {
-          segments.push({ type: "text", text: afterAt.trim() });
+          const cleaned = afterAt
+            .replace(/\[\[\[reply:\d+\]\]\]/g, "")
+            .replace(/\(\(\(reply:\d+\)\)\)/g, "")
+            .replace(/\[\[\[poke:\d+\]\]\]/g, "")
+            .replace(/\(\(\(poke:\d+\)\)\)/g, "")
+            .trim();
+          if (cleaned) {
+            segments.push({ type: "text", text: cleaned });
+          }
         }
 
         // 发送消息
         if (segments.length > 0) {
-          await ctx.bot.sendGroupMsg(groupId, segments);
+          if (groupId) {
+            await ctx.bot.sendGroupMsg(groupId, segments);
+          }
         }
       } else {
         // 没有 @ 用户时，发送普通文本消息
-        if (cleanText) {
-          let sendMsg: any = cleanText;
-          if (isFirst && j === 0 && quoteId) {
-            sendMsg = [ctx.segment.reply(String(quoteId)), cleanText];
+        if (cleanText || quoteId !== undefined) {
+          const sendSegments: any[] = [];
+          if (quoteId !== undefined) {
+            sendSegments.push({ type: "reply", id: String(quoteId) });
           }
-          if (groupId) {
-            await ctx.bot.sendGroupMsg(groupId, sendMsg);
-          } else if (userId) {
-            await ctx.bot.sendPrivateMsg(userId, sendMsg);
+          if (cleanText) {
+            sendSegments.push(ctx.segment.text(cleanText));
+          }
+          if (sendSegments.length > 0) {
+            if (groupId) {
+              await ctx.bot.sendGroupMsg(groupId, sendSegments);
+            } else if (userId) {
+              await ctx.bot.sendPrivateMsg(userId, sendSegments);
+            }
           }
         }
       }
 
-      if (j < lines.length - 1) {
+      if (j < expandedLines.length - 1) {
         await new Promise((r) => setTimeout(r, 300));
       }
     }

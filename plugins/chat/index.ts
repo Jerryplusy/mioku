@@ -337,7 +337,7 @@ const chatPlugin: MiokuPlugin = {
           const groupInfo = await ctx.bot.getGroupInfo(groupId);
           groupName = (groupInfo as any)?.group_name;
           memberCount = (groupInfo as any)?.member_count;
-        } catch {}
+        } catch { }
 
         const toolCtx: ToolContext = {
           ctx,
@@ -439,8 +439,9 @@ const chatPlugin: MiokuPlugin = {
             for (let j = 0; j < expandedLines.length; j++) {
               const line = expandedLines[j];
 
+              // 每一行都检查引用标记，不跳过
               const { cleanText, atUsers, pokeUsers, quoteId } =
-                parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
+                parseLineMarkers(line);
 
               if (pokeUsers.length > 0) {
                 for (const pokeId of pokeUsers) {
@@ -453,7 +454,8 @@ const chatPlugin: MiokuPlugin = {
 
               const lineSegments: any[] = [];
 
-              if (quoteId !== undefined && i === 0 && j === 0) {
+              // 如果有引用标记就添加，不限制只能第一条消息
+              if (quoteId !== undefined) {
                 lineSegments.push({ type: "reply", id: String(quoteId) });
               }
 
@@ -610,7 +612,7 @@ const chatPlugin: MiokuPlugin = {
             const groupInfo = await ctx.bot.getGroupInfo(groupId);
             groupName = (groupInfo as any)?.group_name;
             memberCount = (groupInfo as any)?.member_count;
-          } catch {}
+          } catch { }
 
           // 记忆检索
           const memoryContext = await humanize.memoryRetrieval.retrieve(
@@ -677,14 +679,19 @@ Planned reason: ${planResult.reason}`;
               let lines: string[];
               lines = msg.split("\n").filter((l) => l.trim());
 
-              for (let j = 0; j < lines.length; j++) {
-                const line = lines[j];
+              // 展开包含多个 reply 标记的行
+              const expandedLines: string[] = [];
+              for (const line of lines) {
+                const parts = splitByReplyMarkers(line);
+                expandedLines.push(...parts);
+              }
 
+              for (let j = 0; j < expandedLines.length; j++) {
+                const line = expandedLines[j];
+
+                // 每一行都检查引用标记，不跳过
                 const { cleanText, atUsers, pokeUsers, quoteId } =
-                  parseLineMarkers(
-                    line,
-                    i === 0 && j === 0 ? undefined : "skip",
-                  );
+                  parseLineMarkers(line);
 
                 if (pokeUsers.length > 0) {
                   for (const pokeId of pokeUsers) {
@@ -697,7 +704,8 @@ Planned reason: ${planResult.reason}`;
 
                 const lineSegments: any[] = [];
 
-                if (quoteId !== undefined && i === 0 && j === 0) {
+                // 如果有引用标记就添加，不限制只能第一条消息
+                if (quoteId !== undefined) {
                   lineSegments.push({ type: "reply", id: String(quoteId) });
                 }
 
@@ -928,14 +936,19 @@ Planned reason: ${planResult.reason}
                   let lines: string[];
                   lines = msg.split("\n").filter((l) => l.trim());
 
-                  for (let j = 0; j < lines.length; j++) {
-                    const line = lines[j];
+                  // 展开包含多个 reply 标记的行
+                  const expandedLines: string[] = [];
+                  for (const line of lines) {
+                    const parts = splitByReplyMarkers(line);
+                    expandedLines.push(...parts);
+                  }
 
+                  for (let j = 0; j < expandedLines.length; j++) {
+                    const line = expandedLines[j];
+
+                    // 每一行都检查引用标记，不跳过
                     const { cleanText, atUsers, pokeUsers, quoteId } =
-                      parseLineMarkers(
-                        line,
-                        i === 0 && j === 0 ? undefined : "skip",
-                      );
+                      parseLineMarkers(line);
 
                     // 戳人
                     if (pokeUsers.length > 0) {
@@ -949,7 +962,8 @@ Planned reason: ${planResult.reason}
 
                     const lineSegments: any[] = [];
 
-                    if (quoteId !== undefined && i === 0 && j === 0) {
+                    // 如果有引用标记就添加，不限制只能第一条消息
+                    if (quoteId !== undefined) {
                       lineSegments.push({ type: "reply", id: String(quoteId) });
                     }
 
@@ -965,7 +979,7 @@ Planned reason: ${planResult.reason}
                       await ctx.bot.sendGroupMsg(groupId, lineSegments);
                     }
 
-                    if (j < lines.length - 1) {
+                    if (j < expandedLines.length - 1) {
                       await new Promise((r) => setTimeout(r, 300));
                     }
                   }
@@ -1155,7 +1169,7 @@ Planned reason: ${planResult.reason}
           const groupInfo = await ctx.bot.getGroupInfo(groupId);
           groupName = (groupInfo as any)?.group_name;
           memberCount = (groupInfo as any)?.member_count;
-        } catch {}
+        } catch { }
 
         // 重新运行 AI
         const result = await runChat(
@@ -1210,8 +1224,9 @@ Planned reason: ${planResult.reason}
             for (let j = 0; j < expandedLines.length; j++) {
               const line = expandedLines[j];
 
+              // 每一行都检查引用标记，不跳过
               const { cleanText, atUsers, pokeUsers, quoteId } =
-                parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
+                parseLineMarkers(line);
 
               if (pokeUsers.length > 0) {
                 for (const pokeId of pokeUsers) {
@@ -1224,7 +1239,8 @@ Planned reason: ${planResult.reason}
 
               const lineSegments: any[] = [];
 
-              if (quoteId !== undefined && i === 0 && j === 0) {
+              // 如果有引用标记就添加，不限制只能第一条消息
+              if (quoteId !== undefined) {
                 lineSegments.push({ type: "reply", id: String(quoteId) });
               }
 
@@ -1397,7 +1413,7 @@ Planned reason: ${planResult.reason}
             if (seg.type === "image" && seg.url && seg.file) {
               humanize.emojiSystem
                 .collectFromMessage(seg.url, seg.file)
-                .catch(() => {});
+                .catch(() => { });
             }
           }
         }
@@ -1587,12 +1603,19 @@ Planned reason: ${planResult.reason}
             let lines: string[];
             lines = msg.split("\n").filter((l) => l.trim());
 
-            for (let j = 0; j < lines.length; j++) {
-              const line = lines[j];
+            // 展开包含多个 reply 标记的行
+            const expandedLines: string[] = [];
+            for (const line of lines) {
+              const parts = splitByReplyMarkers(line);
+              expandedLines.push(...parts);
+            }
 
-              // 解析消息中的标记并按顺序构建消息段
+            for (let j = 0; j < expandedLines.length; j++) {
+              const line = expandedLines[j];
+
+              // 每一行都检查引用标记，不跳过
               const { cleanText, atUsers, pokeUsers, quoteId } =
-                parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
+                parseLineMarkers(line);
 
               // 戳人
               if (groupId && pokeUsers.length > 0) {
@@ -1607,8 +1630,8 @@ Planned reason: ${planResult.reason}
               // 构建消息段
               const lineSegments: any[] = [];
 
-              // 引用（仅第一条消息的第一行）
-              if (quoteId !== undefined && i === 0 && j === 0) {
+              // 如果有引用标记就添加，不限制只能第一条消息
+              if (quoteId !== undefined) {
                 lineSegments.push({ type: "reply", id: String(quoteId) });
               }
 
@@ -1884,14 +1907,19 @@ Planned reason: ${planResult.reason}
                 let lines: string[];
                 lines = msg.split("\n").filter((l) => l.trim());
 
-                for (let j = 0; j < lines.length; j++) {
-                  const line = lines[j];
+                // 展开包含多个 reply 标记的行
+                const expandedLines: string[] = [];
+                for (const line of lines) {
+                  const parts = splitByReplyMarkers(line);
+                  expandedLines.push(...parts);
+                }
 
+                for (let j = 0; j < expandedLines.length; j++) {
+                  const line = expandedLines[j];
+
+                  // 每一行都检查引用标记，不跳过
                   const { cleanText, atUsers, pokeUsers, quoteId } =
-                    parseLineMarkers(
-                      line,
-                      i === 0 && j === 0 ? undefined : "skip",
-                    );
+                    parseLineMarkers(line);
 
                   if (pokeUsers.length > 0) {
                     for (const pokeId of pokeUsers) {
@@ -1904,7 +1932,8 @@ Planned reason: ${planResult.reason}
 
                   const lineSegments: any[] = [];
 
-                  if (quoteId !== undefined && i === 0 && j === 0) {
+                  // 如果有引用标记就添加，不限制只能第一条消息
+                  if (quoteId !== undefined) {
                     lineSegments.push({ type: "reply", id: String(quoteId) });
                   }
 
@@ -1920,7 +1949,7 @@ Planned reason: ${planResult.reason}
                     await ctx.bot.sendGroupMsg(targetGroupId, lineSegments);
                   }
 
-                  if (j < lines.length - 1) {
+                  if (j < expandedLines.length - 1) {
                     await new Promise((r) => setTimeout(r, 300));
                   }
                 }
@@ -2142,7 +2171,7 @@ Planned reason: ${planResult.reason}
             (memberInfo as any).card ||
             (memberInfo as any).nickname ||
             String(userId);
-        } catch {}
+        } catch { }
 
         // 构建戳一戳的 targetMessage
         const targetMessage: TargetMessage = {
@@ -2178,7 +2207,7 @@ Planned reason: ${planResult.reason}
           const groupInfo = await ctx.bot.getGroupInfo(groupId);
           groupName = (groupInfo as any)?.group_name;
           memberCount = (groupInfo as any)?.member_count;
-        } catch {}
+        } catch { }
 
         const toolCtx: ToolContext = {
           ctx,
@@ -2259,12 +2288,20 @@ Planned reason: ${planResult.reason}
               ctx.logger.error("[processAIResponse5] split/filter error:", err);
               lines = [msg];
             }
-            for (let j = 0; j < lines.length; j++) {
-              const line = lines[j];
 
-              // 解析消息中的标记并按顺序构建消息段
+            // 展开包含多个 reply 标记的行
+            const expandedLines: string[] = [];
+            for (const line of lines) {
+              const parts = splitByReplyMarkers(line);
+              expandedLines.push(...parts);
+            }
+
+            for (let j = 0; j < expandedLines.length; j++) {
+              const line = expandedLines[j];
+
+              // 每一行都检查引用标记，不跳过
               const { cleanText, atUsers, pokeUsers, quoteId } =
-                parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
+                parseLineMarkers(line);
 
               // 戳人
               if (pokeUsers.length > 0) {
@@ -2283,8 +2320,8 @@ Planned reason: ${planResult.reason}
               // 构建消息段
               const lineSegments: any[] = [];
 
-              // 引用
-              if (quoteId !== undefined && i === 0 && j === 0) {
+              // 如果有引用标记就添加，不限制只能第一条消息
+              if (quoteId !== undefined) {
                 lineSegments.push({ type: "reply", id: String(quoteId) });
               }
 
@@ -2302,7 +2339,7 @@ Planned reason: ${planResult.reason}
                 await ctx.bot.sendGroupMsg(groupId, lineSegments);
               }
 
-              if (j < lines.length - 1) {
+              if (j < expandedLines.length - 1) {
                 await new Promise((r) => setTimeout(r, 300));
               }
             }
