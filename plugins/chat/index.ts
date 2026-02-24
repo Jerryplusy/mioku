@@ -343,7 +343,6 @@ const chatPlugin: MiokuPlugin = {
                       humanize.typoGenerator,
                     );
                   }
-
                 },
               };
 
@@ -442,7 +441,6 @@ Planned reason: ${planResult.reason}
 
                 // 记录发言
                 if (!sentIndices0 || sentIndices0.size === 0) {
-                  
                 }
               }
 
@@ -570,7 +568,6 @@ Planned reason: ${planResult.reason}
           }
 
           // 记录发言频率
-          
         },
       };
 
@@ -711,7 +708,6 @@ Planned reason: ${planResult.reason}
 
         // 记录发言（如果回调没有发送消息，则在这里记录）
         if (!sentIndices2 || sentIndices2.size === 0) {
-          
         }
       }
 
@@ -789,7 +785,7 @@ Planned reason: ${planResult.reason}
 
         // 注入引用信息
         if (quotedInfo) {
-          messageContent = `[Quoting ${quotedInfo.senderName}: "${quotedInfo.content}"] ${messageContent}`;
+          messageContent = `[The user quoted a text sent by ${quotedInfo.senderName}: ${quotedInfo.content}] ${messageContent}`;
         }
 
         if (options?.triggerReason) {
@@ -827,17 +823,6 @@ Planned reason: ${planResult.reason}
             }
           }
         }
-
-        // 频率控制
-        /*if (
-          isGroup &&
-          !humanize.frequencyController.shouldSpeak(groupSessionId)
-        ) {
-          ctx.logger.info(`[频率控制] 会话 ${groupSessionId} 本次保持沉默`);
-          processingSet.delete(groupSessionId);
-          return;
-        }
-        */
 
         // 加载群聊历史消息
         const rawHistory = groupId
@@ -973,7 +958,6 @@ Planned reason: ${planResult.reason}
             }
 
             // 记录发言频率
-            
           },
         };
 
@@ -1078,7 +1062,6 @@ Planned reason: ${planResult.reason}
 
           // 记录发言（如果回调没有发送消息，则在这里记录）
           if (!sentIndices || sentIndices.size === 0) {
-            
           }
 
           // 记录最近回复，用于连续对话追踪
@@ -1275,7 +1258,6 @@ Planned reason: ${planResult.reason}
                 }
 
                 // 记录发言频率
-                
               },
             };
 
@@ -1373,7 +1355,6 @@ Planned reason: ${planResult.reason}
 
               // 记录发言（如果回调没有发送消息，则在这里记录）
               if (!sentIndices3 || sentIndices3.size === 0) {
-                
               }
             }
 
@@ -1660,7 +1641,6 @@ Planned reason: ${planResult.reason}
             }
 
             // 记录发言频率
-            
           },
         };
 
@@ -1757,7 +1737,6 @@ Planned reason: ${planResult.reason}
 
           // 记录发言（如果回调没有发送消息，则在这里记录）
           if (!sentIndices4 || sentIndices4.size === 0) {
-            
           }
 
           // 记录最近回复，用于连续对话追踪

@@ -54,32 +54,27 @@ export async function isQuotingBot(
 export async function getQuotedContent(
   e: any,
   ctx: MiokiContext,
-): Promise<{ messageId: string; senderName: string; content: string } | null> {
-  if (!e.message) return null;
-  for (const seg of e.message) {
-    if (seg.type === "reply" && seg.id) {
-      try {
-        const quotedMsg = await ctx.bot.getMsg(seg.id);
-        if (!quotedMsg) continue;
-        const senderId = (quotedMsg as any).user_id;
-        const senderName =
-          (quotedMsg as any).sender?.card ||
-          (quotedMsg as any).sender?.nickname ||
-          String(senderId || "unknown");
-        const content =
-          (quotedMsg as any).raw_message ||
-          (quotedMsg as any).message
-            ?.filter((s: any) => s.type === "text")
-            .map((s: any) => s.text || "")
-            .join("") ||
-          "";
-        return { messageId: seg.id, senderName, content };
-      } catch {
-        // ignore
-      }
+): Promise<
+  { messageId: string; senderName: string; content: string } | null | undefined
+> {
+  logger.info(e.message);
+  if (e.quote_id) {
+    try {
+      const quotedMsg = await ctx.getQuoteMsg(e);
+      logger.info(quotedMsg);
+      if (quotedMsg) {
+        const senderName = quotedMsg.sender.nickname;
+        const content = quotedMsg.message
+          .filter((s: any) => s.type === "text")
+          .map((s: any) => s.text || "")
+          .join("");
+        logger.info(senderName, content);
+        return { messageId: e.quote_id, senderName, content };
+      } else return null;
+    } catch (err) {
+      // ignore
     }
   }
-  return null;
 }
 
 export function isGroupAllowed(groupId: number, cfg: ChatConfig): boolean {
