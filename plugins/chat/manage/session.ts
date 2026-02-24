@@ -1,5 +1,5 @@
-import type { SessionMeta, SessionType } from "./types";
-import type { ChatDatabase } from "./db";
+import type { SessionMeta, SessionType } from "../types";
+import type { ChatDatabase } from "../db";
 
 /**
  * LRU 会话管理器

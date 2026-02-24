@@ -1,6 +1,6 @@
 import { getQuoteImageUrl, logger } from "mioki";
-import type { AITool } from "../../src";
-import type { SkillSession, ToolContext } from "./types";
+import type { AITool } from "../../../src";
+import type { SkillSession, ToolContext } from "../types";
 
 interface CreateToolsResult {
   tools: AITool[];
@@ -148,7 +148,8 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
   }
 
   // 查看图片工具（仅多模态模型可用，且当前没有已附加的图片时）
-  const hasPendingImages = toolCtx.pendingImageUrls && toolCtx.pendingImageUrls.length > 0;
+  const hasPendingImages =
+    toolCtx.pendingImageUrls && toolCtx.pendingImageUrls.length > 0;
   if (toolCtx.config.isMultimodal && !hasPendingImages) {
     tools.push({
       name: "view_image",

@@ -1,6 +1,6 @@
-import type { ChatConfig, ChatMessage, TargetMessage } from "./types";
-import type { AIService } from "../../src/services/ai";
-import { pickPersonalityState, pickReplyStyle } from "./humanize";
+import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
+import type { AIService } from "../../../src/services/ai";
+import { pickPersonalityState, pickReplyStyle } from "../humanize";
 
 export interface PromptContext {
   config: ChatConfig;

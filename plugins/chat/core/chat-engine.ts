@@ -1,15 +1,15 @@
-import type { AIInstance, MultimodalMessage } from "../../src/services/ai";
+import type { AIInstance, MultimodalMessage } from "../../../src/services/ai";
 import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { logger } from "mioki";
-import type { AITool } from "../../src";
+import type { AITool } from "../../../src";
 import type {
   ToolContext,
   ChatMessage,
   TargetMessage,
   ChatResult,
-} from "./types";
-import type { SessionManager } from "./session";
-import type { HumanizeEngine } from "./humanize";
+} from "../types";
+import type { SessionManager } from "../manage/session";
+import type { HumanizeEngine } from "../humanize";
 import type { PromptContext } from "./prompt";
 import type { SkillSessionManager } from "./tools";
 import { createTools } from "./tools";
