@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { mkdirSync } from "node:fs";
+import * as fs from "node:fs";
 
 function deepMerge<T extends Record<string, any>>(
   target: T,
@@ -51,7 +52,10 @@ const defaultPackageJSon = {
 export function loadLocalConfig(cwd: string = process.cwd()): void {
   const packageJsonPath = join(cwd, "package.json");
   const localConfigPath = join(cwd, "config/mioku.json");
-
+  const configPath = join(cwd, "config");
+  if (!fs.existsSync(configPath)) {
+    fs.mkdirSync(configPath);
+  }
   // 检查本地配置文件是否存在
   if (!existsSync(localConfigPath)) {
     writeFileSync(
