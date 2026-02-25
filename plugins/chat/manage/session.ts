@@ -90,6 +90,13 @@ export class SessionManager {
   }
 
   /**
+   * 重置 bot 消息
+   */
+  resetBotMessages(id: string): void {
+    this.db.deleteBotMessages(id);
+  }
+
+  /**
    * 更新压缩上下文
    */
   updateCompressedContext(id: string, context: string): void {

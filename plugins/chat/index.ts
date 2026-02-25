@@ -45,10 +45,7 @@ const chatPlugin: MiokuPlugin = {
   help: {
     title: "AI 聊天",
     description: "智能 AI 聊天插件",
-    commands: [
-      { cmd: "/重置会话", desc: "重置自己的AI聊天记录" },
-      { cmd: "/重置群会话", desc: "重置当前群的AI聊天记录", role: "admin" },
-    ],
+    commands: [{ cmd: "/重置会话", desc: "清除 AI 在当前会话中发送的消息" }],
   },
 
   async setup(ctx: MiokiContext) {
@@ -1987,26 +1984,15 @@ Planned reason: ${planResult.reason}
       }
 
       if (text === "/重置会话") {
+        if (groupId) {
+          const groupSessionId = `group:${groupId}`;
+          sessionManager.resetBotMessages(groupSessionId);
+          await e.reply("已清除本群会话中 AI 发送的消息~");
+          return;
+        }
         const personalSessionId = `personal:${userId}`;
-        sessionManager.reset(personalSessionId);
-        await e.reply("已重置你的个人会话记录~");
-        return;
-      }
-
-      if (text === "/重置群会话") {
-        if (!groupId) {
-          await e.reply("该命令仅群聊可用");
-          return;
-        }
-        const senderRole = e.sender?.role || "member";
-        const isOwner = ctx.isOwner?.(e) ?? false;
-        if (senderRole !== "admin" && senderRole !== "owner" && !isOwner) {
-          await e.reply("只有管理员或群主可以重置群会话");
-          return;
-        }
-        const groupSessionId = `group:${groupId}`;
-        sessionManager.reset(groupSessionId);
-        await e.reply("已重置本群的 AI 会话记录~");
+        sessionManager.resetBotMessages(personalSessionId);
+        await e.reply("已清除你的个人会话中 AI 发送的消息~");
         return;
       }
 

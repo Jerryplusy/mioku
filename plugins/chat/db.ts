@@ -1,7 +1,13 @@
 import Database from "better-sqlite3";
 import * as fs from "fs";
 import * as path from "path";
-import type { SessionMeta, ChatMessage, TopicRecord, ExpressionRecord, EmojiRecord } from "./types";
+import type {
+  SessionMeta,
+  ChatMessage,
+  TopicRecord,
+  ExpressionRecord,
+  EmojiRecord,
+} from "./types";
 
 /**
  * 聊天数据库接口
@@ -10,17 +16,36 @@ export interface ChatDatabase {
   saveSession(meta: SessionMeta): void;
   getSession(id: string): SessionMeta | null;
   saveMessage(msg: ChatMessage): void;
-  getMessages(sessionId: string, limit?: number, before?: number): ChatMessage[];
+  getMessages(
+    sessionId: string,
+    limit?: number,
+    before?: number,
+  ): ChatMessage[];
   // 获取 bot 发送的消息
   getBotMessages(groupId: number, limit?: number): ChatMessage[];
-  getMessagesByUser(userId: number, sessionId?: string, limit?: number): ChatMessage[];
-  searchMessages(sessionId: string, keyword: string, limit?: number): ChatMessage[];
+  getMessagesByUser(
+    userId: number,
+    sessionId?: string,
+    limit?: number,
+  ): ChatMessage[];
+  searchMessages(
+    sessionId: string,
+    keyword: string,
+    limit?: number,
+  ): ChatMessage[];
   updateCompressedContext(sessionId: string, context: string): void;
   deleteSessionMessages(sessionId: string): void;
+  // 删除 bot 发送的消息
+  deleteBotMessages(sessionId: string): void;
   // 话题
   saveTopic(topic: TopicRecord): number;
   getTopics(sessionId: string, limit?: number): TopicRecord[];
-  updateTopic(id: number, updates: Partial<Pick<TopicRecord, "summary" | "keywords" | "messageCount" | "updatedAt">>): void;
+  updateTopic(
+    id: number,
+    updates: Partial<
+      Pick<TopicRecord, "summary" | "keywords" | "messageCount" | "updatedAt">
+    >,
+  ): void;
   // 表达学习
   saveExpression(expr: ExpressionRecord): void;
   getExpressions(sessionId: string, limit?: number): ExpressionRecord[];
@@ -149,6 +174,9 @@ export function initDatabase(): ChatDatabase {
     deleteSessionMessages: db.prepare(`
       DELETE FROM messages WHERE session_id = ?
     `),
+    deleteBotMessages: db.prepare(`
+      DELETE FROM messages WHERE session_id = ? AND role = 'assistant'
+    `),
     resetSessionContext: db.prepare(`
       UPDATE sessions SET compressed_context = NULL, updated_at = ? WHERE id = ?
     `),
@@ -238,7 +266,11 @@ export function initDatabase(): ChatDatabase {
       });
     },
 
-    getMessages(sessionId: string, limit: number = 30, before?: number): ChatMessage[] {
+    getMessages(
+      sessionId: string,
+      limit: number = 30,
+      before?: number,
+    ): ChatMessage[] {
       const rows = before
         ? (stmts.getMessagesBefore.all(sessionId, before, limit) as any[])
         : (stmts.getMessages.all(sessionId, limit) as any[]);
@@ -281,9 +313,17 @@ export function initDatabase(): ChatDatabase {
         .reverse(); // 按时间正序
     },
 
-    getMessagesByUser(userId: number, sessionId?: string, limit: number = 20): ChatMessage[] {
+    getMessagesByUser(
+      userId: number,
+      sessionId?: string,
+      limit: number = 20,
+    ): ChatMessage[] {
       const rows = sessionId
-        ? (stmts.getMessagesByUserInSession.all(userId, sessionId, limit) as any[])
+        ? (stmts.getMessagesByUserInSession.all(
+            userId,
+            sessionId,
+            limit,
+          ) as any[])
         : (stmts.getMessagesByUser.all(userId, limit) as any[]);
 
       return rows
@@ -313,8 +353,20 @@ export function initDatabase(): ChatDatabase {
       stmts.resetSessionContext.run(Date.now(), sessionId);
     },
 
-    searchMessages(sessionId: string, keyword: string, limit: number = 20): ChatMessage[] {
-      const rows = stmts.searchMessages.all(sessionId, `%${keyword}%`, limit) as any[];
+    deleteBotMessages(sessionId: string): void {
+      stmts.deleteBotMessages.run(sessionId);
+    },
+
+    searchMessages(
+      sessionId: string,
+      keyword: string,
+      limit: number = 20,
+    ): ChatMessage[] {
+      const rows = stmts.searchMessages.all(
+        sessionId,
+        `%${keyword}%`,
+        limit,
+      ) as any[];
       return rows
         .map((row) => ({
           id: row.id,
@@ -360,9 +412,16 @@ export function initDatabase(): ChatDatabase {
       }));
     },
 
-    updateTopic(id: number, updates: Partial<Pick<TopicRecord, "summary" | "keywords" | "messageCount" | "updatedAt">>): void {
+    updateTopic(
+      id: number,
+      updates: Partial<
+        Pick<TopicRecord, "summary" | "keywords" | "messageCount" | "updatedAt">
+      >,
+    ): void {
       // 先获取当前值用于合并
-      const current = db.prepare("SELECT * FROM topics WHERE id = ?").get(id) as any;
+      const current = db
+        .prepare("SELECT * FROM topics WHERE id = ?")
+        .get(id) as any;
       if (!current) return;
       stmts.updateTopic.run({
         id,
