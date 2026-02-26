@@ -144,6 +144,10 @@ const chatPlugin: MiokuPlugin = {
     const groupLastActivityTime = new Map<string, number>();
     // 群消息计数（用于空闲检测的保底数量）
     const groupMessageCount = new Map<string, number>();
+    // Bot 最后发言时间（用于空闲检测）
+    const groupLastBotMessageTime = new Map<string, number>();
+    // Bot 发言后的消息计数（用于空闲检测）
+    const groupMessageCountAfterBot = new Map<string, number>();
 
     // 群冷却计时器：记录每个群的 cooldown 结束时间
     const groupCooldownUntil = new Map<string, number>();
@@ -334,7 +338,7 @@ const chatPlugin: MiokuPlugin = {
           const groupInfo = await ctx.bot.getGroupInfo(groupId);
           groupName = (groupInfo as any)?.group_name;
           memberCount = (groupInfo as any)?.member_count;
-        } catch { }
+        } catch {}
 
         const toolCtx: ToolContext = {
           ctx,
@@ -609,7 +613,7 @@ const chatPlugin: MiokuPlugin = {
             const groupInfo = await ctx.bot.getGroupInfo(groupId);
             groupName = (groupInfo as any)?.group_name;
             memberCount = (groupInfo as any)?.member_count;
-          } catch { }
+          } catch {}
 
           // 记忆检索
           const memoryContext = await humanize.memoryRetrieval.retrieve(
@@ -800,11 +804,29 @@ Planned reason: ${planResult.reason}`;
           const groupId = parseInt(groupSessionId.split(":")[1], 10);
           if (!isGroupAllowed(groupId, cfg)) continue;
 
-          // 检查是否超过空闲阈值
-          if (now - lastTime < idleThreshold) continue;
+          // 获取 Bot 最后发言时间
+          let lastBotTime = groupLastBotMessageTime.get(groupSessionId) ?? 0;
+          if (lastBotTime === 0) {
+            const botMsgs = db.getBotMessages(groupId, 1);
+            if (botMsgs.length > 0) {
+              lastBotTime = botMsgs[botMsgs.length - 1].timestamp;
+              groupLastBotMessageTime.set(groupSessionId, lastBotTime);
+            }
+          }
 
-          // 检查消息数量是否达到保底阈值
-          const messageCount = groupMessageCount.get(groupSessionId) ?? 0;
+          // 群内在配置时间间隔内无任何消息发送
+          // 取用户最后发言时间和 Bot 最后发言时间的较大值
+          const lastActivityTime = Math.max(lastTime, lastBotTime);
+          if (now - lastActivityTime < idleThreshold) continue;
+
+          // 自Bot上次发送消息起，已累积达到配置中设定的指定消息条数
+          // 如果 Bot 从未发言，则使用总消息数量
+          const messageCountAfterBot =
+            groupMessageCountAfterBot.get(groupSessionId) ?? 0;
+          const messageCount =
+            lastBotTime > 0
+              ? messageCountAfterBot
+              : (groupMessageCount.get(groupSessionId) ?? 0);
           if (messageCount < messageCountThreshold) continue;
 
           // 标记正在处理
@@ -1005,6 +1027,7 @@ Planned reason: ${planResult.reason}
 
             // 重置消息计数
             groupMessageCount.set(groupSessionId, 0);
+            groupMessageCountAfterBot.set(groupSessionId, 0);
             groupLastIdleCheckTime.set(groupSessionId, now);
           } catch (err) {
             ctx.logger.error(`[IdleCheck] 群 ${groupId} 空闲检测失败: ${err}`);
@@ -1166,7 +1189,7 @@ Planned reason: ${planResult.reason}
           const groupInfo = await ctx.bot.getGroupInfo(groupId);
           groupName = (groupInfo as any)?.group_name;
           memberCount = (groupInfo as any)?.member_count;
-        } catch { }
+        } catch {}
 
         // 重新运行 AI
         const result = await runChat(
@@ -1410,7 +1433,7 @@ Planned reason: ${planResult.reason}
             if (seg.type === "image" && seg.url && seg.file) {
               humanize.emojiSystem
                 .collectFromMessage(seg.url, seg.file)
-                .catch(() => { });
+                .catch(() => {});
             }
           }
         }
@@ -1741,6 +1764,10 @@ Planned reason: ${planResult.reason}
         timestamp,
       };
       db.saveMessage(botMsg);
+      // 记录 Bot 最后发言时间
+      groupLastBotMessageTime.set(groupSessionId, timestamp);
+      // 重置 Bot 发言后的消息计数
+      groupMessageCountAfterBot.set(groupSessionId, 0);
     }
 
     // ==================== 消息处理 ====================
@@ -2017,6 +2044,11 @@ Planned reason: ${planResult.reason}
         const currentCount = groupMessageCount.get(groupSessionId) ?? 0;
         groupMessageCount.set(groupSessionId, currentCount + 1);
 
+        // 更新 Bot 发言后的消息计数
+        const currentBotCount =
+          groupMessageCountAfterBot.get(groupSessionId) ?? 0;
+        groupMessageCountAfterBot.set(groupSessionId, currentBotCount + 1);
+
         // 检查是否在冷却期间，如果在则收集消息
         const cooldownUntil = groupCooldownUntil.get(groupSessionId) ?? 0;
         if (Date.now() < cooldownUntil) {
@@ -2157,7 +2189,7 @@ Planned reason: ${planResult.reason}
             (memberInfo as any).card ||
             (memberInfo as any).nickname ||
             String(userId);
-        } catch { }
+        } catch {}
 
         // 构建戳一戳的 targetMessage
         const targetMessage: TargetMessage = {
@@ -2193,7 +2225,7 @@ Planned reason: ${planResult.reason}
           const groupInfo = await ctx.bot.getGroupInfo(groupId);
           groupName = (groupInfo as any)?.group_name;
           memberCount = (groupInfo as any)?.member_count;
-        } catch { }
+        } catch {}
 
         const toolCtx: ToolContext = {
           ctx,
@@ -2383,6 +2415,8 @@ Planned reason: ${planResult.reason}
       pokeCooldowns.clear();
       groupLastActivityTime.clear();
       groupMessageCount.clear();
+      groupLastBotMessageTime.clear();
+      groupMessageCountAfterBot.clear();
       groupLastIdleCheckTime.clear();
       idleCheckProcessing.clear();
       // 冷却相关清理
