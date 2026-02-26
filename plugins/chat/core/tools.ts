@@ -150,7 +150,9 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
   // 查看图片工具（仅多模态模型可用，且当前没有已附加的图片时）
   const hasPendingImages =
     toolCtx.pendingImageUrls && toolCtx.pendingImageUrls.length > 0;
-  if (toolCtx.config.isMultimodal && !hasPendingImages) {
+  // 如果消息中已经有图片附加，则不再提供 view_image 工具
+  const hasAttachedImages = toolCtx.hasAttachedImages ?? false;
+  if (toolCtx.config.isMultimodal && !hasPendingImages && !hasAttachedImages) {
     tools.push({
       name: "view_image",
       description:
@@ -191,6 +193,41 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
           };
         } catch (err) {
           return { error: `Failed to get image: ${err}` };
+        }
+      },
+      returnToAI: true,
+    });
+
+    tools.push({
+      name: "view_member_avatar",
+      description:
+        "View a group member's QQ avatar. Use this when you need to see what someone's avatar looks like.",
+      parameters: {
+        type: "object",
+        properties: {
+          user_id: {
+            type: "number",
+            description:
+              "QQ number of the member whose avatar you want to view",
+          },
+        },
+        required: ["user_id"],
+      },
+      handler: async (args) => {
+        try {
+          const avatarUrl = `https://q1.qlogo.cn/g?b=qq&nk=${args.user_id}&s=640`;
+
+          if (!toolCtx.pendingImageUrls) {
+            toolCtx.pendingImageUrls = [];
+          }
+          toolCtx.pendingImageUrls.push(avatarUrl);
+
+          return {
+            success: true,
+            note: "The avatar has been successfully attached to the session. You can now see and describe the avatar and there is no need to call this tool to view the image.",
+          };
+        } catch (err) {
+          return { error: `Failed to get avatar: ${err}` };
         }
       },
       returnToAI: true,
@@ -358,36 +395,6 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
             action: args.enable ? "group_muted" : "group_unmuted",
             message: args.enable ? "全体禁言已开启" : "全体禁言已关闭",
           };
-        } catch (err) {
-          return { error: `Failed: ${err}` };
-        }
-      },
-      returnToAI: true,
-    },
-    {
-      name: "poke_user",
-      description: "Poke a user in the group (fun interaction)",
-      parameters: {
-        type: "object",
-        properties: {
-          user_id: { type: "number", description: "QQ number" },
-        },
-        required: ["user_id"],
-      },
-      handler: async (args) => {
-        const { ctx, groupId } = toolCtx;
-        try {
-          if (groupId) {
-            await ctx.bot.api("group_poke", {
-              group_id: groupId,
-              user_id: args.user_id,
-            });
-          } else {
-            await ctx.bot.api("friend_poke", {
-              user_id: args.user_id,
-            });
-          }
-          return { success: true };
         } catch (err) {
           return { error: `Failed: ${err}` };
         }

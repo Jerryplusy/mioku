@@ -22,7 +22,7 @@ export interface PromptContext {
   plannerThoughts?: string;
   // Reply context - tells AI what type of reply this is
   replyContext?: {
-    type: "reply" | "comment" | "idle" | "react" | "review";
+    type: "reply" | "comment" | "idle" | "react" | "review" | "poked";
     targetUser?: string;
     targetMessage?: string;
   };
@@ -125,9 +125,6 @@ function buildReplyContextSection(
   switch (replyCtx.type) {
     case "reply":
       lines.push(
-        `You are replying to **${replyCtx.targetUser}** who said: "${replyCtx.targetMessage || "(message content)"}"`,
-      );
-      lines.push(
         `**Keep it SHORT and DIRECT** - just answer their point, 1-2 paragraphs max. No explanation needed.`,
       );
       break;
@@ -162,6 +159,14 @@ function buildReplyContextSection(
       if (reviewMsgs && reviewMsgs.contents.length > 0) {
         lines.push(buildReviewMessagesSection(reviewMsgs));
       }
+      break;
+    case "poked":
+      lines.push(
+        `Someone pokes you in a group, probably out of non-malicious play or to draw your attention to what happened in the group chat.`,
+      );
+      lines.push(
+        `Don't make a fuss about replying, just observe whether the chat history in the group has noteworthy content, and if not, simply say hello or express concern to the user.`,
+      );
       break;
   }
 
@@ -347,11 +352,13 @@ function buildResponseFormatSection(ctx: PromptContext): string {
   - Example RIGHT: "晚上好呀~现在是21点13分哦！✨" + newline + "夜深了，大家要早点休息呢"
 - **SPECIAL ACTIONS in your text (auto-parsed and removed from message):**
   - Use [[[at:123456]]] in your text to @ someone (123456 is the QQ number)
-  - Use [[[poke:123456]]] in your text to poke someone
+  - Use [[[poke:123456]]] in your text to poke someone. IMPORTANT: when you plan to poke a user, don't emphasize words like "戳你一下 or 戳回去" to describe your actions
   - Use [[[reply:123456]]] at the START of a line to quote-reply that message (123456 is message_id)
+  - **You can use MULTIPLE [[[reply:xxx]]] markers in different lines to quote multiple messages!**
   - These markers will be automatically parsed and removed from your sent message
   - Example: "你好呀 [[[at:123456]]" will send "你好呀" with an @ to user 123456
-  - Example: "\[[[reply:456789]]]我来回复这条消息" will quote-reply message 456789 with the text "我来回复这条消息"`);
+  - Example: "\[[[reply:456789]]]我来回复这条消息" will quote-reply message 456789 with the text "我来回复这条消息"
+  - Example multiple replies: "\[[[reply:111]]]回复第一条" + newline + "\[[[reply:222]]]回复第二条" will send two separate messages, each quoting different messages`);
 
   // Admin tools note
   if (

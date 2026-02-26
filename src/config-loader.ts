@@ -52,6 +52,12 @@ export function loadLocalConfig(cwd: string = process.cwd()): void {
   const packageJsonPath = join(cwd, "package.json");
   const localConfigPath = join(cwd, "config/mioku.json");
 
+  const configDir = join(cwd, "config");
+
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true });
+  }
+
   // 检查本地配置文件是否存在
   if (!existsSync(localConfigPath)) {
     writeFileSync(

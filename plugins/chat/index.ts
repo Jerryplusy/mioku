@@ -27,7 +27,11 @@ import {
 import { BASE_CONFIG } from "./configs/base";
 import { SETTINGS_CONFIG } from "./configs/settings";
 import { PERSONALIZATION_CONFIG } from "./configs/personalization";
-import { MessageQueueManager, parseLineMarkers } from "./utils/queue";
+import {
+  MessageQueueManager,
+  parseLineMarkers,
+  splitByReplyMarkers,
+} from "./utils/queue";
 import { sendMessage } from "./core/base";
 
 // ==================== Plugin ====================
@@ -41,10 +45,7 @@ const chatPlugin: MiokuPlugin = {
   help: {
     title: "AI 聊天",
     description: "智能 AI 聊天插件",
-    commands: [
-      { cmd: "/重置会话", desc: "重置自己的AI聊天记录" },
-      { cmd: "/重置群会话", desc: "重置当前群的AI聊天记录", role: "admin" },
-    ],
+    commands: [{ cmd: "/重置会话", desc: "清除 AI 在当前会话中发送的消息" }],
   },
 
   async setup(ctx: MiokiContext) {
@@ -143,6 +144,10 @@ const chatPlugin: MiokuPlugin = {
     const groupLastActivityTime = new Map<string, number>();
     // 群消息计数（用于空闲检测的保底数量）
     const groupMessageCount = new Map<string, number>();
+    // Bot 最后发言时间（用于空闲检测）
+    const groupLastBotMessageTime = new Map<string, number>();
+    // Bot 发言后的消息计数（用于空闲检测）
+    const groupMessageCountAfterBot = new Map<string, number>();
 
     // 群冷却计时器：记录每个群的 cooldown 结束时间
     const groupCooldownUntil = new Map<string, number>();
@@ -425,11 +430,19 @@ const chatPlugin: MiokuPlugin = {
             let lines: string[];
             lines = msg.split("\n").filter((l) => l.trim());
 
-            for (let j = 0; j < lines.length; j++) {
-              const line = lines[j];
+            // 展开包含多个 reply 标记的行
+            const expandedLines: string[] = [];
+            for (const line of lines) {
+              const parts = splitByReplyMarkers(line);
+              expandedLines.push(...parts);
+            }
 
+            for (let j = 0; j < expandedLines.length; j++) {
+              const line = expandedLines[j];
+
+              // 每一行都检查引用标记，不跳过
               const { cleanText, atUsers, pokeUsers, quoteId } =
-                parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
+                parseLineMarkers(line);
 
               if (pokeUsers.length > 0) {
                 for (const pokeId of pokeUsers) {
@@ -442,7 +455,8 @@ const chatPlugin: MiokuPlugin = {
 
               const lineSegments: any[] = [];
 
-              if (quoteId !== undefined && i === 0 && j === 0) {
+              // 如果有引用标记就添加，不限制只能第一条消息
+              if (quoteId !== undefined) {
                 lineSegments.push({ type: "reply", id: String(quoteId) });
               }
 
@@ -666,14 +680,19 @@ Planned reason: ${planResult.reason}`;
               let lines: string[];
               lines = msg.split("\n").filter((l) => l.trim());
 
-              for (let j = 0; j < lines.length; j++) {
-                const line = lines[j];
+              // 展开包含多个 reply 标记的行
+              const expandedLines: string[] = [];
+              for (const line of lines) {
+                const parts = splitByReplyMarkers(line);
+                expandedLines.push(...parts);
+              }
 
+              for (let j = 0; j < expandedLines.length; j++) {
+                const line = expandedLines[j];
+
+                // 每一行都检查引用标记，不跳过
                 const { cleanText, atUsers, pokeUsers, quoteId } =
-                  parseLineMarkers(
-                    line,
-                    i === 0 && j === 0 ? undefined : "skip",
-                  );
+                  parseLineMarkers(line);
 
                 if (pokeUsers.length > 0) {
                   for (const pokeId of pokeUsers) {
@@ -686,7 +705,8 @@ Planned reason: ${planResult.reason}`;
 
                 const lineSegments: any[] = [];
 
-                if (quoteId !== undefined && i === 0 && j === 0) {
+                // 如果有引用标记就添加，不限制只能第一条消息
+                if (quoteId !== undefined) {
                   lineSegments.push({ type: "reply", id: String(quoteId) });
                 }
 
@@ -784,11 +804,29 @@ Planned reason: ${planResult.reason}`;
           const groupId = parseInt(groupSessionId.split(":")[1], 10);
           if (!isGroupAllowed(groupId, cfg)) continue;
 
-          // 检查是否超过空闲阈值
-          if (now - lastTime < idleThreshold) continue;
+          // 获取 Bot 最后发言时间
+          let lastBotTime = groupLastBotMessageTime.get(groupSessionId) ?? 0;
+          if (lastBotTime === 0) {
+            const botMsgs = db.getBotMessages(groupId, 1);
+            if (botMsgs.length > 0) {
+              lastBotTime = botMsgs[botMsgs.length - 1].timestamp;
+              groupLastBotMessageTime.set(groupSessionId, lastBotTime);
+            }
+          }
 
-          // 检查消息数量是否达到保底阈值
-          const messageCount = groupMessageCount.get(groupSessionId) ?? 0;
+          // 群内在配置时间间隔内无任何消息发送
+          // 取用户最后发言时间和 Bot 最后发言时间的较大值
+          const lastActivityTime = Math.max(lastTime, lastBotTime);
+          if (now - lastActivityTime < idleThreshold) continue;
+
+          // 自Bot上次发送消息起，已累积达到配置中设定的指定消息条数
+          // 如果 Bot 从未发言，则使用总消息数量
+          const messageCountAfterBot =
+            groupMessageCountAfterBot.get(groupSessionId) ?? 0;
+          const messageCount =
+            lastBotTime > 0
+              ? messageCountAfterBot
+              : (groupMessageCount.get(groupSessionId) ?? 0);
           if (messageCount < messageCountThreshold) continue;
 
           // 标记正在处理
@@ -917,14 +955,19 @@ Planned reason: ${planResult.reason}
                   let lines: string[];
                   lines = msg.split("\n").filter((l) => l.trim());
 
-                  for (let j = 0; j < lines.length; j++) {
-                    const line = lines[j];
+                  // 展开包含多个 reply 标记的行
+                  const expandedLines: string[] = [];
+                  for (const line of lines) {
+                    const parts = splitByReplyMarkers(line);
+                    expandedLines.push(...parts);
+                  }
 
+                  for (let j = 0; j < expandedLines.length; j++) {
+                    const line = expandedLines[j];
+
+                    // 每一行都检查引用标记，不跳过
                     const { cleanText, atUsers, pokeUsers, quoteId } =
-                      parseLineMarkers(
-                        line,
-                        i === 0 && j === 0 ? undefined : "skip",
-                      );
+                      parseLineMarkers(line);
 
                     // 戳人
                     if (pokeUsers.length > 0) {
@@ -938,7 +981,8 @@ Planned reason: ${planResult.reason}
 
                     const lineSegments: any[] = [];
 
-                    if (quoteId !== undefined && i === 0 && j === 0) {
+                    // 如果有引用标记就添加，不限制只能第一条消息
+                    if (quoteId !== undefined) {
                       lineSegments.push({ type: "reply", id: String(quoteId) });
                     }
 
@@ -954,7 +998,7 @@ Planned reason: ${planResult.reason}
                       await ctx.bot.sendGroupMsg(groupId, lineSegments);
                     }
 
-                    if (j < lines.length - 1) {
+                    if (j < expandedLines.length - 1) {
                       await new Promise((r) => setTimeout(r, 300));
                     }
                   }
@@ -983,6 +1027,7 @@ Planned reason: ${planResult.reason}
 
             // 重置消息计数
             groupMessageCount.set(groupSessionId, 0);
+            groupMessageCountAfterBot.set(groupSessionId, 0);
             groupLastIdleCheckTime.set(groupSessionId, now);
           } catch (err) {
             ctx.logger.error(`[IdleCheck] 群 ${groupId} 空闲检测失败: ${err}`);
@@ -1189,11 +1234,19 @@ Planned reason: ${planResult.reason}
             let lines: string[];
             lines = msg.split("\n").filter((l) => l.trim());
 
-            for (let j = 0; j < lines.length; j++) {
-              const line = lines[j];
+            // 展开包含多个 reply 标记的行
+            const expandedLines: string[] = [];
+            for (const line of lines) {
+              const parts = splitByReplyMarkers(line);
+              expandedLines.push(...parts);
+            }
 
+            for (let j = 0; j < expandedLines.length; j++) {
+              const line = expandedLines[j];
+
+              // 每一行都检查引用标记，不跳过
               const { cleanText, atUsers, pokeUsers, quoteId } =
-                parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
+                parseLineMarkers(line);
 
               if (pokeUsers.length > 0) {
                 for (const pokeId of pokeUsers) {
@@ -1206,7 +1259,8 @@ Planned reason: ${planResult.reason}
 
               const lineSegments: any[] = [];
 
-              if (quoteId !== undefined && i === 0 && j === 0) {
+              // 如果有引用标记就添加，不限制只能第一条消息
+              if (quoteId !== undefined) {
                 lineSegments.push({ type: "reply", id: String(quoteId) });
               }
 
@@ -1302,19 +1356,33 @@ Planned reason: ${planResult.reason}
         }
 
         // 提取内容
-        const { text, multimodal } = extractContent(e, cfg, ctx);
-
         // 检测引用内容
         const quotedInfo = await getQuotedContent(e, ctx);
 
-        let messageContent: string;
-        if (multimodal) {
-          messageContent = JSON.stringify(multimodal);
-        } else {
-          messageContent = text;
+        // 收集需要附加的图片 URL
+        const imageUrlsToAttach: string[] = [];
+
+        // 从当前消息中提取图片 URL
+        if (e.message) {
+          for (const seg of e.message) {
+            if (seg.type === "image" && (seg.url || seg.data?.url)) {
+              imageUrlsToAttach.push(seg.url || seg.data.url);
+            }
+          }
         }
 
-        // 注入引用信息
+        // 从引用消息中提取图片 URL
+        if (quotedInfo?.imageUrl) {
+          imageUrlsToAttach.push(quotedInfo.imageUrl);
+        }
+
+        // 标记是否有图片附加
+        const hasAttachedImages = imageUrlsToAttach.length > 0;
+
+        let messageContent: string;
+        let extraContext = "";
+
+        // 注入引用信息（仅文本）
         if (quotedInfo) {
           const parts: string[] = [];
           parts.push(
@@ -1323,7 +1391,15 @@ Planned reason: ${planResult.reason}
           if (quotedInfo.imageUrl) {
             parts.push(`[Quoted message contains an image]`);
           }
-          messageContent = parts.join(" ") + " " + messageContent;
+          extraContext = parts.join(" ");
+        }
+
+        // 获取纯文本
+        const text = ctx.text(e) || "";
+        if (extraContext) {
+          messageContent = extraContext + " " + text;
+        } else {
+          messageContent = text;
         }
 
         if (options?.triggerReason) {
@@ -1474,6 +1550,8 @@ Planned reason: ${planResult.reason}
           aiService: aiService!,
           db,
           botRole,
+          hasAttachedImages,
+          pendingImageUrls: imageUrlsToAttach,
           // AI 返回文本时立即发送
           onTextContent: async (text, messageIndex, totalMessages) => {
             // 解析消息
@@ -1545,12 +1623,19 @@ Planned reason: ${planResult.reason}
             let lines: string[];
             lines = msg.split("\n").filter((l) => l.trim());
 
-            for (let j = 0; j < lines.length; j++) {
-              const line = lines[j];
+            // 展开包含多个 reply 标记的行
+            const expandedLines: string[] = [];
+            for (const line of lines) {
+              const parts = splitByReplyMarkers(line);
+              expandedLines.push(...parts);
+            }
 
-              // 解析消息中的标记并按顺序构建消息段
+            for (let j = 0; j < expandedLines.length; j++) {
+              const line = expandedLines[j];
+
+              // 每一行都检查引用标记，不跳过
               const { cleanText, atUsers, pokeUsers, quoteId } =
-                parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
+                parseLineMarkers(line);
 
               // 戳人
               if (groupId && pokeUsers.length > 0) {
@@ -1565,8 +1650,8 @@ Planned reason: ${planResult.reason}
               // 构建消息段
               const lineSegments: any[] = [];
 
-              // 引用（仅第一条消息的第一行）
-              if (quoteId !== undefined && i === 0 && j === 0) {
+              // 如果有引用标记就添加，不限制只能第一条消息
+              if (quoteId !== undefined) {
                 lineSegments.push({ type: "reply", id: String(quoteId) });
               }
 
@@ -1679,6 +1764,10 @@ Planned reason: ${planResult.reason}
         timestamp,
       };
       db.saveMessage(botMsg);
+      // 记录 Bot 最后发言时间
+      groupLastBotMessageTime.set(groupSessionId, timestamp);
+      // 重置 Bot 发言后的消息计数
+      groupMessageCountAfterBot.set(groupSessionId, 0);
     }
 
     // ==================== 消息处理 ====================
@@ -1842,14 +1931,19 @@ Planned reason: ${planResult.reason}
                 let lines: string[];
                 lines = msg.split("\n").filter((l) => l.trim());
 
-                for (let j = 0; j < lines.length; j++) {
-                  const line = lines[j];
+                // 展开包含多个 reply 标记的行
+                const expandedLines: string[] = [];
+                for (const line of lines) {
+                  const parts = splitByReplyMarkers(line);
+                  expandedLines.push(...parts);
+                }
 
+                for (let j = 0; j < expandedLines.length; j++) {
+                  const line = expandedLines[j];
+
+                  // 每一行都检查引用标记，不跳过
                   const { cleanText, atUsers, pokeUsers, quoteId } =
-                    parseLineMarkers(
-                      line,
-                      i === 0 && j === 0 ? undefined : "skip",
-                    );
+                    parseLineMarkers(line);
 
                   if (pokeUsers.length > 0) {
                     for (const pokeId of pokeUsers) {
@@ -1862,7 +1956,8 @@ Planned reason: ${planResult.reason}
 
                   const lineSegments: any[] = [];
 
-                  if (quoteId !== undefined && i === 0 && j === 0) {
+                  // 如果有引用标记就添加，不限制只能第一条消息
+                  if (quoteId !== undefined) {
                     lineSegments.push({ type: "reply", id: String(quoteId) });
                   }
 
@@ -1878,7 +1973,7 @@ Planned reason: ${planResult.reason}
                     await ctx.bot.sendGroupMsg(targetGroupId, lineSegments);
                   }
 
-                  if (j < lines.length - 1) {
+                  if (j < expandedLines.length - 1) {
                     await new Promise((r) => setTimeout(r, 300));
                   }
                 }
@@ -1916,26 +2011,15 @@ Planned reason: ${planResult.reason}
       }
 
       if (text === "/重置会话") {
+        if (groupId) {
+          const groupSessionId = `group:${groupId}`;
+          sessionManager.resetBotMessages(groupSessionId);
+          await e.reply("已清除本群会话中 AI 发送的消息~");
+          return;
+        }
         const personalSessionId = `personal:${userId}`;
-        sessionManager.reset(personalSessionId);
-        await e.reply("已重置你的个人会话记录~");
-        return;
-      }
-
-      if (text === "/重置群会话") {
-        if (!groupId) {
-          await e.reply("该命令仅群聊可用");
-          return;
-        }
-        const senderRole = e.sender?.role || "member";
-        const isOwner = ctx.isOwner?.(e) ?? false;
-        if (senderRole !== "admin" && senderRole !== "owner" && !isOwner) {
-          await e.reply("只有管理员或群主可以重置群会话");
-          return;
-        }
-        const groupSessionId = `group:${groupId}`;
-        sessionManager.reset(groupSessionId);
-        await e.reply("已重置本群的 AI 会话记录~");
+        sessionManager.resetBotMessages(personalSessionId);
+        await e.reply("已清除你的个人会话中 AI 发送的消息~");
         return;
       }
 
@@ -1959,6 +2043,11 @@ Planned reason: ${planResult.reason}
         groupLastActivityTime.set(groupSessionId, Date.now());
         const currentCount = groupMessageCount.get(groupSessionId) ?? 0;
         groupMessageCount.set(groupSessionId, currentCount + 1);
+
+        // 更新 Bot 发言后的消息计数
+        const currentBotCount =
+          groupMessageCountAfterBot.get(groupSessionId) ?? 0;
+        groupMessageCountAfterBot.set(groupSessionId, currentBotCount + 1);
 
         // 检查是否在冷却期间，如果在则收集消息
         const cooldownUntil = groupCooldownUntil.get(groupSessionId) ?? 0;
@@ -2187,7 +2276,7 @@ Planned reason: ${planResult.reason}
             aiService: aiService!,
             isGroup: true,
             replyContext: {
-              type: "reply",
+              type: "poked",
               targetUser: targetMessage.userName,
               targetMessage: targetMessage.content,
             },
@@ -2217,12 +2306,20 @@ Planned reason: ${planResult.reason}
               ctx.logger.error("[processAIResponse5] split/filter error:", err);
               lines = [msg];
             }
-            for (let j = 0; j < lines.length; j++) {
-              const line = lines[j];
 
-              // 解析消息中的标记并按顺序构建消息段
+            // 展开包含多个 reply 标记的行
+            const expandedLines: string[] = [];
+            for (const line of lines) {
+              const parts = splitByReplyMarkers(line);
+              expandedLines.push(...parts);
+            }
+
+            for (let j = 0; j < expandedLines.length; j++) {
+              const line = expandedLines[j];
+
+              // 每一行都检查引用标记，不跳过
               const { cleanText, atUsers, pokeUsers, quoteId } =
-                parseLineMarkers(line, i === 0 && j === 0 ? undefined : "skip");
+                parseLineMarkers(line);
 
               // 戳人
               if (pokeUsers.length > 0) {
@@ -2241,8 +2338,8 @@ Planned reason: ${planResult.reason}
               // 构建消息段
               const lineSegments: any[] = [];
 
-              // 引用
-              if (quoteId !== undefined && i === 0 && j === 0) {
+              // 如果有引用标记就添加，不限制只能第一条消息
+              if (quoteId !== undefined) {
                 lineSegments.push({ type: "reply", id: String(quoteId) });
               }
 
@@ -2260,7 +2357,7 @@ Planned reason: ${planResult.reason}
                 await ctx.bot.sendGroupMsg(groupId, lineSegments);
               }
 
-              if (j < lines.length - 1) {
+              if (j < expandedLines.length - 1) {
                 await new Promise((r) => setTimeout(r, 300));
               }
             }
@@ -2318,6 +2415,8 @@ Planned reason: ${planResult.reason}
       pokeCooldowns.clear();
       groupLastActivityTime.clear();
       groupMessageCount.clear();
+      groupLastBotMessageTime.clear();
+      groupMessageCountAfterBot.clear();
       groupLastIdleCheckTime.clear();
       idleCheckProcessing.clear();
       // 冷却相关清理

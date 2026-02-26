@@ -224,6 +224,10 @@ export interface ToolContext {
    * 待附加到下一轮 AI 请求的图片 URL
    */
   pendingImageUrls?: string[];
+  /**
+   * 当前消息是否已附加图片
+   */
+  hasAttachedImages?: boolean;
 }
 
 /**

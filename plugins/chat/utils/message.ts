@@ -244,7 +244,6 @@ export async function getGroupHistory(
           Array.isArray(msg.message) &&
           msg.message.length > 0
         ) {
-          // 先尝试提取所有文本段
           const textSegs = msg.message.filter(
             (seg: any) => seg.type === "text",
           );
@@ -252,19 +251,40 @@ export async function getGroupHistory(
             .map((seg: any) => seg.data?.text || "")
             .join("")
             .trim();
-
+          const atSegs = msg.message.filter((seg: any) => seg.type === "at");
+          const atContent = atSegs
+            .map((seg: any) => {
+              // OneBot v11 格式: seg.qq
+              const atUid =
+                seg.qq || seg.data?.qq || seg.data?.id || seg.data?.user_id;
+              if (!atUid) {
+                return null;
+              }
+              if (atUid === "all" || atUid === "everyone") {
+                return "@全体成员";
+              }
+              return `@${atUid}`;
+            })
+            .filter((v: string | null) => v !== null)
+            .join(" ");
+          const parts: string[] = [];
+          if (atContent) {
+            parts.push(atContent);
+          }
           if (textContent) {
-            // 有文本内容，使用文本内容
-            content = textContent;
+            parts.push(textContent);
+          }
+
+          if (parts.length > 0) {
+            content = parts.join(" ");
           } else if (Array.isArray(msg.message)) {
-            // 没有文本内容，显示消息类型
             const segTypes = msg.message.map((seg: any) => seg.type);
-            // 只显示非 text 的类型（因为 text 为空）
-            const nonTextTypes = segTypes.filter((t: string) => t !== "text");
+            const nonTextTypes = segTypes.filter(
+              (t: string) => t !== "text" && t !== "at",
+            );
             if (nonTextTypes.length > 0) {
               content = `[${nonTextTypes.join(", ")}]`;
             } else {
-              // 只有空文本段，跳过
               continue;
             }
           }
