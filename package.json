@@ -12,7 +12,8 @@
     "src/services/*"
   ],
   "dependencies": {
-    "mioki": "^0.15.0"
+    "mioki": "^0.15.0",
+    "puppeteer": "^24.37.5"
   },
   "devDependencies": {
     "@types/lodash": "^4.14.0",
