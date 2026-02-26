@@ -401,36 +401,6 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
       },
       returnToAI: true,
     },
-    {
-      name: "poke_user",
-      description: "Poke a user in the group (fun interaction)",
-      parameters: {
-        type: "object",
-        properties: {
-          user_id: { type: "number", description: "QQ number" },
-        },
-        required: ["user_id"],
-      },
-      handler: async (args) => {
-        const { ctx, groupId } = toolCtx;
-        try {
-          if (groupId) {
-            await ctx.bot.api("group_poke", {
-              group_id: groupId,
-              user_id: args.user_id,
-            });
-          } else {
-            await ctx.bot.api("friend_poke", {
-              user_id: args.user_id,
-            });
-          }
-          return { success: true };
-        } catch (err) {
-          return { error: `Failed: ${err}` };
-        }
-      },
-      returnToAI: true,
-    },
   ];
 }
 

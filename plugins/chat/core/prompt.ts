@@ -347,7 +347,7 @@ function buildResponseFormatSection(ctx: PromptContext): string {
   - Example RIGHT: "晚上好呀~现在是21点13分哦！✨" + newline + "夜深了，大家要早点休息呢"
 - **SPECIAL ACTIONS in your text (auto-parsed and removed from message):**
   - Use [[[at:123456]]] in your text to @ someone (123456 is the QQ number)
-  - Use [[[poke:123456]]] in your text to poke someone
+  - Use [[[poke:123456]]] in your text to poke someone. IMPORTANT: when you plan to poke a user, don't emphasize words like "戳你一下 or 戳回去" to describe your actions
   - Use [[[reply:123456]]] at the START of a line to quote-reply that message (123456 is message_id)
   - **You can use MULTIPLE [[[reply:xxx]]] markers in different lines to quote multiple messages!**
   - These markers will be automatically parsed and removed from your sent message
