@@ -22,7 +22,7 @@ export interface PromptContext {
   plannerThoughts?: string;
   // Reply context - tells AI what type of reply this is
   replyContext?: {
-    type: "reply" | "comment" | "idle" | "react" | "review" | "poked";
+    type: "reply" | "comment" | "idle" | "review" | "poked";
     targetUser?: string;
     targetMessage?: string;
   };
@@ -125,40 +125,41 @@ function buildReplyContextSection(
   switch (replyCtx.type) {
     case "reply":
       lines.push(
-        `**Keep it SHORT and DIRECT** - just answer their point, 1-2 paragraphs max. No explanation needed.`,
+        `Someone mentioned you in the group, maybe like you asked a certain question, or just wanted to tease you.`,
+      );
+      lines.push(
+        `If the user is asking you a question or requesting your help, please use the most recent chat history and available tools to help them resolve the issue to the best of your ability. Avoid being vague or providing incorrect information.Keep your reply paragraphs concise, no more than four paragraphs, three paragraphs being ideal.`,
+      );
+      lines.push(
+        `If a user doesn't have a real problem and is just trying to tease you, don't get annoyed. Use the group chat history and any tools you can to figure out the other members' intentions. Don't focus too much on the group member who's getting your attention; pay more attention to the chat history and try to join in the conversation. If a user is being provocative or insulting, respond humorously but politely, for example, "用户：我是你爸爸 可选回复： 天啊我妈怎么找了个这么没礼貌的" Important!!: Keep your messages short, concise, and to the point. Don't be verbose or include too much information; 1-2 paragraphs at most.`,
       );
       break;
     case "comment":
       lines.push(
-        `You are commenting on or reacting to recent activity in the group.`,
+        `If someone adds or comments after you reply to the previous message, please carefully read the group chat history and analyze your reply. Provide a reasonable and natural response to the user's comment, and do not repeat what you already said or a particular viewpoint.`,
       );
       lines.push(
-        `**Keep it SHORT** - a quick reaction or brief thought, 1 or 2 paragraph. Don't elaborate.`,
+        `Important! Messages must be concise and impactful, not exceeding two sentences.If you receive multiple messages that you feel you need to reply to, please do not reply to them separately, but summarize and reply in a concise manner.`,
       );
       break;
     case "idle":
       lines.push(
-        `This is an idle check - no specific trigger. You're deciding whether to speak up.`,
+        `No one spoke in the group for a long time, so you decided to chime in.`,
       );
       lines.push(
-        `If you reply, keep it very short – a paragraph or two, or even a few words`,
+        `First, observe the chat history in the group. If there is any content related to your persona that you are interested in, consider replying. Next, observe if any group members have unresolved questions. If not, then observe the chat style of the group members and send messages that naturally blend into their conversations. You can even repeat a funny message sent by a group member or a phrase that appears repeatedly in the chat history.`,
       );
-      break;
-    case "react":
-      lines.push(`You're reacting to something that happened.`);
-      lines.push(`**Keep it BRIEF** - quick reaction, 1 sentence.`);
+      lines.push(
+        `Important!! Please keep your messages extremely concise. Use no more than one sentence to reply to or repeat to the person you most want to reply to, or two paragraphs to provide an overall evaluation of the group chat. Please do not say things like "群里好久没人说话了" Treat it as a message you saw by chance and need to reply to quickly.`,
+      );
       break;
     case "review":
       lines.push(
-        `Multiple people are asking you questions or mentioning you after your last message.`,
+        `After you reply to other group members' messages, some people have new questions or replies to your answers.`,
       );
       lines.push(
-        `**Keep it VERY SHORT** - respond to ALL of them in one reply. Use [[[at:QQ号]]] to mention specific people when needed.`,
+        `Please respond reasonably and naturally in context. Keep the message concise, since you’ve already said it, and it must fit in a single message, even a single word.`,
       );
-      // Add review messages section
-      if (reviewMsgs && reviewMsgs.contents.length > 0) {
-        lines.push(buildReviewMessagesSection(reviewMsgs));
-      }
       break;
     case "poked":
       lines.push(
@@ -169,28 +170,6 @@ function buildReplyContextSection(
       );
       break;
   }
-
-  return lines.join("\n");
-}
-
-function buildReviewMessagesSection(
-  reviewMsgs: NonNullable<PromptContext["reviewMessages"]>,
-): string {
-  const lines: string[] = [];
-  lines.push(`\n### Messages after your last reply:`);
-
-  for (let i = 0; i < reviewMsgs.contents.length; i++) {
-    const msgIdStr = reviewMsgs.messageIds[i]
-      ? ` #${reviewMsgs.messageIds[i]}`
-      : "";
-    lines.push(
-      `- ${reviewMsgs.userNames[i]}${msgIdStr}: ${reviewMsgs.contents[i]}`,
-    );
-  }
-
-  lines.push(
-    `\nYou can quote these messages using [[[reply:message_id]]] format if relevant.`,
-  );
 
   return lines.join("\n");
 }

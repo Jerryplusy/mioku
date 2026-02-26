@@ -912,12 +912,10 @@ Planned reason: ${planResult.reason}`;
               };
 
               // 构建 planner 思考内容，告诉 AI 群里的情况和可以怎么回复
-              const plannerThoughts = `No one in the group has spoken for a long time, so come and answer the group
-Planned reason: ${planResult.reason}
-1. Participate in group chat topics naturally
-2. Quote messages from group friends appropriately (using [[[reply:message ID]]] format)
-3. Start a new topic or respond to a previous conversation
-4. Don't mention your intentions like "I'm here to answer" or something like a normal chat`;
+              const plannerThoughts = `You stumbled upon some message in this group and decided to reply.
+Suggestion:
+- Quote messages from group friends appropriately (using [[[reply:message ID]]] format)
+- Don't mention your intentions like "I'm here to answer" or something like a normal chat`;
 
               const result = await runChat(
                 aiInstance,
@@ -1888,12 +1886,10 @@ Planned reason: ${planResult.reason}
             };
 
             // 构建 planner 思考内容，告诉 AI 群里的情况和可以怎么回复
-            const plannerThoughts = `No one in the group has spoken for a long time, so come and answer the group
-Planned reason: ${planResult.reason}
-1. Participate in group chat topics naturally
-2. Quote messages from group friends appropriately (using [[[reply:message ID]]] format)
-3. Start a new topic or respond to a previous conversation
-4. Don't mention your intentions like "I'm here to answer" or something like a normal chat`;
+            const plannerThoughts = `You stumbled upon some message in this group and decided to reply.
+Suggestion:
+- Quote messages from group friends appropriately (using [[[reply:message ID]]] format)
+- Don't mention your intentions like "I'm here to answer" or something like a normal chat`;
 
             const result = await runChat(
               aiInstance,
