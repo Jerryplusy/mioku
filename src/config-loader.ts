@@ -37,14 +37,13 @@ const defaultPackageJSon = {
     admins: [],
     napcat: [
       {
-        name: "miku",
         protocol: "ws",
         port: 3000,
         host: "localhost",
         token: "",
       },
     ],
-    plugins: ["boot"],
+    plugins: ["boot", "help", "chat"],
   },
 };
 
