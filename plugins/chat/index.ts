@@ -2276,7 +2276,7 @@ Planned reason: ${planResult.reason}
             aiService: aiService!,
             isGroup: true,
             replyContext: {
-              type: "reply",
+              type: "poked",
               targetUser: targetMessage.userName,
               targetMessage: targetMessage.content,
             },

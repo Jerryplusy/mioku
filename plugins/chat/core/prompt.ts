@@ -22,7 +22,7 @@ export interface PromptContext {
   plannerThoughts?: string;
   // Reply context - tells AI what type of reply this is
   replyContext?: {
-    type: "reply" | "comment" | "idle" | "react" | "review";
+    type: "reply" | "comment" | "idle" | "react" | "review" | "poked";
     targetUser?: string;
     targetMessage?: string;
   };
@@ -125,9 +125,6 @@ function buildReplyContextSection(
   switch (replyCtx.type) {
     case "reply":
       lines.push(
-        `You are replying to **${replyCtx.targetUser}** who said: "${replyCtx.targetMessage || "(message content)"}"`,
-      );
-      lines.push(
         `**Keep it SHORT and DIRECT** - just answer their point, 1-2 paragraphs max. No explanation needed.`,
       );
       break;
@@ -162,6 +159,14 @@ function buildReplyContextSection(
       if (reviewMsgs && reviewMsgs.contents.length > 0) {
         lines.push(buildReviewMessagesSection(reviewMsgs));
       }
+      break;
+    case "poked":
+      lines.push(
+        `Someone pokes you in a group, probably out of non-malicious play or to draw your attention to what happened in the group chat.`,
+      );
+      lines.push(
+        `Don't make a fuss about replying, just observe whether the chat history in the group has noteworthy content, and if not, simply say hello or express concern to the user.`,
+      );
       break;
   }
 
