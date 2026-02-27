@@ -62,14 +62,23 @@ declare global {
             }>;
         }>;
 
-        // 注册工具
-        registerTool(tool: import("./core/types").AITool): boolean;
-
-        // 获取可用工具列表
-        getTools(): string[];
-
-        // 移除工具
-        removeTool(toolName: string): boolean;
+        // 原始补全调用
+        complete(options: {
+            model: string;
+            messages: any[];
+            tools?: any[];
+            temperature?: number;
+            max_tokens?: number;
+        }): Promise<{
+            content: string | null;
+            reasoning: string | null;
+            toolCalls: Array<{
+                id: string;
+                name: string;
+                arguments: string;
+            }>;
+            raw: any;
+        }>;
 
         // 注册提示词
         registerPrompt(name: string, prompt: string): boolean;
@@ -103,14 +112,19 @@ declare global {
         // 删除实例
         remove(name: string): boolean;
 
-        // 注册全局工具（所有实例共享）
-        registerTool(tool: import("./core/types").AITool): boolean;
+        // 默认实例
+        setDefault(name: string): boolean;
+        getDefault(): AIInstance | undefined;
 
-        // 获取所有全局工具
-        getTools(): string[];
+        // Skill 管理
+        registerSkill(skill: import("./core/types").AISkill): boolean;
+        getSkill(skillName: string): import("./core/types").AISkill | undefined;
+        getAllSkills(): Map<string, import("./core/types").AISkill>;
+        removeSkill(skillName: string): boolean;
 
-        // 移除全局工具
-        removeTool(toolName: string): boolean;
+        // 工具查询（扁平化访问）
+        getTool(toolName: string): import("./core/types").AITool | undefined;
+        getAllTools(): Map<string, import("./core/types").AITool>;
     }
 }
 

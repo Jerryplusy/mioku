@@ -1,5 +1,4 @@
 import type { MiokiContext } from "mioki";
-import type { AIService } from "../../src/services/ai";
 import type { AITool } from "../../src";
 import type { ChatDatabase } from "./db";
 

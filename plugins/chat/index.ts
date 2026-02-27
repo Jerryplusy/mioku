@@ -27,14 +27,16 @@ import {
 import { BASE_CONFIG } from "./configs/base";
 import { SETTINGS_CONFIG } from "./configs/settings";
 import { PERSONALIZATION_CONFIG } from "./configs/personalization";
+import { MessageQueueManager } from "./utils/queue";
 import {
-  MessageQueueManager,
-  parseLineMarkers,
-  splitByReplyMarkers,
-} from "./utils/queue";
-import { sendMessage } from "./core/base";
-
-// ==================== Plugin ====================
+  sendAIResponse,
+  getGroupHistoryMessages,
+  getGroupInfoData,
+  getHumanizeContexts,
+  buildToolContext,
+  saveBotMessages,
+  sendEmoji,
+} from "./core/base";
 
 const chatPlugin: MiokuPlugin = {
   name: "chat",
@@ -114,7 +116,6 @@ const chatPlugin: MiokuPlugin = {
     });
     const skillManager = new SkillSessionManager();
 
-    // 通过 AI 服务创建实例并设为默认
     if (!aiService) {
       ctx.logger.error("聊天插件需要 AI 服务，但 AI 服务不可用");
       return;
@@ -128,32 +129,18 @@ const chatPlugin: MiokuPlugin = {
     });
     aiService.setDefault("default");
 
-    // 初始化真人化引擎
+    // 数据结构初始化
     const humanize = new HumanizeEngine(aiInstance, config, db);
     await humanize.init();
-
-    // 戳一戳冷却
     const pokeCooldowns = new Map<number, number>();
     const POKE_COOLDOWN_MS = 10 * 60_000;
-
-    // 正在处理的会话（按群 ID），防止并发
     const processingSet = new Set<string>();
-
-    // 消息队列管理器
     const queueManager = new MessageQueueManager();
-
-    // 群最后活动时间追踪（用于空闲检测）
     const groupLastActivityTime = new Map<string, number>();
-    // 群消息计数（用于空闲检测的保底数量）
     const groupMessageCount = new Map<string, number>();
-    // Bot 最后发言时间（用于空闲检测）
     const groupLastBotMessageTime = new Map<string, number>();
-    // Bot 发言后的消息计数（用于空闲检测）
     const groupMessageCountAfterBot = new Map<string, number>();
-
-    // 群冷却计时器：记录每个群的 cooldown 结束时间
     const groupCooldownUntil = new Map<string, number>();
-    // 冷却期间收集的消息：群ID -> 消息列表
     const groupCooldownMessages = new Map<
       string,
       Array<{
@@ -163,7 +150,7 @@ const chatPlugin: MiokuPlugin = {
         userId: number;
         messageId: number;
         timestamp: number;
-        isDirectAt: boolean; // 是否直接 @bot
+        isDirectAt: boolean;
       }>
     >();
     // 正在等待冷却触发的计时器
@@ -242,56 +229,43 @@ const chatPlugin: MiokuPlugin = {
         const botRole = await getBotRole(groupId, ctx);
         const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
 
-        let groupName = String(groupId);
-        let memberCount = 0;
-        try {
-          const groupInfo = await ctx.bot.getGroupInfo(groupId);
-          groupName = groupInfo.group_name || groupName;
-          memberCount = groupInfo.member_count || 0;
-        } catch {}
-
-        const rawHistory = await getGroupHistory(
+        const { groupName, memberCount } = await getGroupInfoData(
+          ctx,
           groupId,
+          String(groupId),
+        );
+
+        const { history } = await getGroupHistoryMessages(
+          groupId,
+          groupSessionId,
           ctx,
           cfg.historyCount,
           db,
         );
-        const history: ChatMessage[] = rawHistory.map((msg) => ({
-          sessionId: groupSessionId,
-          role: "user" as const,
-          content: msg.content,
-          userId: msg.userId,
-          userName: msg.userName,
-          userRole: msg.userRole,
-          groupId,
-          timestamp: msg.timestamp,
-          messageId: msg.messageId,
-        }));
 
-        const toolCtx: ToolContext = {
+        const toolCtx: ToolContext = buildToolContext({
           ctx,
           event: firstMsg.event,
-          sessionId: groupSessionId,
+          groupSessionId,
           groupId,
           userId: firstMsg.userId,
           config: cfg,
           aiService: aiService!,
           db,
           botRole,
-        };
+          humanize,
+          targetMessage,
+        });
 
         sessionManager.getOrCreate(groupSessionId, "group", groupId);
 
-        const memoryContext = await humanize.memoryRetrieval.retrieve(
+        const contexts = await getHumanizeContexts(
+          humanize,
           groupSessionId,
           mergedContent,
           targetMessage.userName,
           history,
         );
-        const topicContext =
-          humanize.topicTracker.getTopicContext(groupSessionId);
-        const expressionContext =
-          humanize.expressionLearner.getExpressionContext(groupSessionId);
 
         const result = await runChat(
           aiInstance,
@@ -306,9 +280,9 @@ const chatPlugin: MiokuPlugin = {
             botRole,
             aiService: aiService!,
             isGroup: true,
-            memoryContext: memoryContext || undefined,
-            topicContext: topicContext || undefined,
-            expressionContext: expressionContext || undefined,
+            memoryContext: contexts.memoryContext,
+            topicContext: contexts.topicContext,
+            expressionContext: contexts.expressionContext,
             replyContext: {
               type: "review",
               targetUser: targetMessage.userName,
@@ -324,55 +298,13 @@ const chatPlugin: MiokuPlugin = {
           skillManager,
         );
 
-        const sentIndices = toolCtx.sentMessageIndices;
-        if (result.messages.length > 0) {
-          for (let i = 0; i < result.messages.length; i++) {
-            if (sentIndices?.has(i)) continue;
-
-            let msg = result.messages[i];
-            msg = humanize.typoGenerator.apply(msg);
-
-            const lines = msg.split("\n").filter((l) => l.trim());
-            const expandedLines: string[] = [];
-            for (const line of lines) {
-              const parts = splitByReplyMarkers(line);
-              expandedLines.push(...parts);
-            }
-
-            for (const line of expandedLines) {
-              const { cleanText, atUsers, pokeUsers, quoteId } =
-                parseLineMarkers(line);
-
-              if (pokeUsers.length > 0) {
-                for (const pokeId of pokeUsers) {
-                  await ctx.bot.api("group_poke", {
-                    group_id: groupId,
-                    user_id: pokeId,
-                  });
-                }
-              }
-
-              const lineSegments: any[] = [];
-              if (quoteId !== undefined) {
-                lineSegments.push({ type: "reply", id: String(quoteId) });
-              }
-
-              if (atUsers.length > 0) {
-                for (const atId of atUsers) {
-                  lineSegments.push({ type: "at", qq: atId });
-                }
-              }
-
-              if (cleanText.trim()) {
-                lineSegments.push({ type: "text", text: cleanText.trim() });
-              }
-
-              if (lineSegments.length > 0) {
-                await ctx.bot.sendGroupMsg(groupId, lineSegments);
-              }
-            }
-          }
-        }
+        await sendAIResponse({
+          ctx,
+          groupId,
+          messages: result.messages,
+          sentIndices: toolCtx.sentMessageIndices,
+          typoGenerator: humanize.typoGenerator,
+        });
 
         rateLimiter.clearGroupInteractions(groupId);
         startCooldownTimer(groupSessionId, groupId);
@@ -462,7 +394,7 @@ const chatPlugin: MiokuPlugin = {
         clearTimeout(existingTimer);
       }
 
-      const cfg = config; // 使用当前配置
+      const cfg = config;
       const cooldownMs = cfg.cooldownAfterReplyMs ?? 20_000;
 
       const timer = setTimeout(async () => {
@@ -587,7 +519,7 @@ const chatPlugin: MiokuPlugin = {
 
         // 构建 targetMessage
         const targetMessage: TargetMessage = {
-          userName: userNames.join(", "), // 多个用户名用逗号分隔
+          userName: userNames.join(", "),
           userId: firstMsg.userId,
           userRole: firstMsg.event.sender?.role || "member",
           content: mergedContent,
@@ -595,80 +527,40 @@ const chatPlugin: MiokuPlugin = {
           timestamp: Date.now(),
         };
 
-        // 获取群聊历史
-        const rawHistory = await getGroupHistory(
+        const { history } = await getGroupHistoryMessages(
           groupId,
+          groupSessionId,
           ctx,
           cfg.historyCount,
           db,
         );
-        const history: ChatMessage[] = rawHistory.map((msg) => ({
-          sessionId: groupSessionId,
-          role: "user" as const,
-          content: msg.content,
-          userId: msg.userId,
-          userName: msg.userName,
-          userRole: msg.userRole,
-          groupId,
-          timestamp: msg.timestamp,
-          messageId: msg.messageId,
-        }));
 
         const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
         const botRole = await getBotRole(groupId, ctx);
 
-        let groupName: string | undefined;
-        let memberCount: number | undefined;
-        try {
-          const groupInfo = await ctx.bot.getGroupInfo(groupId);
-          groupName = (groupInfo as any)?.group_name;
-          memberCount = (groupInfo as any)?.member_count;
-        } catch {}
+        const { groupName, memberCount } = await getGroupInfoData(ctx, groupId);
 
-        const toolCtx: ToolContext = {
+        const toolCtx: ToolContext = buildToolContext({
           ctx,
           event: firstMsg.event,
-          sessionId: groupSessionId,
+          groupSessionId,
           groupId,
           userId: targetMessage.userId,
           config: cfg,
           aiService: aiService!,
           db,
           botRole,
-          onTextContent: async (text, messageIndex) => {
-            const messages = text
-              .trim()
-              .split("\n---\n")
-              .map((s) => s.trim())
-              .filter(Boolean);
+          humanize,
+          targetMessage,
+        });
 
-            if (messages[messageIndex]) {
-              await sendMessage(
-                ctx,
-                groupId,
-                targetMessage.userId,
-                messages[messageIndex],
-                humanize.typoGenerator,
-              );
-            }
-          },
-        };
-
-        // 记忆检索
-        const memoryContext = await humanize.memoryRetrieval.retrieve(
+        const contexts = await getHumanizeContexts(
+          humanize,
           groupSessionId,
           mergedContent,
           targetMessage.userName,
           history,
         );
-
-        // 话题上下文
-        const topicContext =
-          humanize.topicTracker.getTopicContext(groupSessionId);
-
-        // 表达习惯上下文
-        const expressionContext =
-          humanize.expressionLearner.getExpressionContext(groupSessionId);
 
         const result = await runChat(
           aiInstance,
@@ -683,9 +575,9 @@ const chatPlugin: MiokuPlugin = {
             botRole,
             aiService: aiService!,
             isGroup: true,
-            memoryContext: memoryContext || undefined,
-            topicContext: topicContext || undefined,
-            expressionContext: expressionContext || undefined,
+            memoryContext: contexts.memoryContext,
+            topicContext: contexts.topicContext,
+            expressionContext: contexts.expressionContext,
             replyContext: {
               type: "review",
               targetUser: targetMessage.userName,
@@ -701,88 +593,28 @@ const chatPlugin: MiokuPlugin = {
           skillManager,
         );
 
-        // 发送消息
-        const sentIndices = toolCtx.sentMessageIndices;
-        if (result.messages.length > 0) {
-          for (let i = 0; i < result.messages.length; i++) {
-            if (sentIndices?.has(i)) continue;
+        await sendAIResponse({
+          ctx,
+          groupId,
+          messages: result.messages,
+          sentIndices: toolCtx.sentMessageIndices,
+          typoGenerator: humanize.typoGenerator,
+        });
 
-            let msg = result.messages[i];
-            msg = humanize.typoGenerator.apply(msg);
+        await sendEmoji(ctx, groupId, result.emojiPath);
 
-            let lines: string[];
-            lines = msg.split("\n").filter((l) => l.trim());
-
-            // 展开包含多个 reply 标记的行
-            const expandedLines: string[] = [];
-            for (const line of lines) {
-              const parts = splitByReplyMarkers(line);
-              expandedLines.push(...parts);
-            }
-
-            for (let j = 0; j < expandedLines.length; j++) {
-              const line = expandedLines[j];
-
-              // 每一行都检查引用标记，不跳过
-              const { cleanText, atUsers, pokeUsers, quoteId } =
-                parseLineMarkers(line);
-
-              if (pokeUsers.length > 0) {
-                for (const pokeId of pokeUsers) {
-                  await ctx.bot.api("group_poke", {
-                    group_id: groupId,
-                    user_id: pokeId,
-                  });
-                }
-              }
-
-              const lineSegments: any[] = [];
-
-              // 如果有引用标记就添加，不限制只能第一条消息
-              if (quoteId !== undefined) {
-                lineSegments.push({ type: "reply", id: String(quoteId) });
-              }
-
-              for (const atId of atUsers) {
-                lineSegments.push(ctx.segment.at(atId));
-              }
-
-              if (cleanText) {
-                lineSegments.push(ctx.segment.text(cleanText));
-              }
-
-              if (lineSegments.length > 0) {
-                await ctx.bot.sendGroupMsg(groupId, lineSegments);
-              }
-
-              if (j < lines.length - 1) {
-                await new Promise((r) => setTimeout(r, 300));
-              }
-            }
-
-            if (i < result.messages.length - 1) {
-              await new Promise((r) => setTimeout(r, 300));
-            }
-          }
-        }
-
-        // 发送表情包
-        if (result.emojiPath) {
-          try {
-            const emojiSegment = ctx.segment.image(
-              `file://${result.emojiPath}`,
-            );
-            await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
-          } catch (err) {
-            ctx.logger.warn(`[表情包] 发送失败: ${err}`);
-          }
-        }
-
-        // 保存 bot 消息
         const now = Date.now();
-        for (const msg of result.messages) {
-          saveBotMessage(groupId, groupSessionId, msg, now, cfg);
-        }
+        saveBotMessages(
+          groupId,
+          groupSessionId,
+          result.messages,
+          now,
+          cfg,
+          db,
+          ctx,
+          groupLastBotMessageTime,
+          groupMessageCountAfterBot,
+        );
 
         sessionManager.touch(groupSessionId);
 
@@ -821,24 +653,13 @@ const chatPlugin: MiokuPlugin = {
         const mergedContent = collected.map((m) => m.content).join("\n");
         const firstMsg = collected[0];
 
-        // 获取群聊历史
-        const rawHistory = await getGroupHistory(
+        const { history } = await getGroupHistoryMessages(
           groupId,
+          groupSessionId,
           ctx,
           cfg.historyCount,
           db,
         );
-        const history: ChatMessage[] = rawHistory.map((msg) => ({
-          sessionId: groupSessionId,
-          role: "user" as const,
-          content: msg.content,
-          userId: msg.userId,
-          userName: msg.userName,
-          userRole: msg.userRole,
-          groupId,
-          timestamp: msg.timestamp,
-          messageId: msg.messageId,
-        }));
 
         const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
 
@@ -860,60 +681,35 @@ const chatPlugin: MiokuPlugin = {
             timestamp: Date.now(),
           };
 
-          const toolCtx: ToolContext = {
+          const botRole = await getBotRole(groupId, ctx);
+
+          const toolCtx: ToolContext = buildToolContext({
             ctx,
             event: firstMsg.event,
-            sessionId: groupSessionId,
+            groupSessionId,
             groupId,
             userId: targetMessage.userId,
             config: cfg,
             aiService: aiService!,
             db,
-            botRole: await getBotRole(groupId, ctx),
-            onTextContent: async (text, messageIndex) => {
-              const messages = text
-                .trim()
-                .split("\n---\n")
-                .map((s) => s.trim())
-                .filter(Boolean);
+            botRole,
+            humanize,
+            targetMessage,
+          });
 
-              if (messages[messageIndex]) {
-                await sendMessage(
-                  ctx,
-                  groupId,
-                  targetMessage.userId,
-                  messages[messageIndex],
-                  humanize.typoGenerator,
-                );
-              }
-            },
-          };
+          const { groupName, memberCount } = await getGroupInfoData(
+            ctx,
+            groupId,
+          );
 
-          let groupName: string | undefined;
-          let memberCount: number | undefined;
-          try {
-            const groupInfo = await ctx.bot.getGroupInfo(groupId);
-            groupName = (groupInfo as any)?.group_name;
-            memberCount = (groupInfo as any)?.member_count;
-          } catch {}
-
-          // 记忆检索
-          const memoryContext = await humanize.memoryRetrieval.retrieve(
+          const contexts = await getHumanizeContexts(
+            humanize,
             groupSessionId,
             mergedContent,
             targetMessage.userName,
             history,
           );
 
-          // 话题上下文
-          const topicContext =
-            humanize.topicTracker.getTopicContext(groupSessionId);
-
-          // 表达习惯上下文
-          const expressionContext =
-            humanize.expressionLearner.getExpressionContext(groupSessionId);
-
-          // 构建 planner 思考内容
           const plannerThoughts = `After you spoke, the following messages were sent in the group. Use this context to respond naturally.
 Planned reason: ${planResult.reason}`;
 
@@ -930,9 +726,9 @@ Planned reason: ${planResult.reason}`;
               botRole: toolCtx.botRole,
               aiService: aiService!,
               isGroup: true,
-              memoryContext: memoryContext || undefined,
-              topicContext: topicContext || undefined,
-              expressionContext: expressionContext || undefined,
+              memoryContext: contexts.memoryContext,
+              topicContext: contexts.topicContext,
+              expressionContext: contexts.expressionContext,
               plannerThoughts,
               replyContext: {
                 type: "comment",
@@ -949,88 +745,28 @@ Planned reason: ${planResult.reason}`;
             skillManager,
           );
 
-          // 发送消息
-          const sentIndices = toolCtx.sentMessageIndices;
-          if (result.messages.length > 0) {
-            for (let i = 0; i < result.messages.length; i++) {
-              if (sentIndices?.has(i)) continue;
+          await sendAIResponse({
+            ctx,
+            groupId,
+            messages: result.messages,
+            sentIndices: toolCtx.sentMessageIndices,
+            typoGenerator: humanize.typoGenerator,
+          });
 
-              let msg = result.messages[i];
-              msg = humanize.typoGenerator.apply(msg);
+          await sendEmoji(ctx, groupId, result.emojiPath);
 
-              let lines: string[];
-              lines = msg.split("\n").filter((l) => l.trim());
-
-              // 展开包含多个 reply 标记的行
-              const expandedLines: string[] = [];
-              for (const line of lines) {
-                const parts = splitByReplyMarkers(line);
-                expandedLines.push(...parts);
-              }
-
-              for (let j = 0; j < expandedLines.length; j++) {
-                const line = expandedLines[j];
-
-                // 每一行都检查引用标记，不跳过
-                const { cleanText, atUsers, pokeUsers, quoteId } =
-                  parseLineMarkers(line);
-
-                if (pokeUsers.length > 0) {
-                  for (const pokeId of pokeUsers) {
-                    await ctx.bot.api("group_poke", {
-                      group_id: groupId,
-                      user_id: pokeId,
-                    });
-                  }
-                }
-
-                const lineSegments: any[] = [];
-
-                // 如果有引用标记就添加，不限制只能第一条消息
-                if (quoteId !== undefined) {
-                  lineSegments.push({ type: "reply", id: String(quoteId) });
-                }
-
-                for (const atId of atUsers) {
-                  lineSegments.push(ctx.segment.at(atId));
-                }
-
-                if (cleanText) {
-                  lineSegments.push(ctx.segment.text(cleanText));
-                }
-
-                if (lineSegments.length > 0) {
-                  await ctx.bot.sendGroupMsg(groupId, lineSegments);
-                }
-
-                if (j < lines.length - 1) {
-                  await new Promise((r) => setTimeout(r, 300));
-                }
-              }
-
-              if (i < result.messages.length - 1) {
-                await new Promise((r) => setTimeout(r, 300));
-              }
-            }
-          }
-
-          // 发送表情包
-          if (result.emojiPath) {
-            try {
-              const emojiSegment = ctx.segment.image(
-                `file://${result.emojiPath}`,
-              );
-              await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
-            } catch (err) {
-              ctx.logger.warn(`[表情包] 发送失败: ${err}`);
-            }
-          }
-
-          // 保存 bot 消息
           const now = Date.now();
-          for (const msg of result.messages) {
-            saveBotMessage(groupId, groupSessionId, msg, now, cfg);
-          }
+          saveBotMessages(
+            groupId,
+            groupSessionId,
+            result.messages,
+            now,
+            cfg,
+            db,
+            ctx,
+            groupLastBotMessageTime,
+            groupMessageCountAfterBot,
+          );
 
           sessionManager.touch(groupSessionId);
 
@@ -1057,7 +793,7 @@ Planned reason: ${planResult.reason}`;
     // 群最后一次空闲检查时间
     const groupLastIdleCheckTime = new Map<string, number>();
 
-    // 空闲检测定时器（每秒检查，但实际触发由配置决定）
+    // 空闲检测定时器
     const idleCheckInterval = setInterval(async () => {
       try {
         const cfg = await getConfig();
@@ -1118,24 +854,13 @@ Planned reason: ${planResult.reason}`;
               `[IdleCheck] group ${groupId} triggers idle detection`,
             );
 
-            // 获取群聊历史
-            const rawHistory = await getGroupHistory(
+            const { history } = await getGroupHistoryMessages(
               groupId,
+              groupSessionId,
               ctx,
               cfg.historyCount,
               db,
             );
-            const history: ChatMessage[] = rawHistory.map((msg) => ({
-              sessionId: groupSessionId,
-              role: "user" as const,
-              content: msg.content,
-              userId: msg.userId,
-              userName: msg.userName,
-              userRole: msg.userRole,
-              groupId,
-              timestamp: msg.timestamp,
-              messageId: msg.messageId,
-            }));
 
             const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
 
@@ -1145,7 +870,7 @@ Planned reason: ${planResult.reason}`;
               botNickname,
               history,
               "[Check if you want to answer the call]",
-              true, // isIdleCheck = true
+              true,
             );
 
             if (planResult.action === "reply") {
@@ -1159,41 +884,22 @@ Planned reason: ${planResult.reason}`;
                 timestamp: now,
               };
 
-              const toolCtx: ToolContext = {
+              const botRole = await getBotRole(groupId, ctx);
+
+              const toolCtx: ToolContext = buildToolContext({
                 ctx,
                 event: null,
-                sessionId: groupSessionId,
+                groupSessionId,
                 groupId,
                 userId: 0,
                 config: cfg,
                 aiService: aiService!,
                 db,
-                botRole: await getBotRole(groupId, ctx),
-                // AI 返回文本时立即发送
-                onTextContent: async (text, messageIndex) => {
-                  // 解析消息
-                  let messages: string[];
+                botRole,
+                humanize,
+                targetMessage,
+              });
 
-                  messages = text
-                    .trim()
-                    .split("\n---\n")
-                    .map((s) => s.trim())
-                    .filter(Boolean);
-
-                  // 发送当前消息
-                  if (messages[messageIndex]) {
-                    await sendMessage(
-                      ctx,
-                      groupId,
-                      0,
-                      messages[messageIndex],
-                      humanize.typoGenerator,
-                    );
-                  }
-                },
-              };
-
-              // 构建 planner 思考内容，告诉 AI 群里的情况和可以怎么回复
               const plannerThoughts = `You stumbled upon some message in this group and decided to reply.
 Suggestion:
 - Quote messages from group friends appropriately (using [[[reply:message ID]]] format)
@@ -1219,86 +925,27 @@ Suggestion:
                 skillManager,
               );
 
-              // 发送消息（跳过已通过 onTextContent 回调发送的消息）
-              const sentIndices0 = toolCtx.sentMessageIndices;
-              if (result.messages.length > 0) {
-                for (let i = 0; i < result.messages.length; i++) {
-                  // 跳过已发送的消息
-                  if (sentIndices0?.has(i)) {
-                    continue;
-                  }
+              await sendAIResponse({
+                ctx,
+                groupId,
+                messages: result.messages,
+                sentIndices: toolCtx.sentMessageIndices,
+                typoGenerator: humanize.typoGenerator,
+              });
 
-                  let msg = result.messages[i];
-                  msg = humanize.typoGenerator.apply(msg);
-
-                  let lines: string[];
-                  lines = msg.split("\n").filter((l) => l.trim());
-
-                  // 展开包含多个 reply 标记的行
-                  const expandedLines: string[] = [];
-                  for (const line of lines) {
-                    const parts = splitByReplyMarkers(line);
-                    expandedLines.push(...parts);
-                  }
-
-                  for (let j = 0; j < expandedLines.length; j++) {
-                    const line = expandedLines[j];
-
-                    // 每一行都检查引用标记，不跳过
-                    const { cleanText, atUsers, pokeUsers, quoteId } =
-                      parseLineMarkers(line);
-
-                    // 戳人
-                    if (pokeUsers.length > 0) {
-                      for (const pokeId of pokeUsers) {
-                        await ctx.bot.api("group_poke", {
-                          group_id: groupId,
-                          user_id: pokeId,
-                        });
-                      }
-                    }
-
-                    const lineSegments: any[] = [];
-
-                    // 如果有引用标记就添加，不限制只能第一条消息
-                    if (quoteId !== undefined) {
-                      lineSegments.push({ type: "reply", id: String(quoteId) });
-                    }
-
-                    for (const atId of atUsers) {
-                      lineSegments.push(ctx.segment.at(atId));
-                    }
-
-                    if (cleanText) {
-                      lineSegments.push(ctx.segment.text(cleanText));
-                    }
-
-                    if (lineSegments.length > 0) {
-                      await ctx.bot.sendGroupMsg(groupId, lineSegments);
-                    }
-
-                    if (j < expandedLines.length - 1) {
-                      await new Promise((r) => setTimeout(r, 300));
-                    }
-                  }
-
-                  if (i < result.messages.length - 1) {
-                    await new Promise((r) => setTimeout(r, 300));
-                  }
-                }
-
-                // 记录发言
-                if (!sentIndices0 || sentIndices0.size === 0) {
-                }
-              }
-
-              // 保存 bot 消息
               const now2 = Date.now();
-              for (const msg of result.messages) {
-                saveBotMessage(groupId, groupSessionId, msg, now2, cfg);
-              }
+              saveBotMessages(
+                groupId,
+                groupSessionId,
+                result.messages,
+                now2,
+                cfg,
+                db,
+                ctx,
+                groupLastBotMessageTime,
+                groupMessageCountAfterBot,
+              );
 
-              // 回复完成后启动冷却计时器
               startCooldownTimer(groupSessionId, groupId);
 
               ctx.logger.info(
@@ -1318,10 +965,8 @@ Suggestion:
             idleCheckProcessing.delete(groupSessionId);
           }
         }
-      } catch (err) {
-        // 忽略空闲检测错误
-      }
-    }, 60_000); // 每分钟检查一次是否需要执行空闲检测
+      } catch (err) {}
+    }, 60_000);
 
     /**
      * 处理队列中的等待消息
@@ -1393,87 +1038,42 @@ Suggestion:
         queueManager.clearActiveTarget(groupSessionId);
 
         const groupId = parseInt(groupSessionId.split(":")[1], 10);
-        const toolCtx: ToolContext = {
+        const botRole = await getBotRole(groupId, ctx);
+
+        const toolCtx: ToolContext = buildToolContext({
           ctx,
-          event: null, // 复用之前的 context
-          sessionId: groupSessionId,
+          event: null,
+          groupSessionId,
           groupId,
           userId: targetMessage.userId,
           config: cfg,
           aiService: aiService!,
           db,
-          botRole: await getBotRole(groupId, ctx),
-          // AI 返回文本时立即发送
-          onTextContent: async (text, messageIndex) => {
-            // 解析消息
-            let messages: string[];
-            messages = text
-              .trim()
-              .split("\n---\n")
-              .map((s) => s.trim())
-              .filter(Boolean);
-
-            // 发送当前消息
-            if (messages[messageIndex]) {
-              await sendMessage(
-                ctx,
-                groupId,
-                targetMessage.userId,
-                messages[messageIndex],
-                humanize.typoGenerator,
-              );
-            }
-
-            // 记录发言频率
-          },
-        };
+          botRole,
+          humanize,
+          targetMessage,
+        });
 
         const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
 
-        // 获取群聊历史
-        const rawHistory = await getGroupHistory(
+        const { history } = await getGroupHistoryMessages(
           groupId,
+          groupSessionId,
           ctx,
           cfg.historyCount,
           db,
         );
-        const history: ChatMessage[] = rawHistory.map((msg) => ({
-          sessionId: groupSessionId,
-          role: "user" as const,
-          content: msg.content,
-          userId: msg.userId,
-          userName: msg.userName,
-          userRole: msg.userRole,
-          groupId,
-          timestamp: msg.timestamp,
-          messageId: msg.messageId,
-        }));
 
-        // 记忆检索
-        const memoryContext = await humanize.memoryRetrieval.retrieve(
+        const contexts = await getHumanizeContexts(
+          humanize,
           groupSessionId,
           targetMessage.content,
           targetMessage.userName,
           history,
         );
 
-        // 话题上下文
-        const topicContext =
-          humanize.topicTracker.getTopicContext(groupSessionId);
+        const { groupName, memberCount } = await getGroupInfoData(ctx, groupId);
 
-        // 表达习惯上下文
-        const expressionContext =
-          humanize.expressionLearner.getExpressionContext(groupSessionId);
-
-        let groupName: string | undefined;
-        let memberCount: number | undefined;
-        try {
-          const groupInfo = await ctx.bot.getGroupInfo(groupId);
-          groupName = (groupInfo as any)?.group_name;
-          memberCount = (groupInfo as any)?.member_count;
-        } catch {}
-
-        // 重新运行 AI
         const result = await runChat(
           aiInstance,
           toolCtx,
@@ -1487,9 +1087,9 @@ Suggestion:
             botRole: toolCtx.botRole,
             aiService: aiService!,
             isGroup: true,
-            memoryContext: memoryContext || undefined,
-            topicContext: topicContext || undefined,
-            expressionContext: expressionContext || undefined,
+            memoryContext: contexts.memoryContext,
+            topicContext: contexts.topicContext,
+            expressionContext: contexts.expressionContext,
             replyContext: {
               type: "comment",
               targetUser: targetMessage.userName,
@@ -1500,95 +1100,28 @@ Suggestion:
           skillManager,
         );
 
-        // 发送消息
-        const sentIndices2 = toolCtx.sentMessageIndices;
-        if (result.messages.length > 0) {
-          for (let i = 0; i < result.messages.length; i++) {
-            // 跳过已发送的消息
-            if (sentIndices2?.has(i)) {
-              continue;
-            }
+        await sendAIResponse({
+          ctx,
+          groupId,
+          messages: result.messages,
+          sentIndices: toolCtx.sentMessageIndices,
+          typoGenerator: humanize.typoGenerator,
+        });
 
-            let msg = result.messages[i];
-            msg = humanize.typoGenerator.apply(msg);
+        await sendEmoji(ctx, groupId, result.emojiPath);
 
-            let lines: string[];
-            lines = msg.split("\n").filter((l) => l.trim());
-
-            // 展开包含多个 reply 标记的行
-            const expandedLines: string[] = [];
-            for (const line of lines) {
-              const parts = splitByReplyMarkers(line);
-              expandedLines.push(...parts);
-            }
-
-            for (let j = 0; j < expandedLines.length; j++) {
-              const line = expandedLines[j];
-
-              // 每一行都检查引用标记，不跳过
-              const { cleanText, atUsers, pokeUsers, quoteId } =
-                parseLineMarkers(line);
-
-              if (pokeUsers.length > 0) {
-                for (const pokeId of pokeUsers) {
-                  await ctx.bot.api("group_poke", {
-                    group_id: groupId,
-                    user_id: pokeId,
-                  });
-                }
-              }
-
-              const lineSegments: any[] = [];
-
-              // 如果有引用标记就添加，不限制只能第一条消息
-              if (quoteId !== undefined) {
-                lineSegments.push({ type: "reply", id: String(quoteId) });
-              }
-
-              for (const atId of atUsers) {
-                lineSegments.push(ctx.segment.at(atId));
-              }
-
-              if (cleanText) {
-                lineSegments.push(ctx.segment.text(cleanText));
-              }
-
-              if (lineSegments.length > 0) {
-                await ctx.bot.sendGroupMsg(groupId, lineSegments);
-              }
-
-              if (j < lines.length - 1) {
-                await new Promise((r) => setTimeout(r, 300));
-              }
-            }
-
-            if (i < result.messages.length - 1) {
-              await new Promise((r) => setTimeout(r, 300));
-            }
-          }
-
-          // 记录发言（如果回调没有发送消息，则在这里记录）
-          if (!sentIndices2 || sentIndices2.size === 0) {
-          }
-        }
-
-        // 发送表情包
-        if (result.emojiPath) {
-          try {
-            const emojiSegment = ctx.segment.image(
-              `file://${result.emojiPath}`,
-            );
-            await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
-          } catch (err) {
-            ctx.logger.warn(`[Emoji] Failed to send: ${err}`);
-          }
-        }
-
-        // 保存 bot 发送的消息到数据库
         const now = Date.now();
-        for (const msg of result.messages) {
-          saveBotMessage(groupId, groupSessionId, msg, now, cfg);
-        }
+        saveBotMessages(
+          groupId,
+          groupSessionId,
+          result.messages,
+          now,
+          cfg,
+          db,
+          ctx,
+          groupLastBotMessageTime,
+          groupMessageCountAfterBot,
+        );
 
         // 清理
         queueManager.clearActiveTarget(groupSessionId);
@@ -1665,7 +1198,7 @@ Suggestion:
         let messageContent: string;
         let extraContext = "";
 
-        // 注入引用信息（仅文本）
+        // 注入引用信息
         if (quotedInfo) {
           const parts: string[] = [];
           parts.push(
@@ -1677,7 +1210,7 @@ Suggestion:
           extraContext = parts.join(" ");
         }
 
-        // 获取纯文本
+        // 获取文本
         const text = ctx.text(e) || "";
         if (extraContext) {
           messageContent = extraContext + " " + text;
@@ -1689,7 +1222,7 @@ Suggestion:
           messageContent = options.triggerReason + messageContent;
         }
 
-        // 构建用户消息（用于表达学习和话题跟踪，不保存到数据库）
+        // 构建用户消息
         const userMsg = {
           sessionId: groupSessionId,
           role: "user" as const,
@@ -1779,34 +1312,22 @@ Suggestion:
         let memberCount: number | undefined;
 
         if (groupId) {
-          try {
-            const groupInfo = await ctx.bot.getGroupInfo(groupId);
-            groupName = (groupInfo as any)?.group_name || e.group_name;
-            memberCount = (groupInfo as any)?.member_count;
-          } catch {
-            groupName = e.group_name;
-          }
+          const groupInfo = await getGroupInfoData(ctx, groupId, e.group_name);
+          groupName = groupInfo.groupName;
+          memberCount = groupInfo.memberCount;
         }
 
         // 记忆检索
         const senderName =
           e.sender?.card || e.sender?.nickname || String(userId);
-        const memoryContext = await humanize.memoryRetrieval.retrieve(
+        const contexts = await getHumanizeContexts(
+          humanize,
           groupSessionId,
           text,
           senderName,
           history,
         );
 
-        // 话题上下文
-        const topicContext =
-          humanize.topicTracker.getTopicContext(groupSessionId);
-
-        // 表达习惯上下文
-        const expressionContext =
-          humanize.expressionLearner.getExpressionContext(groupSessionId);
-
-        // 构建 targetMessage
         const targetMessage: TargetMessage = {
           userName: senderName,
           userId,
@@ -1817,16 +1338,15 @@ Suggestion:
           timestamp: Date.now(),
         };
 
-        // 保存到活跃消息映射（用于队列追加）
+        // 保存到活跃消息映射
         if (groupId) {
           queueManager.setActiveTarget(groupSessionId, targetMessage);
         }
 
-        // 构建工具上下文
-        const toolCtx: ToolContext = {
+        const toolCtx: ToolContext = buildToolContext({
           ctx,
           event: e,
-          sessionId: groupSessionId,
+          groupSessionId,
           groupId,
           userId,
           config: cfg,
@@ -1835,31 +1355,10 @@ Suggestion:
           botRole,
           hasAttachedImages,
           pendingImageUrls: imageUrlsToAttach,
-          // AI 返回文本时立即发送
-          onTextContent: async (text, messageIndex) => {
-            // 解析消息
-            const messages = text
-              .trim()
-              .split("\n---\n")
-              .map((s) => s.trim())
-              .filter(Boolean);
+          humanize,
+          targetMessage,
+        });
 
-            // 发送当前消息
-            if (messages[messageIndex]) {
-              await sendMessage(
-                ctx,
-                groupId,
-                userId,
-                messages[messageIndex],
-                humanize.typoGenerator,
-              );
-            }
-
-            // 记录发言频率
-          },
-        };
-
-        // 运行 AI
         const result = await runChat(
           aiInstance,
           toolCtx,
@@ -1873,9 +1372,9 @@ Suggestion:
             botRole,
             aiService: aiService!,
             isGroup,
-            memoryContext: memoryContext || undefined,
-            topicContext: topicContext || undefined,
-            expressionContext: expressionContext || undefined,
+            memoryContext: contexts.memoryContext,
+            topicContext: contexts.topicContext,
+            expressionContext: contexts.expressionContext,
             replyContext: {
               type: "reply",
               targetUser: targetMessage.userName,
@@ -1886,127 +1385,75 @@ Suggestion:
           skillManager,
         );
 
-        // 发送消息（跳过已通过 onTextContent 回调发送的消息）
-        const sentIndices = toolCtx.sentMessageIndices;
-        if (result.messages.length > 0) {
-          for (let i = 0; i < result.messages.length; i++) {
-            // 跳过已发送的消息
-            if (sentIndices?.has(i)) {
-              continue;
-            }
+        if (groupId) {
+          await sendAIResponse({
+            ctx,
+            groupId,
+            messages: result.messages,
+            sentIndices: toolCtx.sentMessageIndices,
+            typoGenerator: humanize.typoGenerator,
+          });
 
-            let msg = result.messages[i];
+          await sendEmoji(ctx, groupId, result.emojiPath);
 
-            // 应用错别字生成器
-            msg = humanize.typoGenerator.apply(msg);
+          const now = Date.now();
+          saveBotMessages(
+            groupId,
+            groupSessionId,
+            result.messages,
+            now,
+            cfg,
+            db,
+            ctx,
+            groupLastBotMessageTime,
+            groupMessageCountAfterBot,
+          );
 
-            // 按换行符分割为多条消息
-            let lines: string[];
-            lines = msg.split("\n").filter((l) => l.trim());
+          startCooldownTimer(groupSessionId, groupId);
+        } else {
+          const sentIndices = toolCtx.sentMessageIndices;
+          if (result.messages.length > 0) {
+            for (let i = 0; i < result.messages.length; i++) {
+              if (sentIndices?.has(i)) continue;
 
-            // 展开包含多个 reply 标记的行
-            const expandedLines: string[] = [];
-            for (const line of lines) {
-              const parts = splitByReplyMarkers(line);
-              expandedLines.push(...parts);
-            }
+              let msg = result.messages[i];
+              msg = humanize.typoGenerator.apply(msg);
 
-            for (let j = 0; j < expandedLines.length; j++) {
-              const line = expandedLines[j];
-
-              // 每一行都检查引用标记，不跳过
-              const { cleanText, atUsers, pokeUsers, quoteId } =
-                parseLineMarkers(line);
-
-              // 戳人
-              if (groupId && pokeUsers.length > 0) {
-                for (const pokeId of pokeUsers) {
-                  await ctx.bot.api("group_poke", {
-                    group_id: groupId,
-                    user_id: pokeId,
-                  });
+              const lines = msg.split("\n").filter((l) => l.trim());
+              for (const line of lines) {
+                if (line.trim()) {
+                  await ctx.bot.sendPrivateMsg(userId, [
+                    ctx.segment.text(line.trim()),
+                  ]);
                 }
               }
 
-              // 构建消息段
-              const lineSegments: any[] = [];
-
-              // 如果有引用标记就添加，不限制只能第一条消息
-              if (quoteId !== undefined) {
-                lineSegments.push({ type: "reply", id: String(quoteId) });
-              }
-
-              // AT
-              for (const atId of atUsers) {
-                lineSegments.push(ctx.segment.at(atId));
-              }
-
-              // 文本
-              if (cleanText) {
-                lineSegments.push(ctx.segment.text(cleanText));
-              }
-
-              // 发送
-              if (lineSegments.length > 0) {
-                if (groupId) {
-                  await ctx.bot.sendGroupMsg(groupId, lineSegments);
-                } else {
-                  await ctx.bot.sendPrivateMsg(userId, lineSegments);
-                }
-              }
-
-              // 多条消息间延迟
-              if (j < lines.length - 1) {
+              if (i < result.messages.length - 1) {
                 await new Promise((r) => setTimeout(r, 300));
               }
             }
           }
 
-          // 记录发言（如果回调没有发送消息，则在这里记录）
-          if (!sentIndices || sentIndices.size === 0) {
-          }
-
-          // 回复完成后启动冷却计时器
-          if (groupId) {
-            startCooldownTimer(groupSessionId, groupId);
-          }
-        }
-
-        // 发送表情包
-        if (result.emojiPath) {
-          try {
-            const emojiSegment = ctx.segment.image(
-              `file://${result.emojiPath}`,
-            );
-            if (groupId) {
-              await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
-            } else {
+          if (result.emojiPath) {
+            try {
+              const emojiSegment = ctx.segment.image(
+                `file://${result.emojiPath}`,
+              );
               await e.reply([emojiSegment]);
+            } catch (err) {
+              ctx.logger.warn(`[Emoticon] Send failed: ${err}`);
             }
-          } catch (err) {
-            ctx.logger.warn(`[Emoticon] Send failed: ${err}`);
-          }
-        }
-
-        // 保存 bot 发送的消息到数据库
-        if (groupId) {
-          const now = Date.now();
-          for (const msg of result.messages) {
-            saveBotMessage(groupId, groupSessionId, msg, now, cfg);
           }
         }
 
         sessionManager.touch(groupSessionId);
-
-        // 不在这里清理 activeTarget，让 processQueuedMessages 处理
       } catch (err) {
         const errStr = String(err);
-        // 429 rate limit 错误，等待后重试
         if (errStr.includes("429") || errStr.includes("rate limit")) {
           ctx.logger.warn(`[Chat] Rate limit hit, waiting 5s to retry...`);
           await new Promise((r) => setTimeout(r, 5000));
           try {
-            // 重置并重试，跳过 planner（不重新添加 processingSet，由调用方处理）
+            // 重置并重试
             await processChat(e, cfg, { ...options, skipPlanner: true });
             return;
           } catch (retryErr) {
@@ -2016,42 +1463,13 @@ Suggestion:
           ctx.logger.error(`Chat processing failed: ${err}`);
         }
 
-        // 清理活跃消息（错误）
+        // 清理活跃消息
         if (groupId) {
           queueManager.clearActiveTarget(groupSessionId);
         }
       }
     }
 
-    /**
-     * 保存 bot 发送的消息到数据库
-     */
-    function saveBotMessage(
-      groupId: number,
-      groupSessionId: string,
-      content: string,
-      timestamp: number,
-      cfg: ChatConfig,
-    ): void {
-      const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Miku";
-      const botMsg: ChatMessage = {
-        sessionId: groupSessionId,
-        role: "assistant",
-        content,
-        userId: ctx.bot.uin,
-        userName: botNickname,
-        userRole: "member",
-        groupId,
-        timestamp,
-      };
-      db.saveMessage(botMsg);
-      // 记录 Bot 最后发言时间
-      groupLastBotMessageTime.set(groupSessionId, timestamp);
-      // 重置 Bot 发言后的消息计数
-      groupMessageCountAfterBot.set(groupSessionId, 0);
-    }
-
-    // ==================== 消息处理 ====================
     ctx.handle("message", async (e: any) => {
       const cfg = await getConfig();
       if (!cfg.apiKey) return;
@@ -2093,24 +1511,13 @@ Suggestion:
 
           ctx.logger.info(`[Debug] 手动触发空闲检测: 群 ${targetGroupId}`);
 
-          // 获取群聊历史
-          const rawHistory = await getGroupHistory(
+          const { history } = await getGroupHistoryMessages(
             targetGroupId,
+            groupSessionId,
             ctx,
             cfg.historyCount,
             db,
           );
-          const history: ChatMessage[] = rawHistory.map((msg) => ({
-            sessionId: groupSessionId,
-            role: "user" as const,
-            content: msg.content,
-            userId: msg.userId,
-            userName: msg.userName,
-            userRole: msg.userRole,
-            groupId: targetGroupId,
-            timestamp: msg.timestamp,
-            messageId: msg.messageId,
-          }));
 
           // 使用 planner 进行空闲检测
           const planResult = await humanize.actionPlanner.plan(
@@ -2132,42 +1539,22 @@ Suggestion:
               timestamp: now,
             };
 
-            const toolCtx: ToolContext = {
+            const botRole = await getBotRole(targetGroupId, ctx);
+
+            const toolCtx: ToolContext = buildToolContext({
               ctx,
               event: null,
-              sessionId: groupSessionId,
+              groupSessionId,
               groupId: targetGroupId,
               userId: 0,
               config: cfg,
               aiService: aiService!,
               db,
-              botRole: await getBotRole(targetGroupId, ctx),
-              // AI 返回文本时立即发送
-              onTextContent: async (text, messageIndex) => {
-                // 解析消息
-                let messages: string[];
-                messages = text
-                  .trim()
-                  .split("\n---\n")
-                  .map((s) => s.trim())
-                  .filter(Boolean);
+              botRole,
+              humanize,
+              targetMessage,
+            });
 
-                // 发送当前消息
-                if (messages[messageIndex]) {
-                  await sendMessage(
-                    ctx,
-                    targetGroupId,
-                    0,
-                    messages[messageIndex],
-                    humanize.typoGenerator,
-                  );
-                }
-
-                // 记录发言频率
-              },
-            };
-
-            // 构建 planner 思考内容，告诉 AI 群里的情况和可以怎么回复
             const plannerThoughts = `You stumbled upon some message in this group and decided to reply.
 Suggestion:
 - Quote messages from group friends appropriately (using [[[reply:message ID]]] format)
@@ -2193,83 +1580,26 @@ Suggestion:
               skillManager,
             );
 
-            // 发送消息（跳过已通过 onTextContent 回调发送的消息）
-            const sentIndices3 = toolCtx.sentMessageIndices;
-            if (result.messages.length > 0) {
-              for (let i = 0; i < result.messages.length; i++) {
-                // 跳过已发送的消息
-                if (sentIndices3?.has(i)) {
-                  continue;
-                }
+            await sendAIResponse({
+              ctx,
+              groupId: targetGroupId,
+              messages: result.messages,
+              sentIndices: toolCtx.sentMessageIndices,
+              typoGenerator: humanize.typoGenerator,
+            });
 
-                let msg = result.messages[i];
-                msg = humanize.typoGenerator.apply(msg);
-
-                let lines: string[];
-                lines = msg.split("\n").filter((l) => l.trim());
-
-                // 展开包含多个 reply 标记的行
-                const expandedLines: string[] = [];
-                for (const line of lines) {
-                  const parts = splitByReplyMarkers(line);
-                  expandedLines.push(...parts);
-                }
-
-                for (let j = 0; j < expandedLines.length; j++) {
-                  const line = expandedLines[j];
-
-                  // 每一行都检查引用标记，不跳过
-                  const { cleanText, atUsers, pokeUsers, quoteId } =
-                    parseLineMarkers(line);
-
-                  if (pokeUsers.length > 0) {
-                    for (const pokeId of pokeUsers) {
-                      await ctx.bot.api("group_poke", {
-                        group_id: targetGroupId,
-                        user_id: pokeId,
-                      });
-                    }
-                  }
-
-                  const lineSegments: any[] = [];
-
-                  // 如果有引用标记就添加，不限制只能第一条消息
-                  if (quoteId !== undefined) {
-                    lineSegments.push({ type: "reply", id: String(quoteId) });
-                  }
-
-                  for (const atId of atUsers) {
-                    lineSegments.push(ctx.segment.at(atId));
-                  }
-
-                  if (cleanText) {
-                    lineSegments.push(ctx.segment.text(cleanText));
-                  }
-
-                  if (lineSegments.length > 0) {
-                    await ctx.bot.sendGroupMsg(targetGroupId, lineSegments);
-                  }
-
-                  if (j < expandedLines.length - 1) {
-                    await new Promise((r) => setTimeout(r, 300));
-                  }
-                }
-
-                if (i < result.messages.length - 1) {
-                  await new Promise((r) => setTimeout(r, 300));
-                }
-              }
-
-              // 记录发言（如果回调没有发送消息，则在这里记录）
-              if (!sentIndices3 || sentIndices3.size === 0) {
-              }
-            }
-
-            // 保存 bot 消息
             const now2 = Date.now();
-            for (const msg of result.messages) {
-              saveBotMessage(targetGroupId, groupSessionId, msg, now2, cfg);
-            }
+            saveBotMessages(
+              targetGroupId,
+              groupSessionId,
+              result.messages,
+              now2,
+              cfg,
+              db,
+              ctx,
+              groupLastBotMessageTime,
+              groupMessageCountAfterBot,
+            );
 
             await e.reply(
               `[空闲检测] 群 ${targetGroupId} 已发送回复: ${planResult.reason}`,
@@ -2413,23 +1743,13 @@ Suggestion:
         }
 
         if (quotedBot || mentionedNickname) {
-          const rawHistory = await getGroupHistory(
+          const { history } = await getGroupHistoryMessages(
             groupId!,
+            groupSessionId!,
             ctx,
             cfg.historyCount,
             db,
           );
-          const history: ChatMessage[] = rawHistory.map((msg) => ({
-            sessionId: groupSessionId!,
-            role: "user" as const,
-            content: msg.content,
-            userId: msg.userId,
-            userName: msg.userName,
-            userRole: msg.userRole,
-            groupId,
-            timestamp: msg.timestamp,
-            messageId: msg.messageId,
-          }));
           const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
 
           const planResult = await humanize.actionPlanner.plan(
@@ -2516,66 +1836,29 @@ Suggestion:
           timestamp: Date.now(),
         };
 
-        // 获取群聊历史
-        const rawHistory = await getGroupHistory(
+        const { history } = await getGroupHistoryMessages(
           groupId,
+          groupSessionId,
           ctx,
           cfg.historyCount,
           db,
         );
-        const history: ChatMessage[] = rawHistory.map((msg) => ({
-          sessionId: groupSessionId,
-          role: "user" as const,
-          content: msg.content,
-          userId: msg.userId,
-          userName: msg.userName,
-          userRole: msg.userRole,
-          groupId,
-          timestamp: msg.timestamp,
-          messageId: msg.messageId,
-        }));
 
-        let groupName: string | undefined;
-        let memberCount: number | undefined;
-        try {
-          const groupInfo = await ctx.bot.getGroupInfo(groupId);
-          groupName = (groupInfo as any)?.group_name;
-          memberCount = (groupInfo as any)?.member_count;
-        } catch {}
+        const { groupName, memberCount } = await getGroupInfoData(ctx, groupId);
 
-        const toolCtx: ToolContext = {
+        const toolCtx: ToolContext = buildToolContext({
           ctx,
           event: e,
-          sessionId: groupSessionId,
+          groupSessionId,
           groupId,
           userId,
           config: cfg,
           aiService: aiService!,
           db,
           botRole,
-          // AI 返回文本时立即发送
-          onTextContent: async (text, messageIndex) => {
-            // 解析消息
-            const messages = text
-              .trim()
-              .split("\n---\n")
-              .map((s) => s.trim())
-              .filter(Boolean);
-
-            // 发送当前消息
-            if (messages[messageIndex]) {
-              await sendMessage(
-                ctx,
-                groupId,
-                userId,
-                messages[messageIndex],
-                humanize.typoGenerator,
-              );
-            }
-
-            // 记录发言频率
-          },
-        };
+          humanize,
+          targetMessage,
+        });
 
         const result = await runChat(
           aiInstance,
@@ -2600,114 +1883,28 @@ Suggestion:
           skillManager,
         );
 
-        // 发送消息
-        const sentIndices4 = toolCtx.sentMessageIndices;
-        if (result.messages.length > 0) {
-          for (let i = 0; i < result.messages.length; i++) {
-            // 跳过已发送的消息
-            if (sentIndices4?.has(i)) {
-              continue;
-            }
+        await sendAIResponse({
+          ctx,
+          groupId,
+          messages: result.messages,
+          sentIndices: toolCtx.sentMessageIndices,
+          typoGenerator: humanize.typoGenerator,
+        });
 
-            let msg = result.messages[i];
-            msg = humanize.typoGenerator.apply(msg);
-
-            // 按换行符分割为多条消息
-            let lines: string[];
-            try {
-              lines = msg.split("\n").filter((l) => l.trim());
-            } catch (err) {
-              ctx.logger.error("[processAIResponse5] split/filter error:", err);
-              lines = [msg];
-            }
-
-            // 展开包含多个 reply 标记的行
-            const expandedLines: string[] = [];
-            for (const line of lines) {
-              const parts = splitByReplyMarkers(line);
-              expandedLines.push(...parts);
-            }
-
-            for (let j = 0; j < expandedLines.length; j++) {
-              const line = expandedLines[j];
-
-              // 每一行都检查引用标记，不跳过
-              const { cleanText, atUsers, pokeUsers, quoteId } =
-                parseLineMarkers(line);
-
-              // 戳人
-              if (pokeUsers.length > 0) {
-                for (const pokeId of pokeUsers) {
-                  try {
-                    await ctx.bot.api("group_poke", {
-                      group_id: groupId,
-                      user_id: pokeId,
-                    });
-                  } catch (err) {
-                    ctx.logger.warn(`poke failed: ${err}`);
-                  }
-                }
-              }
-
-              // 构建消息段
-              const lineSegments: any[] = [];
-
-              // 如果有引用标记就添加，不限制只能第一条消息
-              if (quoteId !== undefined) {
-                lineSegments.push({ type: "reply", id: String(quoteId) });
-              }
-
-              // AT
-              for (const atId of atUsers) {
-                lineSegments.push(ctx.segment.at(atId));
-              }
-
-              // 文本
-              if (cleanText) {
-                lineSegments.push(ctx.segment.text(cleanText));
-              }
-
-              if (lineSegments.length > 0) {
-                await ctx.bot.sendGroupMsg(groupId, lineSegments);
-              }
-
-              if (j < expandedLines.length - 1) {
-                await new Promise((r) => setTimeout(r, 300));
-              }
-            }
-
-            if (i < result.messages.length - 1) {
-              await new Promise((r) => setTimeout(r, 300));
-            }
-          }
-
-          // 记录发言（如果回调没有发送消息，则在这里记录）
-          if (!sentIndices4 || sentIndices4.size === 0) {
-          }
-
-          // 回复完成后启动冷却计时器
-          if (groupId) {
-            startCooldownTimer(groupSessionId, groupId);
-          }
-        }
-
-        // 保存 bot 发送的消息到数据库
         const now = Date.now();
-        for (const msg of result.messages) {
-          saveBotMessage(groupId, groupSessionId, msg, now, cfg);
-        }
+        saveBotMessages(
+          groupId,
+          groupSessionId,
+          result.messages,
+          now,
+          cfg,
+          db,
+          ctx,
+          groupLastBotMessageTime,
+          groupMessageCountAfterBot,
+        );
 
-        // 发送表情包
-        if (result.emojiPath) {
-          try {
-            const emojiSegment = ctx.segment.image(
-              `file://${result.emojiPath}`,
-            );
-            await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
-          } catch (err) {
-            ctx.logger.warn(`[Emoji] Failed to send: ${err}`);
-          }
-        }
+        await sendEmoji(ctx, groupId, result.emojiPath);
 
         sessionManager.touch(groupSessionId);
       } catch (err) {
@@ -2733,7 +1930,6 @@ Suggestion:
       groupMessageCountAfterBot.clear();
       groupLastIdleCheckTime.clear();
       idleCheckProcessing.clear();
-      // 冷却相关清理
       for (const timer of cooldownTimeoutIds.values()) {
         clearTimeout(timer);
       }
