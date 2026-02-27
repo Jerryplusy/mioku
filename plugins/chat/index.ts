@@ -109,7 +109,9 @@ const chatPlugin: MiokuPlugin = {
     // 初始化组件
     const db = initDatabase();
     const sessionManager = new SessionManager(db, config.maxSessions);
-    const rateLimiter = new RateLimiter();
+    const rateLimiter = new RateLimiter({
+      dynamicDelay: config.dynamicDelay,
+    });
     const skillManager = new SkillSessionManager();
 
     // 通过 AI 服务创建实例并设为默认
@@ -166,6 +168,289 @@ const chatPlugin: MiokuPlugin = {
     >();
     // 正在等待冷却触发的计时器
     const cooldownTimeoutIds = new Map<string, NodeJS.Timeout>();
+
+    // 动态延迟队列：群ID -> { messages, timer, delayUntil }
+    const dynamicDelayQueues = new Map<
+      string,
+      {
+        messages: Array<{
+          event: any;
+          content: string;
+          userName: string;
+          userId: number;
+          messageId: number;
+          timestamp: number;
+        }>;
+        timer: NodeJS.Timeout | null;
+        delayUntil: number;
+      }
+    >();
+
+    /**
+     * 处理动态延迟队列中的消息
+     */
+    async function processDynamicDelayQueue(
+      groupSessionId: string,
+      groupId: number,
+      cfg: ChatConfig,
+    ): Promise<void> {
+      const queueData = dynamicDelayQueues.get(groupSessionId);
+      if (!queueData || queueData.messages.length === 0) {
+        dynamicDelayQueues.delete(groupSessionId);
+        return;
+      }
+
+      const messages = queueData.messages;
+      dynamicDelayQueues.delete(groupSessionId);
+
+      ctx.logger.info(
+        `[DynamicDelay] group ${groupId} delays the end of the delay and processes ${messages.length} messages`,
+      );
+
+      if (processingSet.has(groupSessionId)) {
+        ctx.logger.info(
+          `[DynamicDelay] group ${groupId} is being processed, skipped`,
+        );
+        return;
+      }
+
+      processingSet.add(groupSessionId);
+
+      try {
+        const mergedContents: string[] = [];
+        const userNames: string[] = [];
+        const messageIds: number[] = [];
+
+        for (const msg of messages) {
+          mergedContents.push(msg.content);
+          userNames.push(msg.userName);
+          messageIds.push(msg.messageId);
+        }
+
+        const mergedContent = mergedContents.join("\n---\n");
+        const firstMsg = messages[0];
+
+        const targetMessage: TargetMessage = {
+          userName: userNames.join(", "),
+          userId: firstMsg.userId,
+          userRole: "member",
+          content: mergedContent,
+          messageId: firstMsg.messageId,
+          timestamp: Date.now(),
+        };
+
+        const botRole = await getBotRole(groupId, ctx);
+        const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+
+        let groupName = String(groupId);
+        let memberCount = 0;
+        try {
+          const groupInfo = await ctx.bot.getGroupInfo(groupId);
+          groupName = groupInfo.group_name || groupName;
+          memberCount = groupInfo.member_count || 0;
+        } catch {}
+
+        const rawHistory = await getGroupHistory(
+          groupId,
+          ctx,
+          cfg.historyCount,
+          db,
+        );
+        const history: ChatMessage[] = rawHistory.map((msg) => ({
+          sessionId: groupSessionId,
+          role: "user" as const,
+          content: msg.content,
+          userId: msg.userId,
+          userName: msg.userName,
+          userRole: msg.userRole,
+          groupId,
+          timestamp: msg.timestamp,
+          messageId: msg.messageId,
+        }));
+
+        const toolCtx: ToolContext = {
+          ctx,
+          event: firstMsg.event,
+          sessionId: groupSessionId,
+          groupId,
+          userId: firstMsg.userId,
+          config: cfg,
+          aiService: aiService!,
+          db,
+          botRole,
+        };
+
+        sessionManager.getOrCreate(groupSessionId, "group", groupId);
+
+        const memoryContext = await humanize.memoryRetrieval.retrieve(
+          groupSessionId,
+          mergedContent,
+          targetMessage.userName,
+          history,
+        );
+        const topicContext =
+          humanize.topicTracker.getTopicContext(groupSessionId);
+        const expressionContext =
+          humanize.expressionLearner.getExpressionContext(groupSessionId);
+
+        const result = await runChat(
+          aiInstance,
+          toolCtx,
+          history,
+          targetMessage,
+          {
+            config: cfg,
+            groupName,
+            memberCount,
+            botNickname,
+            botRole,
+            aiService: aiService!,
+            isGroup: true,
+            memoryContext: memoryContext || undefined,
+            topicContext: topicContext || undefined,
+            expressionContext: expressionContext || undefined,
+            replyContext: {
+              type: "review",
+              targetUser: targetMessage.userName,
+              targetMessage: targetMessage.content,
+            },
+            reviewMessages: {
+              contents: mergedContents,
+              userNames,
+              messageIds,
+            },
+          },
+          humanize,
+          skillManager,
+        );
+
+        const sentIndices = toolCtx.sentMessageIndices;
+        if (result.messages.length > 0) {
+          for (let i = 0; i < result.messages.length; i++) {
+            if (sentIndices?.has(i)) continue;
+
+            let msg = result.messages[i];
+            msg = humanize.typoGenerator.apply(msg);
+
+            const lines = msg.split("\n").filter((l) => l.trim());
+            const expandedLines: string[] = [];
+            for (const line of lines) {
+              const parts = splitByReplyMarkers(line);
+              expandedLines.push(...parts);
+            }
+
+            for (const line of expandedLines) {
+              const { cleanText, atUsers, pokeUsers, quoteId } =
+                parseLineMarkers(line);
+
+              if (pokeUsers.length > 0) {
+                for (const pokeId of pokeUsers) {
+                  await ctx.bot.api("group_poke", {
+                    group_id: groupId,
+                    user_id: pokeId,
+                  });
+                }
+              }
+
+              const lineSegments: any[] = [];
+              if (quoteId !== undefined) {
+                lineSegments.push({ type: "reply", id: String(quoteId) });
+              }
+
+              if (atUsers.length > 0) {
+                for (const atId of atUsers) {
+                  lineSegments.push({ type: "at", qq: atId });
+                }
+              }
+
+              if (cleanText.trim()) {
+                lineSegments.push({ type: "text", text: cleanText.trim() });
+              }
+
+              if (lineSegments.length > 0) {
+                await ctx.bot.sendGroupMsg(groupId, lineSegments);
+              }
+            }
+          }
+        }
+
+        rateLimiter.clearGroupInteractions(groupId);
+        startCooldownTimer(groupSessionId, groupId);
+      } catch (err) {
+        ctx.logger.error(
+          `[DynamicDelay] group ${groupId} processing failed: ${err}`,
+        );
+      } finally {
+        processingSet.delete(groupSessionId);
+      }
+    }
+
+    /**
+     * 启动动态延迟计时器
+     */
+    function startDynamicDelayTimer(
+      groupSessionId: string,
+      groupId: number,
+      delayMs: number,
+      cfg: ChatConfig,
+    ): void {
+      let queueData = dynamicDelayQueues.get(groupSessionId);
+
+      if (!queueData) {
+        queueData = {
+          messages: [],
+          timer: null,
+          delayUntil: Date.now() + delayMs,
+        };
+        dynamicDelayQueues.set(groupSessionId, queueData);
+      }
+
+      if (queueData.timer) {
+        clearTimeout(queueData.timer);
+      }
+
+      queueData.delayUntil = Date.now() + delayMs;
+
+      ctx.logger.info(
+        `[DynamicDelay] group ${groupId} start delay ${delayMs / 1000} seconds, current number of interactions: ${rateLimiter.getInteractionCount(groupId)}`,
+      );
+
+      queueData.timer = setTimeout(async () => {
+        await processDynamicDelayQueue(groupSessionId, groupId, cfg);
+      }, delayMs);
+    }
+
+    /**
+     * 收集消息到动态延迟队列
+     */
+    function collectDynamicDelayMessage(
+      groupSessionId: string,
+      event: any,
+      content: string,
+    ): void {
+      let queueData = dynamicDelayQueues.get(groupSessionId);
+
+      if (!queueData) {
+        queueData = {
+          messages: [],
+          timer: null,
+          delayUntil: 0,
+        };
+        dynamicDelayQueues.set(groupSessionId, queueData);
+      }
+
+      const userName =
+        event.sender?.card || event.sender?.nickname || String(event.user_id);
+
+      queueData.messages.push({
+        event,
+        content,
+        userName,
+        userId: event.user_id,
+        messageId: event.message_id,
+        timestamp: Date.now(),
+      });
+    }
 
     /**
      * 启动冷却计时器
@@ -829,7 +1114,9 @@ Planned reason: ${planResult.reason}`;
           idleCheckProcessing.add(groupSessionId);
 
           try {
-            ctx.logger.info(`[IdleCheck] 群 ${groupId} 触发空闲检测`);
+            ctx.logger.info(
+              `[IdleCheck] group ${groupId} triggers idle detection`,
+            );
 
             // 获取群聊历史
             const rawHistory = await getGroupHistory(
@@ -1014,7 +1301,9 @@ Suggestion:
               // 回复完成后启动冷却计时器
               startCooldownTimer(groupSessionId, groupId);
 
-              ctx.logger.info(`[IdleCheck] 群 ${groupId} 空闲回复完成`);
+              ctx.logger.info(
+                `[IdleCheck] group ${groupId} idle reply completed`,
+              );
             }
 
             // 重置消息计数
@@ -1022,7 +1311,9 @@ Suggestion:
             groupMessageCountAfterBot.set(groupSessionId, 0);
             groupLastIdleCheckTime.set(groupSessionId, now);
           } catch (err) {
-            ctx.logger.error(`[IdleCheck] 群 ${groupId} 空闲检测失败: ${err}`);
+            ctx.logger.error(
+              `[IdleCheck] group ${groupId} idle detection failed: ${err}`,
+            );
           } finally {
             idleCheckProcessing.delete(groupSessionId);
           }
@@ -1049,7 +1340,7 @@ Suggestion:
         }
 
         ctx.logger.info(
-          `[Queue] 群 ${groupSessionId} 批量处理队列，队列长度: ${queue.length}`,
+          `[Queue] group ${groupSessionId} batch queue, queue length: ${queue.length}`,
         );
 
         // 收集所有队列消息的内容
@@ -1095,7 +1386,7 @@ Suggestion:
         };
 
         ctx.logger.info(
-          `[Queue] 群 ${groupSessionId} 批量处理 ${queue.length} 条消息`,
+          `[Queue] group ${groupSessionId} batches ${queue.length} messages`,
         );
 
         // 清理旧的 activeTarget
@@ -1289,7 +1580,7 @@ Suggestion:
             );
             await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
           } catch (err) {
-            ctx.logger.warn(`[表情包] 发送失败: ${err}`);
+            ctx.logger.warn(`[Emoji] Failed to send: ${err}`);
           }
         }
 
@@ -1303,7 +1594,9 @@ Suggestion:
         queueManager.clearActiveTarget(groupSessionId);
         sessionManager.touch(groupSessionId);
 
-        ctx.logger.info(`[Queue] 群 ${groupSessionId} 队列消息处理完成`);
+        ctx.logger.info(
+          `[Queue] group ${groupSessionId} queue message processing is complete`,
+        );
       } catch (err) {
         logger.error(err);
       }
@@ -1459,7 +1752,7 @@ Suggestion:
 
           if (planResult.action === "complete") {
             ctx.logger.info(
-              `[动作规划] 会话 ${groupSessionId} 结束对话: ${planResult.reason}`,
+              `[Action Planning] Session ${groupSessionId} End Conversation: ${planResult.reason}`,
             );
             // 清理活跃消息
             if (groupId) {
@@ -1470,7 +1763,7 @@ Suggestion:
 
           if (planResult.action === "wait") {
             ctx.logger.info(
-              `[动作规划] 会话 ${groupSessionId} 等待: ${planResult.reason}`,
+              `[Action Planning] Session ${groupSessionId} Wait: ${planResult.reason}`,
             );
             // 清理活跃消息
             if (groupId) {
@@ -1691,7 +1984,7 @@ Suggestion:
               await e.reply([emojiSegment]);
             }
           } catch (err) {
-            ctx.logger.warn(`[表情包] 发送失败: ${err}`);
+            ctx.logger.warn(`[Emoticon] Send failed: ${err}`);
           }
         }
 
@@ -2040,6 +2333,20 @@ Suggestion:
           collectCooldownMessage(groupSessionId, groupId, e, text, atBot);
           return;
         }
+
+        // 检查是否在动态延迟期间
+        const delayQueue = dynamicDelayQueues.get(groupSessionId);
+        if (delayQueue && Date.now() < delayQueue.delayUntil) {
+          // 在动态延迟期间，收集 @bot 消息
+          if (atBot) {
+            rateLimiter.recordInteraction(groupId, userId);
+            collectDynamicDelayMessage(groupSessionId, e, text);
+            ctx.logger.info(
+              `[DynamicDelay] group ${groupId} received a @bot message during the delay, collected`,
+            );
+          }
+          return;
+        }
       }
 
       // 检查是否已在处理中
@@ -2053,7 +2360,7 @@ Suggestion:
           if (atBot || mentionedNickname) {
             queueManager.enqueue(groupSessionId, e, cfg);
             ctx.logger.info(
-              `[Queue] 群 ${groupId} 正在处理，有效消息加入队列，当前队列长度: ${queueManager.getQueueLength(groupSessionId)}`,
+              `[Queue] group ${groupId} is being processed, valid messages are added to the queue, current queue length: ${queueManager.getQueueLength(groupSessionId)}`,
             );
           }
           return;
@@ -2075,6 +2382,31 @@ Suggestion:
           if (!rateLimiter.canProcess(userId, groupId, text)) {
             return;
           }
+
+          // 动态延迟检查
+          if (
+            isGroup &&
+            groupId &&
+            groupSessionId &&
+            cfg.dynamicDelay?.enabled
+          ) {
+            rateLimiter.recordInteraction(groupId, userId);
+            const delayInfo = rateLimiter.getDelayInfo(groupId);
+
+            if (delayInfo.shouldDelay) {
+              // 需要延迟，收集消息并启动计时器
+              rateLimiter.record(userId, groupId, text);
+              collectDynamicDelayMessage(groupSessionId, e, text);
+              startDynamicDelayTimer(
+                groupSessionId,
+                groupId,
+                delayInfo.delayMs,
+                cfg,
+              );
+              return;
+            }
+          }
+
           rateLimiter.record(userId, groupId, text);
           await processChat(e, cfg, { skipPlanner: true });
           return;
@@ -2151,7 +2483,7 @@ Suggestion:
       if (processingSet.has(groupSessionId)) {
         queueManager.enqueue(groupSessionId, e, cfg);
         ctx.logger.info(
-          `[Queue] 群 ${groupId} 戳一戳加入队列，当前队列长度: ${queueManager.getQueueLength(groupSessionId)}`,
+          `[Queue] group ${groupId} Poke to join the queue, current queue length: ${queueManager.getQueueLength(groupSessionId)}`,
         );
         return;
       }
@@ -2373,13 +2705,13 @@ Suggestion:
             );
             await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
           } catch (err) {
-            ctx.logger.warn(`[表情包] 发送失败: ${err}`);
+            ctx.logger.warn(`[Emoji] Failed to send: ${err}`);
           }
         }
 
         sessionManager.touch(groupSessionId);
       } catch (err) {
-        ctx.logger.error(`戳一戳处理失败: ${err}`);
+        ctx.logger.error(`Poke 1 poke processing failed: ${err}`);
       } finally {
         processingSet.delete(groupSessionId);
       }
@@ -2412,3 +2744,5 @@ Suggestion:
     };
   },
 };
+
+export default chatPlugin;

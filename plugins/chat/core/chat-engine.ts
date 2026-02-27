@@ -127,14 +127,16 @@ export async function runChat(
       if (toolCtx.onTextContent && lastTextContent.trim()) {
         const messages = cleanMarkers(lastTextContent);
         if (messages.length > 0) {
-          // 记录已发送的消息索引
           if (!toolCtx.sentMessageIndices) {
             toolCtx.sentMessageIndices = new Set();
           }
           toolCtx.sentMessageIndices.add(0);
 
-          // 异步调用回调，不阻塞工具执行
-          const callbackResult = toolCtx.onTextContent(lastTextContent, 0);
+          const callbackResult = toolCtx.onTextContent(
+            lastTextContent,
+            0,
+            messages.length,
+          );
           if (callbackResult && typeof callbackResult.then === "function") {
             callbackResult.catch((err: any) =>
               logger.warn(

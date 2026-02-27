@@ -1,6 +1,5 @@
-/**
- * 防滥用限流器
- */
+import type { DynamicDelayConfig } from "../types";
+
 export class RateLimiter {
   // 用户触发记录：userId -> timestamp[]
   private userTriggers: Map<number, number[]> = new Map();
@@ -9,31 +8,43 @@ export class RateLimiter {
     new Map();
   // 群组最后响应时间：groupId -> timestamp
   private groupLastResponse: Map<number, number> = new Map();
+  private groupInteractions: Map<
+    number,
+    Map<number, number[]>
+  > = new Map();
 
   private readonly maxTriggersPerWindow: number;
   private readonly windowMs: number;
   private readonly dedupWindowMs: number;
   private readonly groupCooldownMs: number;
   private readonly cleanupTimer: ReturnType<typeof setInterval>;
+  private dynamicDelayConfig: DynamicDelayConfig;
 
   constructor(options?: {
     maxTriggersPerWindow?: number;
     windowMs?: number;
     dedupWindowMs?: number;
     groupCooldownMs?: number;
+    dynamicDelay?: DynamicDelayConfig;
   }) {
     this.maxTriggersPerWindow = options?.maxTriggersPerWindow ?? 5;
     this.windowMs = options?.windowMs ?? 60_000;
     this.dedupWindowMs = options?.dedupWindowMs ?? 30_000;
     this.groupCooldownMs = options?.groupCooldownMs ?? 1_000;
+    this.dynamicDelayConfig = options?.dynamicDelay ?? {
+      enabled: true,
+      interactionWindowMs: 600_000,
+      baseDelayMs: 60_000,
+      maxDelayMs: 600_000,
+    };
 
-    // 每 5 分钟清理过期数据
     this.cleanupTimer = setInterval(() => this.cleanup(), 300_000);
   }
 
-  /**
-   * 检查是否可以处理此消息
-   */
+  updateDynamicDelayConfig(config: DynamicDelayConfig): void {
+    this.dynamicDelayConfig = config;
+  }
+
   canProcess(
     userId: number,
     groupId: number | undefined,
@@ -41,7 +52,7 @@ export class RateLimiter {
   ): boolean {
     const now = Date.now();
 
-    // 1. 群组冷却检查
+    // 群组冷却检查
     if (groupId) {
       const lastResponse = this.groupLastResponse.get(groupId);
       if (lastResponse && now - lastResponse < this.groupCooldownMs) {
@@ -49,15 +60,14 @@ export class RateLimiter {
       }
     }
 
-    // 2. 用户频率检查
+    // 用户频率检查
     const triggers = this.userTriggers.get(userId) ?? [];
-    let recentTriggers: number[];
-    recentTriggers = triggers.filter((t) => now - t < this.windowMs);
+    const recentTriggers = triggers.filter((t) => now - t < this.windowMs);
     if (recentTriggers.length >= this.maxTriggersPerWindow) {
       return false;
     }
 
-    // 3. 重复消息检查
+    // 重复消息检查
     const messages = this.userMessages.get(userId) ?? [];
     const recentSame = messages.find(
       (m) => m.content === content && now - m.timestamp < this.dedupWindowMs,
@@ -88,16 +98,75 @@ export class RateLimiter {
     }
   }
 
-  /**
-   * 清理过期数据
-   */
+  recordInteraction(groupId: number, userId: number): void {
+    if (!this.dynamicDelayConfig.enabled) return;
+
+    const now = Date.now();
+    const windowMs = this.dynamicDelayConfig.interactionWindowMs;
+
+    let groupUsers = this.groupInteractions.get(groupId);
+    if (!groupUsers) {
+      groupUsers = new Map();
+      this.groupInteractions.set(groupId, groupUsers);
+    }
+
+    let timestamps = groupUsers.get(userId) ?? [];
+    timestamps = timestamps.filter((t) => now - t < windowMs);
+    timestamps.push(now);
+    groupUsers.set(userId, timestamps);
+  }
+
+  getInteractionCount(groupId: number): number {
+    const now = Date.now();
+    const windowMs = this.dynamicDelayConfig.interactionWindowMs;
+
+    const groupUsers = this.groupInteractions.get(groupId);
+    if (!groupUsers) return 0;
+
+    let count = 0;
+    for (const [, timestamps] of groupUsers) {
+      const recentTimestamps = timestamps.filter((t) => now - t < windowMs);
+      if (recentTimestamps.length > 0) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  calculateDelay(groupId: number): number {
+    if (!this.dynamicDelayConfig.enabled) return 0;
+
+    const interactionCount = this.getInteractionCount(groupId);
+    if (interactionCount <= 1) return 0;
+
+    const { baseDelayMs, maxDelayMs } = this.dynamicDelayConfig;
+    const delay = (interactionCount - 1) * baseDelayMs;
+    return Math.min(delay, maxDelayMs);
+  }
+
+  getDelayInfo(groupId: number): {
+    delayMs: number;
+    interactionCount: number;
+    shouldDelay: boolean;
+  } {
+    const interactionCount = this.getInteractionCount(groupId);
+    const delayMs = this.calculateDelay(groupId);
+    return {
+      delayMs,
+      interactionCount,
+      shouldDelay: delayMs > 0,
+    };
+  }
+
+  clearGroupInteractions(groupId: number): void {
+    this.groupInteractions.delete(groupId);
+  }
+
   cleanup(): void {
     const now = Date.now();
 
     for (const [userId, triggers] of this.userTriggers) {
-      let valid: number[] = [];
-      valid = triggers.filter((t) => now - t < this.windowMs);
-
+      const valid = triggers.filter((t) => now - t < this.windowMs);
       if (valid.length === 0) {
         this.userTriggers.delete(userId);
       } else {
@@ -106,8 +175,9 @@ export class RateLimiter {
     }
 
     for (const [userId, messages] of this.userMessages) {
-      let valid: typeof messages = [];
-      valid = messages.filter((m) => now - m.timestamp < this.dedupWindowMs);
+      const valid = messages.filter(
+        (m) => now - m.timestamp < this.dedupWindowMs,
+      );
       if (valid.length === 0) {
         this.userMessages.delete(userId);
       } else {
@@ -120,6 +190,25 @@ export class RateLimiter {
         this.groupLastResponse.delete(groupId);
       }
     }
+
+    if (this.dynamicDelayConfig.enabled) {
+      const windowMs = this.dynamicDelayConfig.interactionWindowMs;
+      for (const [groupId, groupUsers] of this.groupInteractions) {
+        let hasActiveUser = false;
+        for (const [userId, timestamps] of groupUsers) {
+          const valid = timestamps.filter((t) => now - t < windowMs);
+          if (valid.length === 0) {
+            groupUsers.delete(userId);
+          } else {
+            groupUsers.set(userId, valid);
+            hasActiveUser = true;
+          }
+        }
+        if (!hasActiveUser) {
+          this.groupInteractions.delete(groupId);
+        }
+      }
+    }
   }
 
   dispose(): void {
@@ -127,5 +216,6 @@ export class RateLimiter {
     this.userTriggers.clear();
     this.userMessages.clear();
     this.groupLastResponse.clear();
+    this.groupInteractions.clear();
   }
 }

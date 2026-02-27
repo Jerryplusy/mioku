@@ -76,28 +76,38 @@ export interface ExpressionConfig {
 }
 
 /**
+ * 动态延迟配置
+ * 根据互动人数动态调整回复延迟
+ */
+export interface DynamicDelayConfig {
+  enabled: boolean;
+  interactionWindowMs: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+}
+
+/**
  * 聊天插件配置
  */
 export interface ChatConfig {
   apiUrl: string;
   apiKey: string;
-  model: string; // 主模型，用于聊天
-  workingModel: string; // 工作模型，用于 planner 等轻量任务
+  model: string;
+  workingModel: string;
   isMultimodal: boolean;
   nicknames: string[];
   persona: string;
-  maxContextTokens: number; // 单位 K，例如 128 = 128K
+  maxContextTokens: number;
   temperature: number;
-  historyCount: number; // 群聊历史消息数量
+  historyCount: number;
   blacklistGroups: number[];
   whitelistGroups: number[];
   maxSessions: number;
-  maxIterations: number; // AI 迭代次数限制，-1 表示不限制
+  maxIterations: number;
   enableGroupAdmin: boolean;
   enableExternalSkills: boolean;
-  // 聊天防抖时间（毫秒）：AI 回复完后等待这段时间，收集期间的 @bot 或关键词消息
   cooldownAfterReplyMs: number;
-  // 真人化机制配置
+  dynamicDelay: DynamicDelayConfig;
   personality: PersonalityConfig;
   replyStyle: ReplyStyleConfig;
   memory: MemoryConfig;
