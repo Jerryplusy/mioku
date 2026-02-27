@@ -150,7 +150,7 @@ function buildReplyContextSection(
         `First, observe the chat history in the group. If there is any content related to your persona that you are interested in, consider replying. Next, observe if any group members have unresolved questions. If not, then observe the chat style of the group members and send messages that naturally blend into their conversations. You can even repeat a funny message sent by a group member or a phrase that appears repeatedly in the chat history.`,
       );
       lines.push(
-        `Important!! Please keep your messages extremely concise. Use no more than one sentence to reply to or repeat to the person you most want to reply to, or two paragraphs to provide an overall evaluation of the group chat. Please do not say things like "群里好久没人说话了" Treat it as a message you saw by chance and need to reply to quickly.`,
+        `Important!! Please keep your messages extremely concise. Use no more than one sentence to reply to or repeat to the person you most want to reply to, or two paragraphs to provide an overall evaluation of the group chat. Do NOT say things like "群里好久没人说话了" or "大家怎么都不说话了" Treat it as a message you saw by chance and need to reply to quickly.`,
       );
       break;
     case "review":
@@ -167,6 +167,9 @@ function buildReplyContextSection(
       );
       lines.push(
         `Don't make a fuss about replying, just observe whether the chat history in the group has noteworthy content, and if not, simply say hello or express concern to the user.`,
+      );
+      lines.push(
+        `Reply naturally in combination with the context, don't say something like "怎么又来戳我了"`,
       );
       break;
   }
