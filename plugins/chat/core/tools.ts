@@ -1,4 +1,4 @@
-import { getQuoteImageUrl, logger } from "mioki";
+import { logger } from "mioki";
 import type { AITool } from "../../../src";
 import type { SkillSession, ToolContext } from "../types";
 

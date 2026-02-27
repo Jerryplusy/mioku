@@ -112,7 +112,7 @@ export class ServiceManager {
 
       if (!service || typeof service.init !== "function") return false;
 
-      await service.init(ctx);
+      await service.init();
       if (service.api) {
         if (!(ctx as any).services) (ctx as any).services = {};
         (ctx as any).services[metadata.name] = service.api;

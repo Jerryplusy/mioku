@@ -1,4 +1,4 @@
-import { logger, MiokiContext } from "mioki";
+import { logger } from "mioki";
 import type { MiokuService, PluginHelp } from "../../core/types";
 
 export interface HelpService {
@@ -46,7 +46,7 @@ const helpService: MiokuService = {
   description: "帮助系统服务",
   api: {} as HelpService,
 
-  async init(ctx: MiokiContext) {
+  async init() {
     this.api = new HelpManager();
     logger.info("help-service 已就绪");
   },
