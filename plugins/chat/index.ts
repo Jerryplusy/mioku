@@ -581,7 +581,10 @@ const chatPlugin: MiokuPlugin = {
             replyContext: {
               type: "review",
               targetUser: targetMessage.userName,
-              targetMessage: targetMessage.content,
+              targetMessage:
+                typeof targetMessage.content === "string"
+                  ? targetMessage.content
+                  : JSON.stringify(targetMessage.content),
             },
             reviewMessages: {
               contents: mergedContents,
@@ -733,7 +736,10 @@ Planned reason: ${planResult.reason}`;
               replyContext: {
                 type: "comment",
                 targetUser: targetMessage.userName,
-                targetMessage: targetMessage.content,
+                targetMessage:
+                  typeof targetMessage.content === "string"
+                    ? targetMessage.content
+                    : JSON.stringify(targetMessage.content),
               },
               reviewMessages: {
                 contents: collected.map((m) => m.content),
@@ -1093,7 +1099,10 @@ Suggestion:
             replyContext: {
               type: "comment",
               targetUser: targetMessage.userName,
-              targetMessage: targetMessage.content,
+              targetMessage:
+                typeof targetMessage.content === "string"
+                  ? targetMessage.content
+                  : JSON.stringify(targetMessage.content),
             },
           },
           humanize,
@@ -1175,25 +1184,22 @@ Suggestion:
         // 检测引用内容
         const quotedInfo = await getQuotedContent(e, ctx);
 
-        // 收集需要附加的图片 URL
-        const imageUrlsToAttach: string[] = [];
+        // 收集图片 URL（用于附加到消息）
+        const imageUrls: string[] = [];
 
         // 从当前消息中提取图片 URL
         if (e.message) {
           for (const seg of e.message) {
             if (seg.type === "image" && (seg.url || seg.data?.url)) {
-              imageUrlsToAttach.push(seg.url || seg.data.url);
+              imageUrls.push(seg.url || seg.data.url);
             }
           }
         }
 
         // 从引用消息中提取图片 URL
         if (quotedInfo?.imageUrl) {
-          imageUrlsToAttach.push(quotedInfo.imageUrl);
+          imageUrls.push(quotedInfo.imageUrl);
         }
-
-        // 标记是否有图片附加
-        const hasAttachedImages = imageUrlsToAttach.length > 0;
 
         let messageContent: string;
         let extraContext = "";
@@ -1205,7 +1211,7 @@ Suggestion:
             `[Quoted message #${quotedInfo.messageId} from ${quotedInfo.senderName}: ${quotedInfo.content}]`,
           );
           if (quotedInfo.imageUrl) {
-            parts.push(`[Quoted message contains an image]`);
+            parts.push("[Quoted message contains an image]");
           }
           extraContext = parts.join(" ");
         }
@@ -1353,8 +1359,7 @@ Suggestion:
           aiService: aiService!,
           db,
           botRole,
-          hasAttachedImages,
-          pendingImageUrls: imageUrlsToAttach,
+          pendingImageUrls: imageUrls,
           humanize,
           targetMessage,
         });
@@ -1632,6 +1637,26 @@ Suggestion:
 
       // 群组黑白名单
       if (groupId && !isGroupAllowed(groupId, cfg)) return;
+
+      // 图片分析和收集（所有群消息中的图片）
+      if (isGroup && groupId && e.message && cfg.isMultimodal) {
+        const { processImage } = await import("./core/image-analyzer");
+        const ai = aiService!.getDefault();
+
+        if (ai) {
+          for (const seg of e.message) {
+            if (seg.type === "image" && (seg.url || seg.data?.url)) {
+              const imageUrl = seg.url || seg.data.url;
+              // 异步处理，不阻塞主流程
+              processImage(ai, imageUrl, cfg.multimodalWorkingModel, db).catch(
+                (err) => {
+                  ctx.logger.warn(`[image-analyzer] 处理失败: ${err}`);
+                },
+              );
+            }
+          }
+        }
+      }
 
       // 检查是否 @ 了 bot
       const atBot = shouldTrigger(e, text, cfg, ctx);

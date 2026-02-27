@@ -69,36 +69,22 @@ export async function runChat(
 
     // 构建消息
     const pendingImages = toolCtx.pendingImageUrls;
-    const isMultimodal = toolCtx.config.isMultimodal;
     const hasImages = pendingImages && pendingImages.length > 0;
 
-    // 多模态模型需要使用数组格式，文本模型使用字符串格式
-    let messages: any[];
+    let messages: any[] = [{ role: "system", content: prompt }];
 
-    if (isMultimodal || hasImages) {
-      // system 消息只包含提示词
-      messages = [{ role: "system", content: prompt }];
-
-      // user 消息包含用户内容和图片
-      if (hasImages) {
-        const userContent: any[] = [
-          { type: "text", text: targetMessage.content },
-        ];
-        for (const url of pendingImages) {
-          userContent.push({ type: "image_url", image_url: { url } });
-        }
-        messages.push({ role: "user", content: userContent });
-
-        logger.info(
-          `[chat-engine] Attaching ${pendingImages.length} image(s) to user message`,
-        );
-        // 清除待附加的图片
-        toolCtx.pendingImageUrls = [];
-      } else {
-        messages.push({ role: "user", content: targetMessage.content });
+    // 第一轮迭代，添加用户消息
+    if (iteration === 0 && hasImages) {
+      const userContent: any[] = [
+        { type: "text", text: targetMessage.content },
+      ];
+      for (const url of pendingImages) {
+        userContent.push({ type: "image_url", image_url: { url } });
       }
-    } else {
-      messages = [{ role: "system", content: prompt }];
+      messages.push({ role: "user", content: userContent });
+
+      // 清除已附加的图片
+      toolCtx.pendingImageUrls = [];
     }
 
     // Call AI

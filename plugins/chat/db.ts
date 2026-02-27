@@ -7,6 +7,7 @@ import type {
   TopicRecord,
   ExpressionRecord,
   EmojiRecord,
+  ImageRecord,
 } from "./types";
 
 /**
@@ -56,6 +57,10 @@ export interface ChatDatabase {
   getEmojiByEmotion(emotion: string, limit?: number): EmojiRecord[];
   getAllEmojis(): EmojiRecord[];
   incrementEmojiUsage(id: number): void;
+  // 图片记录
+  saveImage(image: ImageRecord): void;
+  getImageByHash(hash: string): ImageRecord | null;
+  getAllImages(): ImageRecord[];
   close(): void;
 }
 
@@ -137,6 +142,20 @@ export function initDatabase(): ChatDatabase {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_emojis_emotion ON emojis(emotion);
+
+    CREATE TABLE IF NOT EXISTS images (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hash TEXT NOT NULL UNIQUE,
+      url TEXT NOT NULL,
+      type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      emotion TEXT,
+      character TEXT,
+      file_path TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_images_hash ON images(hash);
+    CREATE INDEX IF NOT EXISTS idx_images_type ON images(type);
   `);
 
   // 预编译语句
@@ -223,6 +242,13 @@ export function initDatabase(): ChatDatabase {
     incrementEmojiUsage: db.prepare(`
       UPDATE emojis SET usage_count = usage_count + 1 WHERE id = ?
     `),
+    // 图片记录
+    insertImage: db.prepare(`
+      INSERT OR IGNORE INTO images (hash, url, type, description, emotion, character, file_path, created_at)
+      VALUES (@hash, @url, @type, @description, @emotion, @character, @filePath, @createdAt)
+    `),
+    getImageByHash: db.prepare(`SELECT * FROM images WHERE hash = ?`),
+    getAllImages: db.prepare(`SELECT * FROM images ORDER BY created_at DESC`),
   };
 
   return {
@@ -503,6 +529,50 @@ export function initDatabase(): ChatDatabase {
 
     incrementEmojiUsage(id: number): void {
       stmts.incrementEmojiUsage.run(id);
+    },
+
+    saveImage(image: ImageRecord): void {
+      stmts.insertImage.run({
+        hash: image.hash,
+        url: image.url,
+        type: image.type,
+        description: image.description,
+        emotion: image.emotion ?? null,
+        character: image.character ?? null,
+        filePath: image.filePath ?? null,
+        createdAt: image.createdAt,
+      });
+    },
+
+    getImageByHash(hash: string): ImageRecord | null {
+      const row = stmts.getImageByHash.get(hash) as any;
+      if (!row) return null;
+      return {
+        id: row.id,
+        hash: row.hash,
+        url: row.url,
+        type: row.type,
+        description: row.description,
+        emotion: row.emotion,
+        character: row.character,
+        filePath: row.file_path,
+        createdAt: row.created_at,
+      };
+    },
+
+    getAllImages(): ImageRecord[] {
+      const rows = stmts.getAllImages.all() as any[];
+      return rows.map((row) => ({
+        id: row.id,
+        hash: row.hash,
+        url: row.url,
+        type: row.type,
+        description: row.description,
+        emotion: row.emotion,
+        character: row.character,
+        filePath: row.file_path,
+        createdAt: row.created_at,
+      }));
     },
 
     close(): void {

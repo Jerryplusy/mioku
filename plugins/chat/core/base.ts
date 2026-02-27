@@ -7,10 +7,8 @@ import type {
 } from "../types";
 import type { ChatDatabase } from "../db";
 import type { HumanizeEngine } from "../humanize";
-import type { SkillSessionManager } from "../manage/skill-session";
 import { parseLineMarkers, splitByReplyMarkers } from "../utils/queue";
 import { getGroupHistory } from "../utils";
-import { runChat } from "./chat-engine";
 
 export interface SendAIResponseOptions {
   ctx: MiokiContext;
@@ -321,7 +319,6 @@ export interface BuildToolContextOptions {
   aiService: AIService;
   db: ChatDatabase;
   botRole: "owner" | "admin" | "member";
-  hasAttachedImages?: boolean;
   pendingImageUrls?: string[];
   humanize: HumanizeEngine;
   targetMessage: TargetMessage;
@@ -340,7 +337,6 @@ export function buildToolContext(
     aiService,
     db,
     botRole,
-    hasAttachedImages,
     pendingImageUrls,
     humanize,
     targetMessage,
@@ -356,7 +352,6 @@ export function buildToolContext(
     aiService,
     db,
     botRole,
-    hasAttachedImages,
     pendingImageUrls,
     onTextContent: async (text, messageIndex) => {
       const messages = text
