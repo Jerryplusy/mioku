@@ -1640,19 +1640,26 @@ Suggestion:
 
       // 图片分析和收集（所有群消息中的图片）
       if (isGroup && groupId && e.message && cfg.isMultimodal) {
-        const { processImage } = await import("./core/image-analyzer");
-        const ai = aiService!.getDefault();
+        // 检查用户是否在黑名单中
+        const isBlacklisted =
+          cfg.imageAnalysisBlacklistUsers &&
+          cfg.imageAnalysisBlacklistUsers.includes(userId);
 
-        if (ai) {
-          for (const seg of e.message) {
-            if (seg.type === "image" && (seg.url || seg.data?.url)) {
-              const imageUrl = seg.url || seg.data.url;
-              // 异步处理，不阻塞主流程
-              processImage(ai, imageUrl, cfg.multimodalWorkingModel, db).catch(
-                (err) => {
-                  ctx.logger.warn(`[image-analyzer] 处理失败: ${err}`);
-                },
-              );
+        if (!isBlacklisted) {
+          const { processImage } = await import("./core/image-analyzer");
+          const ai = aiService!.getDefault();
+
+          if (ai) {
+            for (const seg of e.message) {
+              if (seg.type === "image" && (seg.url || seg.data?.url)) {
+                const imageUrl = seg.url || seg.data.url;
+                // 异步处理，不阻塞主流程
+                processImage(ai, imageUrl, cfg.multimodalWorkingModel, db).catch(
+                  (err) => {
+                    ctx.logger.warn(`[image-analyzer] Failed to process: ${err}`);
+                  },
+                );
+              }
             }
           }
         }

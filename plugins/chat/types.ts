@@ -102,6 +102,7 @@ export interface ChatConfig {
   historyCount: number;
   blacklistGroups: number[];
   whitelistGroups: number[];
+  imageAnalysisBlacklistUsers: number[];
   maxSessions: number;
   maxIterations: number;
   enableGroupAdmin: boolean;
