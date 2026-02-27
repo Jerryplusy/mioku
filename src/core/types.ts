@@ -94,7 +94,7 @@ export interface MiokuService {
   description?: string;
 
   // 初始化服务
-  init(ctx: MiokiContext): Promise<void>;
+  init(): Promise<void>;
 
   // 提供的 API
   api: Record<string, any>;

@@ -84,5 +84,3 @@ export const PERSONALIZATION_CONFIG: {
     sampleSize: 8,
   },
 };
-
-export default PERSONALIZATION_CONFIG;

@@ -1,4 +1,4 @@
-import { logger, MiokiContext } from "mioki";
+import { logger } from "mioki";
 import OpenAI from "openai";
 import type {
   ChatCompletionMessageParam,
@@ -149,7 +149,7 @@ export interface AIService {
 class AIInstanceImpl implements AIInstance {
   private client: OpenAI;
   private prompts: Map<string, string> = new Map();
-  private globalSkills: Map<string, AISkill>;
+  private readonly globalSkills: Map<string, AISkill>;
 
   constructor(
     apiUrl: string,
@@ -179,7 +179,9 @@ class AIInstanceImpl implements AIInstance {
       model: options.model,
       messages,
       temperature: options.temperature ?? 0.7,
-      ...(options.max_tokens != null && { max_tokens: options.max_tokens }),
+      ...(options.max_tokens != null && {
+        max_completion_tokens: options.max_tokens,
+      }),
     });
 
     return response.choices[0]?.message?.content || "";
@@ -224,7 +226,9 @@ class AIInstanceImpl implements AIInstance {
       model: options.model,
       messages,
       temperature: options.temperature ?? 0.7,
-      ...(options.max_tokens != null && { max_tokens: options.max_tokens }),
+      ...(options.max_tokens != null && {
+        max_completion_tokens: options.max_tokens,
+      }),
     });
 
     return response.choices[0]?.message?.content || "";
@@ -236,15 +240,23 @@ class AIInstanceImpl implements AIInstance {
       messages: options.messages,
       tools: options.tools,
       temperature: options.temperature ?? 0.7,
-      ...(options.max_tokens != null && { max_tokens: options.max_tokens }),
+      ...(options.max_tokens != null && {
+        max_completion_tokens: options.max_tokens,
+      }),
     });
 
     const message = response.choices[0]?.message;
     if (!message) {
-      return { content: null, reasoning: null, toolCalls: [], raw: { role: "assistant", content: "" } };
+      return {
+        content: null,
+        reasoning: null,
+        toolCalls: [],
+        raw: { role: "assistant", content: "" },
+      };
     }
 
-    const reasoning = (message as any).reasoning_content || (message as any).reasoning || null;
+    const reasoning =
+      (message as any).reasoning_content || (message as any).reasoning || null;
     const toolCalls = (message.tool_calls || [])
       .filter((tc) => tc.type === "function")
       .map((tc) => ({
@@ -335,7 +347,9 @@ class AIInstanceImpl implements AIInstance {
               // OpenAI 要求所有 tool_call 都必须有对应的 tool result
               currentMessages.push({
                 role: "tool",
-                content: JSON.stringify({ error: `Tool ${toolName} not found` }),
+                content: JSON.stringify({
+                  error: `Tool ${toolName} not found`,
+                }),
                 tool_call_id: toolCall.id,
               } as ChatCompletionMessageParam);
               continue;
@@ -611,7 +625,7 @@ const aiService: MiokuService = {
     "为插件提供完整的ai服务支持，包括ai实例管理，提示词管理，skills管理等",
   api: {} as AIService,
 
-  async init(ctx: MiokiContext) {
+  async init() {
     this.api = new AIServiceImpl();
     logger.info("ai-service 服务已就绪");
   },

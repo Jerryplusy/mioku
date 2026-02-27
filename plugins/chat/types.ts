@@ -167,34 +167,6 @@ export interface SkillSession {
 }
 
 /**
- * 一次性监听器
- */
-export interface OneTimeListener {
-  sessionId: string;
-  type: "next_user_message" | "message_count";
-  userId?: number;
-  count?: number;
-  currentCount?: number;
-  reason: string;
-  createdAt: number;
-  timeoutMs: number;
-  cooldownUntil: number;
-  cancel: () => void;
-}
-
-/**
- * 连续会话监听器
- */
-export interface ContinuousListener {
-  sessionId: string;
-  groupId: number;
-  lastAssistantContent: string;
-  lastMessageId?: number;
-  createdAt: number;
-  cancel: () => void;
-}
-
-/**
  * 工具上下文
  */
 export interface ToolContext {

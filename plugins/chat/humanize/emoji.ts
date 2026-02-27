@@ -41,13 +41,13 @@ export class EmojiSystem {
     const existingEmojis = this.db.getAllEmojis();
     const existingFiles = new Set(existingEmojis.map((e) => e.fileName));
 
-    let files: string[] = [];
+    let files: string[];
     files = fs.readdirSync(emojiDir).filter((f) => {
       const ext = path.extname(f).toLowerCase();
       return [".jpg", ".jpeg", ".png", ".gif", ".webp"].includes(ext);
     });
 
-    let newFiles: string[] = [];
+    let newFiles: string[];
     newFiles = files.filter((f) => !existingFiles.has(f));
 
     if (newFiles.length === 0) {

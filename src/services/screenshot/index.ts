@@ -1,4 +1,4 @@
-import { MiokiContext, logger } from "mioki";
+import { logger } from "mioki";
 import type { MiokuService } from "../../core/types";
 import puppeteer, { Browser } from "puppeteer";
 import * as fs from "fs";
@@ -46,30 +46,30 @@ class ScreenshotServiceImpl implements ScreenshotService {
 
   async init(): Promise<void> {
     const isWindows = process.platform === "win32";
-    
+
     let executablePath: string | undefined;
     let channel: "chrome" | undefined;
-    
+
     if (isWindows) {
       // Try Edge first on Windows
       const edgePaths = [
         "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
         "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
       ];
-      
+
       for (const p of edgePaths) {
         if (fs.existsSync(p)) {
           executablePath = p;
           break;
         }
       }
-      
+
       if (!executablePath) {
         // Fallback to Chrome
         channel = "chrome";
       }
     }
-    
+
     try {
       this.browser = await puppeteer.launch({
         headless: true,
@@ -84,7 +84,9 @@ class ScreenshotServiceImpl implements ScreenshotService {
     } catch (err) {
       // Fallback: try with default Chrome
       if (!channel && !executablePath) {
-        logger.warn("screenshot-service: Chrome/Edge not found, trying default...");
+        logger.warn(
+          "screenshot-service: Chrome/Edge not found, trying default...",
+        );
         this.browser = await puppeteer.launch({
           headless: true,
           args: [
@@ -259,7 +261,7 @@ const screenshotService: MiokuService = {
   description: "网页截图服务",
   api: {} as ScreenshotService,
 
-  async init(ctx: MiokiContext) {
+  async init() {
     const impl = new ScreenshotServiceImpl();
     await impl.init();
     this.api = impl;

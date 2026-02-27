@@ -6,7 +6,7 @@ import type { ChatDatabase } from "../db";
  */
 export class SessionManager {
   private cache: Map<string, SessionMeta> = new Map();
-  private maxSize: number;
+  private readonly maxSize: number;
   private db: ChatDatabase;
 
   constructor(db: ChatDatabase, maxSize: number) {
@@ -77,34 +77,10 @@ export class SessionManager {
   }
 
   /**
-   * 重置会话（清空聊天记录和压缩上下文）
-   */
-  reset(id: string): void {
-    this.db.deleteSessionMessages(id);
-    const session = this.cache.get(id);
-    if (session) {
-      session.compressedContext = null;
-      session.updatedAt = Date.now();
-      this.db.saveSession(session);
-    }
-  }
-
-  /**
    * 重置 bot 消息
    */
   resetBotMessages(id: string): void {
     this.db.deleteBotMessages(id);
-  }
-
-  /**
-   * 更新压缩上下文
-   */
-  updateCompressedContext(id: string, context: string): void {
-    this.db.updateCompressedContext(id, context);
-    const session = this.cache.get(id);
-    if (session) {
-      session.compressedContext = context;
-    }
   }
 
   private addToCache(id: string, session: SessionMeta): void {

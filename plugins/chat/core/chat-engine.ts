@@ -1,4 +1,4 @@
-import type { AIInstance, MultimodalMessage } from "../../../src/services/ai";
+import type { AIInstance } from "../../../src/services/ai";
 import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { logger } from "mioki";
 import type { AITool } from "../../../src";
@@ -8,7 +8,6 @@ import type {
   TargetMessage,
   ChatResult,
 } from "../types";
-import type { SessionManager } from "../manage/session";
 import type { HumanizeEngine } from "../humanize";
 import type { PromptContext } from "./prompt";
 import type { SkillSessionManager } from "./tools";
@@ -27,7 +26,6 @@ export async function runChat(
     PromptContext,
     "toolResults" | "activeSkillsInfo" | "chatHistory" | "targetMessage"
   >,
-  sessionManager: SessionManager,
   humanize: HumanizeEngine,
   skillManager: SkillSessionManager,
 ): Promise<ChatResult> {
@@ -136,11 +134,7 @@ export async function runChat(
           toolCtx.sentMessageIndices.add(0);
 
           // 异步调用回调，不阻塞工具执行
-          const callbackResult = toolCtx.onTextContent(
-            lastTextContent,
-            0,
-            messages.length,
-          );
+          const callbackResult = toolCtx.onTextContent(lastTextContent, 0);
           if (callbackResult && typeof callbackResult.then === "function") {
             callbackResult.catch((err: any) =>
               logger.warn(
@@ -179,7 +173,7 @@ export async function runChat(
 
       // end_session 工具：立即结束会话
       if (tc.name === "end_session") {
-        const result = await handler.tool.handler(args, toolCtx.event);
+        await handler.tool.handler(args, toolCtx.event);
         logger.info(
           `[chat-engine] Session ended: ${args.reason || "no reason"}`,
         );

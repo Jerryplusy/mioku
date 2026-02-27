@@ -9,7 +9,6 @@ export async function sendMessage(
   groupId: number | undefined,
   userId: number,
   text: string,
-  isFirst: boolean,
   typoGenerator: {
     apply: (text: string) => string;
   },

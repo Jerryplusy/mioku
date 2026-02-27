@@ -9,5 +9,3 @@ export const SETTINGS_CONFIG = {
   // 然后一次性处理而不是每次都请求 AI。默认 20 秒
   cooldownAfterReplyMs: 20_000,
 };
-
-export default SETTINGS_CONFIG;

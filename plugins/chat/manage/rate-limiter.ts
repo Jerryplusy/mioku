@@ -51,7 +51,7 @@ export class RateLimiter {
 
     // 2. 用户频率检查
     const triggers = this.userTriggers.get(userId) ?? [];
-    let recentTriggers: number[] = [];
+    let recentTriggers: number[];
     recentTriggers = triggers.filter((t) => now - t < this.windowMs);
     if (recentTriggers.length >= this.maxTriggersPerWindow) {
       return false;

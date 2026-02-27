@@ -350,7 +350,7 @@ const chatPlugin: MiokuPlugin = {
           aiService: aiService!,
           db,
           botRole,
-          onTextContent: async (text, messageIndex, totalMessages) => {
+          onTextContent: async (text, messageIndex) => {
             const messages = text
               .trim()
               .split("\n---\n")
@@ -363,7 +363,6 @@ const chatPlugin: MiokuPlugin = {
                 groupId,
                 targetMessage.userId,
                 messages[messageIndex],
-                messageIndex === 0,
                 humanize.typoGenerator,
               );
             }
@@ -413,7 +412,6 @@ const chatPlugin: MiokuPlugin = {
               messageIds,
             },
           },
-          sessionManager,
           humanize,
           skillManager,
         );
@@ -587,7 +585,7 @@ const chatPlugin: MiokuPlugin = {
             aiService: aiService!,
             db,
             botRole: await getBotRole(groupId, ctx),
-            onTextContent: async (text, messageIndex, totalMessages) => {
+            onTextContent: async (text, messageIndex) => {
               const messages = text
                 .trim()
                 .split("\n---\n")
@@ -600,7 +598,6 @@ const chatPlugin: MiokuPlugin = {
                   groupId,
                   targetMessage.userId,
                   messages[messageIndex],
-                  messageIndex === 0,
                   humanize.typoGenerator,
                 );
               }
@@ -663,7 +660,6 @@ Planned reason: ${planResult.reason}`;
                 messageIds: collected.map((m) => m.messageId),
               },
             },
-            sessionManager,
             humanize,
             skillManager,
           );
@@ -887,7 +883,7 @@ Planned reason: ${planResult.reason}`;
                 db,
                 botRole: await getBotRole(groupId, ctx),
                 // AI 返回文本时立即发送
-                onTextContent: async (text, messageIndex, totalMessages) => {
+                onTextContent: async (text, messageIndex) => {
                   // 解析消息
                   let messages: string[];
 
@@ -904,7 +900,6 @@ Planned reason: ${planResult.reason}`;
                       groupId,
                       0,
                       messages[messageIndex],
-                      messageIndex === 0,
                       humanize.typoGenerator,
                     );
                   }
@@ -933,7 +928,6 @@ Suggestion:
                     type: "idle",
                   },
                 },
-                sessionManager,
                 humanize,
                 skillManager,
               );
@@ -1119,7 +1113,7 @@ Suggestion:
           db,
           botRole: await getBotRole(groupId, ctx),
           // AI 返回文本时立即发送
-          onTextContent: async (text, messageIndex, totalMessages) => {
+          onTextContent: async (text, messageIndex) => {
             // 解析消息
             let messages: string[];
             messages = text
@@ -1135,7 +1129,6 @@ Suggestion:
                 groupId,
                 targetMessage.userId,
                 messages[messageIndex],
-                messageIndex === 0,
                 humanize.typoGenerator,
               );
             }
@@ -1212,7 +1205,6 @@ Suggestion:
               targetMessage: targetMessage.content,
             },
           },
-          sessionManager,
           humanize,
           skillManager,
         );
@@ -1420,10 +1412,10 @@ Suggestion:
         };
 
         // 表达学习
-        humanize.expressionLearner.onMessage(groupSessionId, userMsg);
+        humanize.expressionLearner.onMessage(groupSessionId, userMsg).then();
 
         // 话题跟踪
-        humanize.topicTracker.onMessage(groupSessionId);
+        humanize.topicTracker.onMessage(groupSessionId).then();
 
         // 表情包收集 (seg format: {type: "image", url: "...", file: "..."})
         if (e.message) {
@@ -1551,7 +1543,7 @@ Suggestion:
           hasAttachedImages,
           pendingImageUrls: imageUrlsToAttach,
           // AI 返回文本时立即发送
-          onTextContent: async (text, messageIndex, totalMessages) => {
+          onTextContent: async (text, messageIndex) => {
             // 解析消息
             const messages = text
               .trim()
@@ -1566,7 +1558,6 @@ Suggestion:
                 groupId,
                 userId,
                 messages[messageIndex],
-                messageIndex === 0,
                 humanize.typoGenerator,
               );
             }
@@ -1598,7 +1589,6 @@ Suggestion:
               targetMessage: targetMessage.content,
             },
           },
-          sessionManager,
           humanize,
           skillManager,
         );
@@ -1860,7 +1850,7 @@ Suggestion:
               db,
               botRole: await getBotRole(targetGroupId, ctx),
               // AI 返回文本时立即发送
-              onTextContent: async (text, messageIndex, totalMessages) => {
+              onTextContent: async (text, messageIndex) => {
                 // 解析消息
                 let messages: string[];
                 messages = text
@@ -1876,7 +1866,6 @@ Suggestion:
                     targetGroupId,
                     0,
                     messages[messageIndex],
-                    messageIndex === 0,
                     humanize.typoGenerator,
                   );
                 }
@@ -1907,7 +1896,6 @@ Suggestion:
                   type: "idle",
                 },
               },
-              sessionManager,
               humanize,
               skillManager,
             );
@@ -2234,7 +2222,7 @@ Suggestion:
           db,
           botRole,
           // AI 返回文本时立即发送
-          onTextContent: async (text, messageIndex, totalMessages) => {
+          onTextContent: async (text, messageIndex) => {
             // 解析消息
             const messages = text
               .trim()
@@ -2249,7 +2237,6 @@ Suggestion:
                 groupId,
                 userId,
                 messages[messageIndex],
-                messageIndex === 0,
                 humanize.typoGenerator,
               );
             }
@@ -2277,7 +2264,6 @@ Suggestion:
               targetMessage: targetMessage.content,
             },
           },
-          sessionManager,
           humanize,
           skillManager,
         );
@@ -2426,5 +2412,3 @@ Suggestion:
     };
   },
 };
-
-export default chatPlugin;

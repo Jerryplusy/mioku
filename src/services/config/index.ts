@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import _ from "lodash";
-import { logger, MiokiContext } from "mioki";
+import { logger } from "mioki";
 import type { MiokuService } from "../../core/types";
 
 /**
@@ -279,7 +279,7 @@ const configService: MiokuService = {
   description: "配置管理服务",
   api: {} as ConfigService,
 
-  async init(ctx: MiokiContext) {
+  async init() {
     const configRoot = path.join(process.cwd(), "config");
     this.api = new ConfigManager(configRoot);
 
