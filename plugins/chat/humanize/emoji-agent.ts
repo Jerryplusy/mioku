@@ -2,7 +2,8 @@ import type { AIInstance } from "../../../src/services/ai";
 import type { ChatDatabase } from "../db";
 import type { ChatConfig, ChatMessage } from "../types";
 import { logger } from "mioki";
-import * as fs from "fs";
+import * as fs from "fs/promises";
+import { existsSync, readdirSync } from "fs";
 import * as path from "path";
 
 export interface EmojiPickResult {
@@ -44,11 +45,11 @@ export class EmojiAgent {
   }
 
   getAvailableCharacters(): string[] {
-    if (!fs.existsSync(this.memeBaseDir)) {
+    if (!existsSync(this.memeBaseDir)) {
       return [];
     }
 
-    const entries = fs.readdirSync(this.memeBaseDir, { withFileTypes: true });
+    const entries = readdirSync(this.memeBaseDir, { withFileTypes: true });
     const dirs = entries
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
@@ -58,24 +59,16 @@ export class EmojiAgent {
 
   getAvailableEmotions(character: string): string[] {
     const characterDir = path.join(this.memeBaseDir, character);
-    if (!fs.existsSync(characterDir)) {
+    if (!existsSync(characterDir)) {
       return [];
     }
 
-    const entries = fs.readdirSync(characterDir, { withFileTypes: true });
+    const entries = readdirSync(characterDir, { withFileTypes: true });
     const dirs = entries
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
 
     return dirs;
-  }
-
-  async getAvailableCharactersAsync(): Promise<string[]> {
-    return this.getAvailableCharacters();
-  }
-
-  async getAvailableEmotionsAsync(character: string): Promise<string[]> {
-    return this.getAvailableEmotions(character);
   }
 
   parseMemeIntent(text: string): { character: string; emotion: string } | null {
@@ -144,12 +137,12 @@ export class EmojiAgent {
         normalizedEmotion,
       );
 
-      if (!fs.existsSync(characterDir)) {
+      if (!existsSync(characterDir)) {
         logger.warn(
           `[emoji-agent] Directory not found: ${characterDir}, trying default emotion`,
         );
         const defaultDir = path.join(this.memeBaseDir, character, "default");
-        if (fs.existsSync(defaultDir)) {
+        if (existsSync(defaultDir)) {
           return this.selectFromDirectory(
             defaultDir,
             character,
@@ -159,7 +152,7 @@ export class EmojiAgent {
         }
 
         const neutralDir = path.join(this.memeBaseDir, character, "neutral");
-        if (fs.existsSync(neutralDir)) {
+        if (existsSync(neutralDir)) {
           return this.selectFromDirectory(
             neutralDir,
             character,
@@ -224,7 +217,7 @@ export class EmojiAgent {
     description?: string;
     error?: string;
   }> {
-    const files = (await fs.promises.readdir(dirPath)).filter((f) => {
+    const files = (await fs.readdir(dirPath)).filter((f) => {
       const ext = path.extname(f).toLowerCase();
       return [".jpg", ".jpeg", ".png", ".gif", ".webp"].includes(ext);
     });

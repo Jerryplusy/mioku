@@ -3,8 +3,9 @@ import type { ChatDatabase } from "../db";
 import type { ImageRecord } from "../types";
 import { logger } from "mioki";
 import * as crypto from "crypto";
-import * as fs from "fs";
 import * as path from "path";
+import * as fs from "fs/promises";
+import { existsSync, mkdirSync, createWriteStream, unlink } from "fs";
 import * as https from "https";
 import * as http from "http";
 import { URL } from "url";
@@ -17,7 +18,8 @@ export interface ImageAnalysisResult {
   type?: "meme" | "image";
   description?: string;
   emotion?: string;
-  character?: string;
+  characters?: string[]; // 支持多个角色
+  character?: string; // 兼容旧版本
   gifBuffer?: Buffer; // GIF 原始 buffer
   error?: string;
 }
@@ -82,14 +84,14 @@ export async function calculateImageHash(url: string): Promise<string> {
 async function downloadImage(url: string, savePath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const dir = path.dirname(savePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
     }
 
     const parsedUrl = new URL(url);
     const protocol = parsedUrl.protocol === "https:" ? https : http;
 
-    const file = fs.createWriteStream(savePath);
+    const file = createWriteStream(savePath);
     const options = {
       headers: {
         "User-Agent":
@@ -107,7 +109,7 @@ async function downloadImage(url: string, savePath: string): Promise<boolean> {
         });
       })
       .on("error", (err) => {
-        fs.unlink(savePath, () => {});
+        unlink(savePath, () => {});
         logger.error(`[image-analyzer] Failed to download image: ${err}`);
         resolve(false);
       });
@@ -236,11 +238,26 @@ Response format (JSON):
     const type = result.type === "meme" ? "meme" : "image";
     const description = String(result.description || "未知");
     const emotion = type === "meme" ? result.emotion || "default" : undefined;
-    const character =
-      type === "meme" ? result.character || "unknown" : undefined;
+
+    // 支持多个角色
+    let characters: string[] | undefined;
+    if (type === "meme") {
+      if (Array.isArray(result.characters)) {
+        characters = result.characters
+          .map((c: string) => c.trim().toLowerCase())
+          .filter(Boolean);
+      }
+      if (characters && characters.length === 0) {
+        characters = undefined;
+      }
+    }
+
+    const character = type === "meme"
+      ? (characters && characters.length > 0 ? characters[0] : "unknown")
+      : undefined;
 
     logger.info(
-      `[image-analyzer] ✓ ${type === "meme" ? "Meme" : "Image"}: ${description}${emotion ? ` [${emotion}]` : ""}${character ? ` (${character})` : ""}`,
+      `[image-analyzer] ✓ ${type === "meme" ? "Meme" : "Image"}: ${description}${emotion ? ` [${emotion}]` : ""}${characters && characters.length > 0 ? ` (${characters.join(", ")})` : ""}`,
     );
 
     return {
@@ -248,6 +265,7 @@ Response format (JSON):
       type,
       description,
       emotion,
+      characters,
       character,
       gifBuffer: originalGifBuffer,
     };
@@ -290,7 +308,6 @@ export async function processImage(
     // 如果是表情包，下载到本地
     if (
       analysis.type === "meme" &&
-      analysis.character &&
       analysis.emotion &&
       analysis.description
     ) {
@@ -304,38 +321,53 @@ export async function processImage(
       );
       const fileName = `${safeDesc}${ext}`;
 
-      const memeDir = path.join(
-        process.cwd(),
-        "data",
-        "chat",
-        "meme",
-        analysis.character,
-        analysis.emotion,
-      );
-      filePath = path.join(memeDir, fileName);
+      // 获取角色列表（支持多个角色）
+      const characters = analysis.characters && analysis.characters.length > 0
+        ? analysis.characters
+        : [analysis.character || "unknown"];
 
-      // 如果是 GIF 且有原始 buffer，保存 GIF 格式
-      if (analysis.gifBuffer) {
-        const dir = path.dirname(filePath);
-        if (!fs.existsSync(dir)) {
-          await fs.promises.mkdir(dir, { recursive: true });
+      // 为每个角色创建文件夹并保存图片
+      const savePromises = characters.map(async (character) => {
+        const memeDir = path.join(
+          process.cwd(),
+          "data",
+          "chat",
+          "meme",
+          character,
+          analysis.emotion!,
+        );
+        const targetPath = path.join(memeDir, fileName);
+
+        // 确保目录存在
+        if (!existsSync(memeDir)) {
+          await fs.mkdir(memeDir, { recursive: true });
         }
-        try {
-          await fs.promises.writeFile(filePath, analysis.gifBuffer);
-        } catch (err) {
-          logger.warn(`[image-analyzer] Failed to save GIF: ${err}`);
-          filePath = undefined;
-        }
-      } else {
-        // 普通图片，下载
-        const downloaded = await downloadImage(imageUrl, filePath);
-        if (!downloaded) {
-          logger.warn(`[image-analyzer] Download failed`);
-          filePath = undefined;
+
+        // 如果是 GIF 且有原始 buffer
+        if (analysis.gifBuffer) {
+          try {
+            await fs.writeFile(targetPath, analysis.gifBuffer);
+            logger.info(`[image-analyzer] ✓ Saved GIF for ${character}: ${targetPath}`);
+            return targetPath;
+          } catch (err) {
+            logger.warn(`[image-analyzer] Failed to save GIF for ${character}: ${err}`);
+            return null;
+          }
         } else {
-          // ignore
+          // 普通图片，下载
+          const downloaded = await downloadImage(imageUrl, targetPath);
+          if (downloaded) {
+            logger.info(`[image-analyzer] ✓ Saved for ${character}: ${targetPath}`);
+            return targetPath;
+          } else {
+            logger.warn(`[image-analyzer] Download failed for ${character}`);
+            return null;
+          }
         }
-      }
+      });
+
+      const savedPaths = await Promise.all(savePromises);
+      filePath = savedPaths.find((p) => p !== null) || undefined;
     }
 
     // 保存到数据库

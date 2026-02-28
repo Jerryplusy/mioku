@@ -109,7 +109,7 @@ const chatPlugin: MiokuPlugin = {
     }
 
     // 初始化组件
-    const db = initDatabase();
+    const db = await initDatabase();
     const sessionManager = new SessionManager(db, config.maxSessions);
     const rateLimiter = new RateLimiter({
       dynamicDelay: config.dynamicDelay,

@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
-import * as fs from "fs";
+import * as fs from "fs/promises";
+import { existsSync } from "fs";
 import * as path from "path";
 import type {
   SessionMeta,
@@ -61,10 +62,10 @@ export interface ChatDatabase {
 /**
  * SQLite 数据库实现
  */
-export function initDatabase(): ChatDatabase {
+export async function initDatabase(): Promise<ChatDatabase> {
   const dbDir = path.join(process.cwd(), "data", "chat");
-  if (!fs.existsSync(dbDir)) {
-    fs.mkdirSync(dbDir, { recursive: true });
+  if (!existsSync(dbDir)) {
+    await fs.mkdir(dbDir, { recursive: true });
   }
 
   const dbPath = path.join(dbDir, "chat.db");

@@ -416,15 +416,23 @@ export async function sendEmoji(
     await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
   } catch (err) {
     try {
-      const fs = await import("fs");
+      const fsPromises = await import("fs/promises");
       const path = await import("path");
 
-      if (!fs.existsSync(emojiPath)) {
+      let fileExists = false;
+      try {
+        await fsPromises.access(emojiPath);
+        fileExists = true;
+      } catch {
+        fileExists = false;
+      }
+
+      if (!fileExists) {
         ctx.logger.warn(`[Emoji] File not found: ${emojiPath}`);
         return;
       }
 
-      const buffer = await fs.promises.readFile(emojiPath);
+      const buffer = await fsPromises.readFile(emojiPath);
       const base64 = buffer.toString("base64");
       const ext = path.extname(emojiPath).toLowerCase();
       const mimeType =

@@ -57,7 +57,6 @@ export function loadLocalConfig(cwd: string = process.cwd()): void {
     mkdirSync(configDir, { recursive: true });
   }
 
-  // 检查本地配置文件是否存在
   if (!existsSync(localConfigPath)) {
     writeFileSync(
       localConfigPath,
@@ -67,11 +66,9 @@ export function loadLocalConfig(cwd: string = process.cwd()): void {
   }
 
   try {
-    // 读取并备份原始 package.json
     originalPackageJson = readFileSync(packageJsonPath, "utf-8");
     const packageJson = JSON.parse(originalPackageJson);
 
-    // 读取本地配置
     const localConfig = JSON.parse(readFileSync(localConfigPath, "utf-8"));
 
     if (localConfig.mioki && packageJson.mioki) {
