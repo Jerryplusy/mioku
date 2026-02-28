@@ -347,25 +347,28 @@ function buildResponseFormatSection(ctx: PromptContext): string {
   - Example: "\[[[reply:456789]]]我来回复这条消息" will quote-reply message 456789 with the text "我来回复这条消息"
   - Example multiple replies: "\[[[reply:111]]]回复第一条" + newline + "\[[[reply:222]]]回复第二条" will send two separate messages, each quoting different messages`);
 
-  // Meme/Sticker sending guide (dynamic based on available resources)
+  // Meme/Sticker sending guide (dynamic based on available resources, controlled by replyProbability)
   const emojiAgent = ctx.emojiAgent;
-  if (emojiAgent) {
-    const characters = emojiAgent.getAvailableCharacters();
-    if (characters.length > 0) {
-      const characterEmotions: string[] = [];
-      for (const char of characters) {
-        const emotions = emojiAgent.getAvailableEmotions(char);
-        characterEmotions.push(...emotions);
-      }
-      const uniqueEmotions = [...new Set(characterEmotions)].sort();
+  if (emojiAgent && ctx.config.emoji) {
+    const replyProb = ctx.config.emoji.replyProbability ?? 0;
+    if (Math.random() < replyProb) {
+      const characters = emojiAgent.getAvailableCharacters();
+      if (characters.length > 0) {
+        const characterEmotions: string[] = [];
+        for (const char of characters) {
+          const emotions = emojiAgent.getAvailableEmotions(char);
+          characterEmotions.push(...emotions);
+        }
+        const uniqueEmotions = [...new Set(characterEmotions)].sort();
 
-      lines.push(`
-### Sending Stickers/Emojis
+        lines.push(`
+You Like to send matching stickers/emojis when emotions are running high.
 If you want to send a sticker/emoji along with your message:
 - Use the format [meme:character:emotion] in your text
 - Available characters: ${characters.join(", ")}
 - Available emotions: ${uniqueEmotions.join(", ")}
 - Use this sparingly - only when a sticker adds meaningful expression to your reply`);
+      }
     }
   }
 

@@ -38,7 +38,7 @@ export const PERSONALIZATION_CONFIG: {
 
   replyStyle: {
     baseStyle:
-      "Casual and cute, uses emoticons like >_< and ^_^, occasionally mixes in Japanese words like すごい、なるほど",
+      "Casual and cute, uses emoticons like >_< and ^_^, occasionally mixes in Japanese words like すごい、なるほど. You don't like putting periods at the end of sentences, and you don't like putting commas at line breaks.",
     multipleStyles: [
       "Super hyper, lots of exclamation marks and excitement!!!",
       "Play dumb mode, like giving the opposite answer to the user's questions and saying it seriously",
@@ -80,8 +80,7 @@ export const PERSONALIZATION_CONFIG: {
 
   emoji: {
     enabled: false,
-    emojiDir: "",
-    sendProbability: 0.15,
+    replyProbability: 0.3,
   },
 
   expression: {

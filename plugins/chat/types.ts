@@ -61,8 +61,7 @@ export interface TypoConfig {
  */
 export interface EmojiConfig {
   enabled: boolean;
-  emojiDir: string; // 表情包目录
-  sendProbability: number; // 发送表情包的概率 (0-1)
+  replyProbability: number;
 }
 
 /**
