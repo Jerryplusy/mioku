@@ -41,10 +41,23 @@ export async function sendAIResponse(
       expandedLines.push(...parts);
     }
 
+    let pendingReply: number | undefined;
+
     for (let j = 0; j < expandedLines.length; j++) {
       const line = expandedLines[j];
 
       const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(line);
+
+      if (quoteId !== undefined) {
+        pendingReply = quoteId;
+      }
+
+      const hasContent = cleanText && cleanText.trim().length > 0;
+      const isLastLine = j === expandedLines.length - 1;
+
+      if (!hasContent && !isLastLine) {
+        continue;
+      }
 
       if (pokeUsers.length > 0) {
         for (const pokeId of pokeUsers) {
@@ -57,8 +70,10 @@ export async function sendAIResponse(
 
       const lineSegments: any[] = [];
 
-      if (quoteId !== undefined) {
-        lineSegments.push({ type: "reply", id: String(quoteId) });
+      const finalQuoteId = pendingReply;
+      if (finalQuoteId !== undefined) {
+        lineSegments.push({ type: "reply", id: String(finalQuoteId) });
+        pendingReply = undefined;
       }
 
       for (const atId of atUsers) {
@@ -110,13 +125,25 @@ export async function sendMessage(
       expandedLines.push(...parts);
     }
 
+    let pendingReply: number | undefined;
+
     for (let j = 0; j < expandedLines.length; j++) {
       const line = expandedLines[j];
 
-      // 每一行都检查引用标记，不跳过
       const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(line);
 
-      // 戳人
+      if (quoteId !== undefined) {
+        pendingReply = quoteId;
+      }
+
+      const hasContent = cleanText && cleanText.trim().length > 0;
+      const isLastLine = j === expandedLines.length - 1;
+
+      if (!hasContent && !isLastLine) {
+        continue;
+      }
+
+      // 戳人 - 立即执行
       if (groupId && pokeUsers.length > 0) {
         for (const pokeId of pokeUsers) {
           await ctx.bot.api("group_poke", {
@@ -126,15 +153,14 @@ export async function sendMessage(
         }
       }
 
-      // 构建消息段：保持 @ 在文本中的原始位置
-      const segments: any[] = [];
+      const hasAt = atUsers.length > 0;
 
-      // 如果有引用标记就添加，不限制只能第一条消息
-      if (quoteId !== undefined) {
-        segments.push({ type: "reply", id: String(quoteId) });
-      }
-
-      if (groupId && atUsers.length > 0) {
+      if (hasAt) {
+        const segments: any[] = [];
+        if (pendingReply !== undefined) {
+          segments.push({ type: "reply", id: String(pendingReply) });
+          pendingReply = undefined;
+        }
         // 有 @ 用户时，构建消息保持原始位置
         // 先将原始行按 @ 标记分割，然后重新构建
         let remaining = line;
@@ -199,10 +225,11 @@ export async function sendMessage(
         }
       } else {
         // 没有 @ 用户时，发送普通文本消息
-        if (cleanText || quoteId !== undefined) {
+        if (cleanText || pendingReply !== undefined) {
           const sendSegments: any[] = [];
-          if (quoteId !== undefined) {
-            sendSegments.push({ type: "reply", id: String(quoteId) });
+          if (pendingReply !== undefined) {
+            sendSegments.push({ type: "reply", id: String(pendingReply) });
+            pendingReply = undefined;
           }
           if (cleanText) {
             sendSegments.push(ctx.segment.text(cleanText));
