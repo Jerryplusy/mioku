@@ -62,6 +62,8 @@ export interface TypoConfig {
 export interface EmojiConfig {
   enabled: boolean;
   replyProbability: number;
+  characters: string[];
+  useAISelection: boolean;
 }
 
 /**

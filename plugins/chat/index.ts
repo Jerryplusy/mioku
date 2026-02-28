@@ -780,7 +780,7 @@ Planned reason: ${planResult.reason}`;
           startCooldownTimer(groupSessionId, groupId);
         } else {
           ctx.logger.info(
-            `[CooldownPlanner] 群 ${groupId} planner 决定不回复: ${planResult.reason}`,
+            `[CooldownPlanner] Group ${groupId} planner decided not to reply: ${planResult.reason}`,
           );
         }
       } finally {
@@ -1646,11 +1646,14 @@ Suggestion:
               if (seg.type === "image" && (seg.url || seg.data?.url)) {
                 const imageUrl = seg.url || seg.data.url;
                 // 异步处理，不阻塞主流程
-                processImage(ai, imageUrl, cfg.multimodalWorkingModel, db).catch(
-                  (err) => {
-                    ctx.logger.warn(`[image-analyzer] Failed to process: ${err}`);
-                  },
-                );
+                processImage(
+                  ai,
+                  imageUrl,
+                  cfg.multimodalWorkingModel,
+                  db,
+                ).catch((err) => {
+                  ctx.logger.warn(`[image-analyzer] Failed to process: ${err}`);
+                });
               }
             }
           }
