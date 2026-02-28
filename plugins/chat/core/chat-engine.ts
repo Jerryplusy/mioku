@@ -252,16 +252,6 @@ export async function runChat(
   // Re-parse messages with cleaned text (removes [meme:...] markers)
   const finalMessages = parseMessages(finalText);
 
-  // Save assistant message to DB
-  if (finalText.trim()) {
-    toolCtx.db.saveMessage({
-      sessionId: toolCtx.sessionId,
-      role: "assistant",
-      content: finalText,
-      timestamp: Date.now(),
-    });
-  }
-
   logger.info(
     `[chat-engine] Session ${toolCtx.sessionId} done | ${finalMessages.length} msg(s), ${allToolCalls.length} tool call(s)`,
   );

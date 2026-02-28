@@ -144,14 +144,10 @@ export async function analyzeImage(
     let originalGifBuffer: Buffer | undefined = gifBuffer;
 
     if (await isGifUrl(imageUrl)) {
-      logger.info(`[image-analyzer] Detected GIF, extracting frames`);
       const result = await extractGifFrames(imageUrl);
       if (result && result.frames.length > 0) {
         imageUrls = result.frames;
         originalGifBuffer = result.buffer;
-        logger.info(
-          `[image-analyzer] Using ${imageUrls.length} frames for analysis`,
-        );
       } else {
         logger.warn(
           `[image-analyzer] Failed to extract GIF frames, using original URL`,

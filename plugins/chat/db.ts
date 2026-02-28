@@ -6,7 +6,6 @@ import type {
   ChatMessage,
   TopicRecord,
   ExpressionRecord,
-  EmojiRecord,
   ImageRecord,
 } from "./types";
 
@@ -52,11 +51,6 @@ export interface ChatDatabase {
   getExpressions(sessionId: string, limit?: number): ExpressionRecord[];
   getExpressionCount(sessionId: string): number;
   deleteOldestExpressions(sessionId: string, keepCount: number): void;
-  // 表情包
-  saveEmoji(emoji: EmojiRecord): void;
-  getEmojiByEmotion(emotion: string, limit?: number): EmojiRecord[];
-  getAllEmojis(): EmojiRecord[];
-  incrementEmojiUsage(id: number): void;
   // 图片记录
   saveImage(image: ImageRecord): void;
   getImageByHash(hash: string): ImageRecord | null;
@@ -132,16 +126,6 @@ export function initDatabase(): ChatDatabase {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_expressions_session ON expressions(session_id, created_at);
-
-    CREATE TABLE IF NOT EXISTS emojis (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      file_name TEXT NOT NULL UNIQUE,
-      description TEXT NOT NULL,
-      emotion TEXT NOT NULL,
-      usage_count INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_emojis_emotion ON emojis(emotion);
 
     CREATE TABLE IF NOT EXISTS images (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -229,18 +213,6 @@ export function initDatabase(): ChatDatabase {
       DELETE FROM expressions WHERE session_id = ? AND id NOT IN (
         SELECT id FROM expressions WHERE session_id = ? ORDER BY created_at DESC LIMIT ?
       )
-    `),
-    // 表情包
-    insertEmoji: db.prepare(`
-      INSERT OR IGNORE INTO emojis (file_name, description, emotion, usage_count, created_at)
-      VALUES (@fileName, @description, @emotion, @usageCount, @createdAt)
-    `),
-    getEmojiByEmotion: db.prepare(`
-      SELECT * FROM emojis WHERE emotion = ? ORDER BY usage_count DESC LIMIT ?
-    `),
-    getAllEmojis: db.prepare(`SELECT * FROM emojis ORDER BY usage_count DESC`),
-    incrementEmojiUsage: db.prepare(`
-      UPDATE emojis SET usage_count = usage_count + 1 WHERE id = ?
     `),
     // 图片记录
     insertImage: db.prepare(`
@@ -491,44 +463,6 @@ export function initDatabase(): ChatDatabase {
 
     deleteOldestExpressions(sessionId: string, keepCount: number): void {
       stmts.deleteOldestExpressions.run(sessionId, sessionId, keepCount);
-    },
-
-    saveEmoji(emoji: EmojiRecord): void {
-      stmts.insertEmoji.run({
-        fileName: emoji.fileName,
-        description: emoji.description,
-        emotion: emoji.emotion,
-        usageCount: emoji.usageCount ?? 0,
-        createdAt: emoji.createdAt,
-      });
-    },
-
-    getEmojiByEmotion(emotion: string, limit: number = 5): EmojiRecord[] {
-      const rows = stmts.getEmojiByEmotion.all(emotion, limit) as any[];
-      return rows.map((row) => ({
-        id: row.id,
-        fileName: row.file_name,
-        description: row.description,
-        emotion: row.emotion,
-        usageCount: row.usage_count,
-        createdAt: row.created_at,
-      }));
-    },
-
-    getAllEmojis(): EmojiRecord[] {
-      const rows = stmts.getAllEmojis.all() as any[];
-      return rows.map((row) => ({
-        id: row.id,
-        fileName: row.file_name,
-        description: row.description,
-        emotion: row.emotion,
-        usageCount: row.usage_count,
-        createdAt: row.created_at,
-      }));
-    },
-
-    incrementEmojiUsage(id: number): void {
-      stmts.incrementEmojiUsage.run(id);
     },
 
     saveImage(image: ImageRecord): void {
