@@ -90,8 +90,16 @@ async function downloadImage(url: string, savePath: string): Promise<boolean> {
     const protocol = parsedUrl.protocol === "https:" ? https : http;
 
     const file = fs.createWriteStream(savePath);
+    const options = {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Referer: "https://q.qq.com/",
+      },
+    };
+
     protocol
-      .get(url, (response) => {
+      .get(url, options, (response) => {
         response.pipe(file);
         file.on("finish", () => {
           file.close();
@@ -135,7 +143,7 @@ export async function analyzeImage(
     let imageUrls: string[] = [imageUrl];
     let originalGifBuffer: Buffer | undefined = gifBuffer;
 
-    if (isGifUrl(imageUrl)) {
+    if (await isGifUrl(imageUrl)) {
       logger.info(`[image-analyzer] Detected GIF, extracting frames`);
       const result = await extractGifFrames(imageUrl);
       if (result && result.frames.length > 0) {
@@ -272,14 +280,12 @@ export async function processImage(
     // 检查是否已存在
     const existing = db.getImageByHash(hash);
     if (existing) {
-      logger.info(`[image-analyzer] ⊙ Exists: ${existing.description}`);
+      logger.info(`[image-analyzer] Exists: ${existing.description}`);
       return existing;
     }
-
-    logger.info(`[image-analyzer] → Analyzing new image...`);
     const analysis = await analyzeImage(ai, imageUrl, model);
     if (!analysis.success || !analysis.type) {
-      logger.warn(`[image-analyzer] ✗ Analysis failed: ${analysis.error}`);
+      logger.warn(`[image-analyzer] Analysis failed: ${analysis.error}`);
       return null;
     }
 
@@ -316,23 +322,22 @@ export async function processImage(
       if (analysis.gifBuffer) {
         const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true });
+          await fs.promises.mkdir(dir, { recursive: true });
         }
         try {
-          fs.writeFileSync(filePath, analysis.gifBuffer);
-          logger.info(`[image-analyzer] ✓ Saved GIF: ${filePath}`);
+          await fs.promises.writeFile(filePath, analysis.gifBuffer);
         } catch (err) {
-          logger.warn(`[image-analyzer] ✗ Failed to save GIF: ${err}`);
+          logger.warn(`[image-analyzer] Failed to save GIF: ${err}`);
           filePath = undefined;
         }
       } else {
         // 普通图片，下载
         const downloaded = await downloadImage(imageUrl, filePath);
         if (!downloaded) {
-          logger.warn(`[image-analyzer] ✗ Download failed`);
+          logger.warn(`[image-analyzer] Download failed`);
           filePath = undefined;
         } else {
-          logger.info(`[image-analyzer] ✓ Saved: ${filePath}`);
+          // ignore
         }
       }
     }

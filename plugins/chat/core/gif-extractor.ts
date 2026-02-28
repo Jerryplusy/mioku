@@ -92,7 +92,26 @@ export async function extractGifFrames(
 
 /**
  * 检查 URL 是否为 GIF
+ * 优先检查 URL 后缀，其次检测文件内容
  */
-export function isGifUrl(url: string): boolean {
-  return url.toLowerCase().includes(".gif");
+export async function isGifUrl(url: string): Promise<boolean> {
+  if (url.toLowerCase().includes(".gif")) {
+    return true;
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        Referer: "https://qq.com/",
+      },
+    });
+    const contentType = response.headers.get("content-type");
+    if (contentType && contentType.includes("image/gif")) {
+      return true;
+    }
+  } catch {}
+
+  return false;
 }

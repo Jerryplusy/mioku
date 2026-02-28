@@ -415,6 +415,35 @@ export async function sendEmoji(
     const emojiSegment = ctx.segment.image(`file://${emojiPath}`);
     await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
   } catch (err) {
-    ctx.logger.warn(`[Emoji] Failed to send: ${err}`);
+    try {
+      const fs = await import("fs");
+      const path = await import("path");
+
+      if (!fs.existsSync(emojiPath)) {
+        ctx.logger.warn(`[Emoji] File not found: ${emojiPath}`);
+        return;
+      }
+
+      const buffer = await fs.promises.readFile(emojiPath);
+      const base64 = buffer.toString("base64");
+      const ext = path.extname(emojiPath).toLowerCase();
+      const mimeType =
+        ext === ".jpg" || ext === ".jpeg"
+          ? "image/jpeg"
+          : ext === ".png"
+            ? "image/png"
+            : ext === ".gif"
+              ? "image/gif"
+              : ext === ".webp"
+                ? "image/webp"
+                : "image/jpeg";
+
+      const base64DataUrl = `data:${mimeType};base64,${base64}`;
+      const base64Segment = ctx.segment.image(base64DataUrl);
+      await ctx.bot.sendGroupMsg(groupId, [base64Segment]);
+      ctx.logger.info(`[Emoji] Sent via base64: ${path.basename(emojiPath)}`);
+    } catch (base64Err) {
+      ctx.logger.error(`[Emoji] Base64 also failed: ${base64Err}`);
+    }
   }
 }

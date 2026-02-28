@@ -37,14 +37,14 @@ export async function describeImage(
     const { isGifUrl, extractGifFrames } = await import("./gif-extractor");
     let imageUrls: string[] = [imageUrl];
 
-    if (isGifUrl(imageUrl)) {
-      logger.info(`[multimodal] Detected GIF, extracting frames`);
+    if (await isGifUrl(imageUrl)) {
       const result = await extractGifFrames(imageUrl);
       if (result && result.frames.length > 0) {
         imageUrls = result.frames;
-        logger.info(`[multimodal] Using ${imageUrls.length} frames for description`);
       } else {
-        logger.warn(`[multimodal] Failed to extract GIF frames, using original URL`);
+        logger.warn(
+          `[multimodal] Failed to extract GIF frames, using original URL`,
+        );
       }
     }
 

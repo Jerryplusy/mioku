@@ -1249,16 +1249,8 @@ Suggestion:
         // 话题跟踪
         humanize.topicTracker.onMessage(groupSessionId).then();
 
-        // 表情包收集 (seg format: {type: "image", url: "...", file: "..."})
-        if (e.message) {
-          for (const seg of e.message) {
-            if (seg.type === "image" && seg.url && seg.file) {
-              humanize.emojiSystem
-                .collectFromMessage(seg.url, seg.file)
-                .catch(() => {});
-            }
-          }
-        }
+        // 图片分析 (由 image-analyzer.ts 处理，会自动保存 meme 到 data/chat/meme/{character}/{emotion}/)
+        // 旧的表情包收集功能已由 image-analyzer 替代
 
         // 加载群聊历史消息
         const rawHistory = groupId

@@ -57,6 +57,7 @@ export async function runChat(
       activeSkillsInfo: activeSkillsInfo || undefined,
       chatHistory: history,
       targetMessage,
+      emojiAgent: humanize.emojiAgent,
     });
 
     logger.info(`[chat-engine] === Prompt (iter ${iteration}) ===`);
@@ -109,9 +110,17 @@ export async function runChat(
         `[chat-engine] AI reply (iter ${iteration}): "${resp.content}"`,
       );
 
-      // 如果有回调函数，立即发送文本内容
+      // 如果有回调函数，立即发送文本内容（需要先清理 meme 标记）
       if (toolCtx.onTextContent && lastTextContent.trim()) {
-        const messages = cleanMarkers(lastTextContent);
+        const cleanedForCallback = lastTextContent
+          .replace(/\[meme:[^\]]+\]/gi, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .split("\n")
+          .map((l) => l.trim())
+          .join("\n")
+          .trim();
+
+        const messages = parseMessages(cleanedForCallback);
         if (messages.length > 0) {
           if (!toolCtx.sentMessageIndices) {
             toolCtx.sentMessageIndices = new Set();
@@ -119,7 +128,7 @@ export async function runChat(
           toolCtx.sentMessageIndices.add(0);
 
           const callbackResult = toolCtx.onTextContent(
-            lastTextContent,
+            cleanedForCallback,
             0,
             messages.length,
           );
@@ -223,28 +232,42 @@ export async function runChat(
   // Parse messages (markers will be processed when sending)
   const messages = parseMessages(cleanedText);
 
-  // Save assistant message to DB
+  // Process meme intent using new EmojiAgent
+  let emojiPath: string | null = null;
+  let finalText = cleanedText;
   if (cleanedText.trim()) {
+    const memeResult = await humanize.emojiAgent.processMemeResponse(
+      cleanedText,
+      toolCtx.sessionId,
+    );
+    if (memeResult.success && memeResult.emojiPath) {
+      emojiPath = memeResult.emojiPath;
+      finalText = memeResult.cleanedText || cleanedText;
+      logger.info(
+        `[chat-engine] Meme selected: ${memeResult.emojiDescription}, cleaned text: "${finalText}"`,
+      );
+    }
+  }
+
+  // Re-parse messages with cleaned text (removes [meme:...] markers)
+  const finalMessages = parseMessages(finalText);
+
+  // Save assistant message to DB
+  if (finalText.trim()) {
     toolCtx.db.saveMessage({
       sessionId: toolCtx.sessionId,
       role: "assistant",
-      content: cleanedText,
+      content: finalText,
       timestamp: Date.now(),
     });
   }
 
-  // Pick emoji
-  let emojiPath: string | null = null;
-  if (cleanedText.trim()) {
-    emojiPath = await humanize.emojiSystem.pickEmoji(cleanedText);
-  }
-
   logger.info(
-    `[chat-engine] Session ${toolCtx.sessionId} done | ${messages.length} msg(s), ${allToolCalls.length} tool call(s)`,
+    `[chat-engine] Session ${toolCtx.sessionId} done | ${finalMessages.length} msg(s), ${allToolCalls.length} tool call(s)`,
   );
 
   return {
-    messages,
+    messages: finalMessages,
     pendingAt: [],
     pendingPoke: [],
     pendingQuote: undefined,
