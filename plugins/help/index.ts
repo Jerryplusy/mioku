@@ -5,6 +5,7 @@ import type { AIService } from "../../src/services/ai";
 import type { ScreenshotService } from "../../src/services/screenshot";
 import type { MiokiContext } from "mioki";
 import * as fs from "fs";
+import * as path from "path";
 
 const ROLE_CONFIG: Record<
   CommandRole,
@@ -23,6 +24,16 @@ const ROLE_CONFIG: Record<
   },
   member: { label: "成员", color: "text-blue-400", bgColor: "bg-blue-500/20" },
 };
+
+async function getPackageVersion(packageJsonPath: string): Promise<string> {
+  try {
+    const content = await fs.promises.readFile(packageJsonPath, "utf-8");
+    const pkg = JSON.parse(content);
+    return pkg.version || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
 
 const helpPlugin: MiokuPlugin = {
   name: "help",
@@ -46,11 +57,18 @@ const helpPlugin: MiokuPlugin = {
       ctx.logger.warn("screenshot 服务未加载，帮助插件功能受限");
     }
 
+    const miokiVersion = await getPackageVersion(
+      path.join(process.cwd(), "node_modules/mioki/package.json"),
+    );
+    const miokuVersion = await getPackageVersion(
+      path.join(process.cwd(), "package.json"),
+    );
+
     async function generateHelpImage(): Promise<string | null> {
       if (!screenshotService || !helpService) return null;
       const allHelp = helpService.getAllHelp();
       const isNightMode = checkNightMode();
-      const htmlContent = generateHelpHtml(allHelp, isNightMode);
+      const htmlContent = generateHelpHtml(allHelp, isNightMode, miokiVersion, miokuVersion);
       const pluginCount = allHelp.size;
       const estimatedHeight = Math.max(1280, Math.ceil(pluginCount / 2) * 280);
       return screenshotService.screenshot(htmlContent, {
@@ -159,7 +177,7 @@ const helpPlugin: MiokuPlugin = {
           const isNightMode = checkNightMode();
 
           // 生成帮助 HTML
-          const htmlContent = generateHelpHtml(allHelp, isNightMode);
+          const htmlContent = generateHelpHtml(allHelp, isNightMode, miokiVersion, miokuVersion);
 
           // 动态计算高度 - 根据插件数量
           const pluginCount = allHelp.size;
@@ -211,6 +229,8 @@ function checkNightMode(): boolean {
 function generateHelpHtml(
   helpMap: Map<string, any>,
   isNightMode: boolean,
+  miokiVersion: string = "unknown",
+  miokuVersion: string = "unknown",
 ): string {
   const plugins: string[] = [];
 
@@ -292,7 +312,7 @@ function generateHelpHtml(
   }
 
   return `
-    <div class="min-h-screen p-6 pb-16 relative" style="background-image: url('https://kasuie.cc/api/img/bg?type=mobile&size=regular'); background-size: cover; background-position: center; background-attachment: fixed;">
+    <div class="min-h-screen p-6 pb-16 relative" style="background-image: url('https://uapis.cn/api/v1/random/image?category=acg&type=mb'); background-size: cover; background-position: center; background-attachment: fixed;">
       <!-- 背景模糊遮罩 -->
       <div class="absolute inset-0 backdrop-blur-sm" style="background: ${styles.bgOverlay};"></div>
       
@@ -331,7 +351,7 @@ function generateHelpHtml(
               <span class="text-2xl drop-shadow-sm">⚡</span>
               <div class="text-left">
                 <div class="text-xs ${styles.footerLabelColor} font-medium drop-shadow-sm">Framework</div>
-                <div class="font-mono font-bold ${styles.footerTextColor} drop-shadow-md">Mioki v0.15.0</div>
+                <div class="font-mono font-bold ${styles.footerTextColor} drop-shadow-md">Mioki ${miokiVersion}</div>
               </div>
             </div>
             <div class="w-px h-12 ${styles.footerDivider}"></div>
@@ -339,7 +359,7 @@ function generateHelpHtml(
               <span class="text-2xl drop-shadow-sm">🚀</span>
               <div class="text-left">
                 <div class="text-xs ${styles.footerLabelColor} font-medium drop-shadow-sm">Platform</div>
-                <div class="font-mono font-bold ${styles.footerTextColor} drop-shadow-md">Mioku v0.1.0</div>
+                <div class="font-mono font-bold ${styles.footerTextColor} drop-shadow-md">Mioku ${miokuVersion}</div>
               </div>
             </div>
           </div>
