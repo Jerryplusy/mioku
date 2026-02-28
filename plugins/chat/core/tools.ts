@@ -147,16 +147,12 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
     });
   }
 
-  // 查看图片工具（仅多模态模型可用，且当前没有已附加的图片时）
-  const hasPendingImages =
-    toolCtx.pendingImageUrls && toolCtx.pendingImageUrls.length > 0;
-  // 如果消息中已经有图片附加，则不再提供 view_image 工具
-  const hasAttachedImages = toolCtx.hasAttachedImages ?? false;
-  if (toolCtx.config.isMultimodal && !hasPendingImages && !hasAttachedImages) {
+  // 查看图片工具
+  if (toolCtx.config.isMultimodal) {
     tools.push({
       name: "view_image",
       description:
-        "View an image by its message ID. Use this when you need to see what's in an image to answer the user's question.",
+        "View and analyze an image by its message ID. Use this when you need to see what's in an image to answer the user's question. The image will be analyzed and described to you.",
       parameters: {
         type: "object",
         properties: {
@@ -170,29 +166,42 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
       },
       handler: async (args) => {
         try {
-          // 队列处理时 event 为 null，无法获取图片
-          if (!toolCtx.event) {
-            return { error: "No message context available" };
-          }
-
-          // 通过 message_id 获取消息详情
-          const imageUrl = await toolCtx.ctx.getQuoteImageUrl(toolCtx.event);
+          // 通过 message_id 获取消息中的图片
+          const { describeImage, getImageUrlByMessageId } =
+            await import("./multimodal");
+          const imageUrl = await getImageUrlByMessageId(
+            toolCtx.ctx,
+            args.message_id,
+          );
 
           if (!imageUrl) {
-            return { error: "Image not found" };
+            return { error: "Image not found in the specified message" };
           }
-          logger.info(imageUrl);
-          if (!toolCtx.pendingImageUrls) {
-            toolCtx.pendingImageUrls = [];
+
+          // 使用多模态工作模型描述图片
+          const ai = toolCtx.aiService.getDefault();
+          if (!ai) {
+            return { error: "AI instance not available" };
           }
-          toolCtx.pendingImageUrls.push(imageUrl);
+
+          const result = await describeImage(
+            ai,
+            imageUrl,
+            toolCtx.config.multimodalWorkingModel,
+            toolCtx.event?.raw_message || undefined,
+          );
+
+          if (!result.success) {
+            return { error: result.error || "Failed to analyze image" };
+          }
 
           return {
             success: true,
-            note: "Now that the image has been successfully attached to the session, there is no need to call this tool to view the image, just continue the reasoning",
+            description: result.description,
+            note: "The image has been analyzed. Use the description above to answer the user's question.",
           };
         } catch (err) {
-          return { error: `Failed to get image: ${err}` };
+          return { error: `Failed to analyze image: ${err}` };
         }
       },
       returnToAI: true,
@@ -201,7 +210,7 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
     tools.push({
       name: "view_member_avatar",
       description:
-        "View a group member's QQ avatar. Use this when you need to see what someone's avatar looks like.",
+        "View and analyze a group member's QQ avatar. Use this when you need to see what someone's avatar looks like. The avatar will be analyzed and described to you.",
       parameters: {
         type: "object",
         properties: {
@@ -217,17 +226,33 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
         try {
           const avatarUrl = `https://q1.qlogo.cn/g?b=qq&nk=${args.user_id}&s=640`;
 
-          if (!toolCtx.pendingImageUrls) {
-            toolCtx.pendingImageUrls = [];
+          logger.info(`[view_member_avatar] Analyzing avatar: ${avatarUrl}`);
+
+          // 使用多模态工作模型描述头像
+          const { describeImage } = await import("./multimodal");
+          const ai = toolCtx.aiService.getDefault();
+          if (!ai) {
+            return { error: "AI instance not available" };
           }
-          toolCtx.pendingImageUrls.push(avatarUrl);
+
+          const result = await describeImage(
+            ai,
+            avatarUrl,
+            toolCtx.config.multimodalWorkingModel,
+            `User ${args.user_id}'s QQ avatar`,
+          );
+
+          if (!result.success) {
+            return { error: result.error || "Failed to analyze avatar" };
+          }
 
           return {
             success: true,
-            note: "The avatar has been successfully attached to the session. You can now see and describe the avatar and there is no need to call this tool to view the image.",
+            description: result.description,
+            note: "The avatar has been analyzed. Use the description above to answer the user's question.",
           };
         } catch (err) {
-          return { error: `Failed to get avatar: ${err}` };
+          return { error: `Failed to analyze avatar: ${err}` };
         }
       },
       returnToAI: true,

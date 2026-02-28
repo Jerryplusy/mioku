@@ -1,12 +1,13 @@
 import Database from "better-sqlite3";
-import * as fs from "fs";
+import * as fs from "fs/promises";
+import { existsSync } from "fs";
 import * as path from "path";
 import type {
   SessionMeta,
   ChatMessage,
   TopicRecord,
   ExpressionRecord,
-  EmojiRecord,
+  ImageRecord,
 } from "./types";
 
 /**
@@ -51,21 +52,20 @@ export interface ChatDatabase {
   getExpressions(sessionId: string, limit?: number): ExpressionRecord[];
   getExpressionCount(sessionId: string): number;
   deleteOldestExpressions(sessionId: string, keepCount: number): void;
-  // 表情包
-  saveEmoji(emoji: EmojiRecord): void;
-  getEmojiByEmotion(emotion: string, limit?: number): EmojiRecord[];
-  getAllEmojis(): EmojiRecord[];
-  incrementEmojiUsage(id: number): void;
+  // 图片记录
+  saveImage(image: ImageRecord): void;
+  getImageByHash(hash: string): ImageRecord | null;
+  getAllImages(): ImageRecord[];
   close(): void;
 }
 
 /**
  * SQLite 数据库实现
  */
-export function initDatabase(): ChatDatabase {
+export async function initDatabase(): Promise<ChatDatabase> {
   const dbDir = path.join(process.cwd(), "data", "chat");
-  if (!fs.existsSync(dbDir)) {
-    fs.mkdirSync(dbDir, { recursive: true });
+  if (!existsSync(dbDir)) {
+    await fs.mkdir(dbDir, { recursive: true });
   }
 
   const dbPath = path.join(dbDir, "chat.db");
@@ -128,15 +128,19 @@ export function initDatabase(): ChatDatabase {
     );
     CREATE INDEX IF NOT EXISTS idx_expressions_session ON expressions(session_id, created_at);
 
-    CREATE TABLE IF NOT EXISTS emojis (
+    CREATE TABLE IF NOT EXISTS images (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      file_name TEXT NOT NULL UNIQUE,
+      hash TEXT NOT NULL UNIQUE,
+      url TEXT NOT NULL,
+      type TEXT NOT NULL,
       description TEXT NOT NULL,
-      emotion TEXT NOT NULL,
-      usage_count INTEGER NOT NULL DEFAULT 0,
+      emotion TEXT,
+      character TEXT,
+      file_path TEXT,
       created_at INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_emojis_emotion ON emojis(emotion);
+    CREATE INDEX IF NOT EXISTS idx_images_hash ON images(hash);
+    CREATE INDEX IF NOT EXISTS idx_images_type ON images(type);
   `);
 
   // 预编译语句
@@ -211,18 +215,13 @@ export function initDatabase(): ChatDatabase {
         SELECT id FROM expressions WHERE session_id = ? ORDER BY created_at DESC LIMIT ?
       )
     `),
-    // 表情包
-    insertEmoji: db.prepare(`
-      INSERT OR IGNORE INTO emojis (file_name, description, emotion, usage_count, created_at)
-      VALUES (@fileName, @description, @emotion, @usageCount, @createdAt)
+    // 图片记录
+    insertImage: db.prepare(`
+      INSERT OR IGNORE INTO images (hash, url, type, description, emotion, character, file_path, created_at)
+      VALUES (@hash, @url, @type, @description, @emotion, @character, @filePath, @createdAt)
     `),
-    getEmojiByEmotion: db.prepare(`
-      SELECT * FROM emojis WHERE emotion = ? ORDER BY usage_count DESC LIMIT ?
-    `),
-    getAllEmojis: db.prepare(`SELECT * FROM emojis ORDER BY usage_count DESC`),
-    incrementEmojiUsage: db.prepare(`
-      UPDATE emojis SET usage_count = usage_count + 1 WHERE id = ?
-    `),
+    getImageByHash: db.prepare(`SELECT * FROM images WHERE hash = ?`),
+    getAllImages: db.prepare(`SELECT * FROM images ORDER BY created_at DESC`),
   };
 
   return {
@@ -467,42 +466,48 @@ export function initDatabase(): ChatDatabase {
       stmts.deleteOldestExpressions.run(sessionId, sessionId, keepCount);
     },
 
-    saveEmoji(emoji: EmojiRecord): void {
-      stmts.insertEmoji.run({
-        fileName: emoji.fileName,
-        description: emoji.description,
-        emotion: emoji.emotion,
-        usageCount: emoji.usageCount ?? 0,
-        createdAt: emoji.createdAt,
+    saveImage(image: ImageRecord): void {
+      stmts.insertImage.run({
+        hash: image.hash,
+        url: image.url,
+        type: image.type,
+        description: image.description,
+        emotion: image.emotion ?? null,
+        character: image.character ?? null,
+        filePath: image.filePath ?? null,
+        createdAt: image.createdAt,
       });
     },
 
-    getEmojiByEmotion(emotion: string, limit: number = 5): EmojiRecord[] {
-      const rows = stmts.getEmojiByEmotion.all(emotion, limit) as any[];
-      return rows.map((row) => ({
+    getImageByHash(hash: string): ImageRecord | null {
+      const row = stmts.getImageByHash.get(hash) as any;
+      if (!row) return null;
+      return {
         id: row.id,
-        fileName: row.file_name,
+        hash: row.hash,
+        url: row.url,
+        type: row.type,
         description: row.description,
         emotion: row.emotion,
-        usageCount: row.usage_count,
+        character: row.character,
+        filePath: row.file_path,
         createdAt: row.created_at,
-      }));
+      };
     },
 
-    getAllEmojis(): EmojiRecord[] {
-      const rows = stmts.getAllEmojis.all() as any[];
+    getAllImages(): ImageRecord[] {
+      const rows = stmts.getAllImages.all() as any[];
       return rows.map((row) => ({
         id: row.id,
-        fileName: row.file_name,
+        hash: row.hash,
+        url: row.url,
+        type: row.type,
         description: row.description,
         emotion: row.emotion,
-        usageCount: row.usage_count,
+        character: row.character,
+        filePath: row.file_path,
         createdAt: row.created_at,
       }));
-    },
-
-    incrementEmojiUsage(id: number): void {
-      stmts.incrementEmojiUsage.run(id);
     },
 
     close(): void {

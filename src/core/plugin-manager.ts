@@ -1,9 +1,19 @@
-import * as fs from "fs";
+import * as fs from "fs/promises";
 import * as path from "path";
+import { existsSync, mkdirSync } from "fs";
 import { logger } from "mioki";
 import type { PluginMetadata } from "./types";
 
 const PLUGIN_MANAGER_SYMBOL = Symbol.for("mioku.plugin-manager");
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * 插件管理器
@@ -25,28 +35,28 @@ export class PluginManager {
     return g[PLUGIN_MANAGER_SYMBOL];
   }
 
-  private ensurePluginsDir(): void {
-    if (!fs.existsSync(this.pluginsDir)) {
-      fs.mkdirSync(this.pluginsDir, { recursive: true });
+  private async ensurePluginsDir(): Promise<void> {
+    if (!existsSync(this.pluginsDir)) {
+      mkdirSync(this.pluginsDir, { recursive: true });
     }
   }
 
   async discoverPlugins(): Promise<PluginMetadata[]> {
     const discovered: PluginMetadata[] = [];
-    if (!fs.existsSync(this.pluginsDir)) return discovered;
+    if (!existsSync(this.pluginsDir)) return discovered;
 
-    const entries = fs.readdirSync(this.pluginsDir, { withFileTypes: true });
+    const entries = await fs.readdir(this.pluginsDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
 
       const pluginPath = path.join(this.pluginsDir, entry.name);
       const packageJsonPath = path.join(pluginPath, "package.json");
 
-      if (!fs.existsSync(packageJsonPath)) continue;
+      if (!(await pathExists(packageJsonPath))) continue;
 
       try {
         const packageJson = JSON.parse(
-          await fs.promises.readFile(packageJsonPath, "utf-8"),
+          await fs.readFile(packageJsonPath, "utf-8"),
         );
         const metadata: PluginMetadata = {
           name: entry.name,

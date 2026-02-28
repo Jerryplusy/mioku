@@ -1,9 +1,19 @@
-import * as fs from "fs";
+import * as fs from "fs/promises";
 import * as path from "path";
+import { existsSync, mkdirSync } from "fs";
 import { logger, MiokiContext } from "mioki";
 import type { ServiceMetadata, MiokuService } from "./types";
 
 const SERVICE_MANAGER_SYMBOL = Symbol.for("mioku.service-manager");
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * 服务管理器
@@ -26,17 +36,17 @@ export class ServiceManager {
     return g[SERVICE_MANAGER_SYMBOL];
   }
 
-  private ensureServicesDir(): void {
-    if (!fs.existsSync(this.servicesDir)) {
-      fs.mkdirSync(this.servicesDir, { recursive: true });
+  private async ensureServicesDir(): Promise<void> {
+    if (!existsSync(this.servicesDir)) {
+      mkdirSync(this.servicesDir, { recursive: true });
     }
   }
 
   async discoverServices(): Promise<ServiceMetadata[]> {
     const discovered: ServiceMetadata[] = [];
-    if (!fs.existsSync(this.servicesDir)) return discovered;
+    if (!existsSync(this.servicesDir)) return discovered;
 
-    const entries = await fs.promises.readdir(this.servicesDir, {
+    const entries = await fs.readdir(this.servicesDir, {
       withFileTypes: true,
     });
     for (const entry of entries) {
@@ -45,11 +55,11 @@ export class ServiceManager {
       const servicePath = path.join(this.servicesDir, entry.name);
       const packageJsonPath = path.join(servicePath, "package.json");
 
-      if (!fs.existsSync(packageJsonPath)) continue;
+      if (!(await pathExists(packageJsonPath))) continue;
 
       try {
         const packageJson = JSON.parse(
-          await fs.promises.readFile(packageJsonPath, "utf-8"),
+          await fs.readFile(packageJsonPath, "utf-8"),
         );
         const metadata: ServiceMetadata = {
           name: entry.name,
@@ -94,9 +104,11 @@ export class ServiceManager {
     try {
       const indexPath = path.join(metadata.path, "index.ts");
       const indexJsPath = path.join(metadata.path, "index.js");
-      const entryPoint = fs.existsSync(indexPath) ? indexPath : indexJsPath;
+      const indexExists = await pathExists(indexPath);
+      const indexJsExists = await pathExists(indexJsPath);
+      const entryPoint = indexExists ? indexPath : indexJsPath;
 
-      if (!fs.existsSync(entryPoint)) {
+      if (!entryPoint || (!indexExists && !indexJsExists)) {
         logger.error(`服务 ${metadata.name} 入口丢失`);
         return false;
       }

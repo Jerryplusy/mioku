@@ -57,6 +57,7 @@ export async function runChat(
       activeSkillsInfo: activeSkillsInfo || undefined,
       chatHistory: history,
       targetMessage,
+      emojiAgent: humanize.emojiAgent,
     });
 
     logger.info(`[chat-engine] === Prompt (iter ${iteration}) ===`);
@@ -69,36 +70,22 @@ export async function runChat(
 
     // 构建消息
     const pendingImages = toolCtx.pendingImageUrls;
-    const isMultimodal = toolCtx.config.isMultimodal;
     const hasImages = pendingImages && pendingImages.length > 0;
 
-    // 多模态模型需要使用数组格式，文本模型使用字符串格式
-    let messages: any[];
+    let messages: any[] = [{ role: "system", content: prompt }];
 
-    if (isMultimodal || hasImages) {
-      // system 消息只包含提示词
-      messages = [{ role: "system", content: prompt }];
-
-      // user 消息包含用户内容和图片
-      if (hasImages) {
-        const userContent: any[] = [
-          { type: "text", text: targetMessage.content },
-        ];
-        for (const url of pendingImages) {
-          userContent.push({ type: "image_url", image_url: { url } });
-        }
-        messages.push({ role: "user", content: userContent });
-
-        logger.info(
-          `[chat-engine] Attaching ${pendingImages.length} image(s) to user message`,
-        );
-        // 清除待附加的图片
-        toolCtx.pendingImageUrls = [];
-      } else {
-        messages.push({ role: "user", content: targetMessage.content });
+    // 第一轮迭代，添加用户消息
+    if (iteration === 0 && hasImages) {
+      const userContent: any[] = [
+        { type: "text", text: targetMessage.content },
+      ];
+      for (const url of pendingImages) {
+        userContent.push({ type: "image_url", image_url: { url } });
       }
-    } else {
-      messages = [{ role: "system", content: prompt }];
+      messages.push({ role: "user", content: userContent });
+
+      // 清除已附加的图片
+      toolCtx.pendingImageUrls = [];
     }
 
     // Call AI
@@ -123,9 +110,17 @@ export async function runChat(
         `[chat-engine] AI reply (iter ${iteration}): "${resp.content}"`,
       );
 
-      // 如果有回调函数，立即发送文本内容
+      // 如果有回调函数，立即发送文本内容（需要先清理 meme 标记）
       if (toolCtx.onTextContent && lastTextContent.trim()) {
-        const messages = cleanMarkers(lastTextContent);
+        const cleanedForCallback = lastTextContent
+          .replace(/\[meme:[^\]]+\]/gi, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .split("\n")
+          .map((l) => l.trim())
+          .join("\n")
+          .trim();
+
+        const messages = parseMessages(cleanedForCallback);
         if (messages.length > 0) {
           if (!toolCtx.sentMessageIndices) {
             toolCtx.sentMessageIndices = new Set();
@@ -133,7 +128,7 @@ export async function runChat(
           toolCtx.sentMessageIndices.add(0);
 
           const callbackResult = toolCtx.onTextContent(
-            lastTextContent,
+            cleanedForCallback,
             0,
             messages.length,
           );
@@ -237,28 +232,32 @@ export async function runChat(
   // Parse messages (markers will be processed when sending)
   const messages = parseMessages(cleanedText);
 
-  // Save assistant message to DB
+  // Process meme intent using new EmojiAgent
+  let emojiPath: string | null = null;
+  let finalText = cleanedText;
   if (cleanedText.trim()) {
-    toolCtx.db.saveMessage({
-      sessionId: toolCtx.sessionId,
-      role: "assistant",
-      content: cleanedText,
-      timestamp: Date.now(),
-    });
+    const memeResult = await humanize.emojiAgent.processMemeResponse(
+      cleanedText,
+      toolCtx.sessionId,
+    );
+    if (memeResult.success && memeResult.emojiPath) {
+      emojiPath = memeResult.emojiPath;
+      finalText = memeResult.cleanedText || cleanedText;
+      logger.info(
+        `[chat-engine] Meme selected: ${memeResult.emojiDescription}, cleaned text: "${finalText}"`,
+      );
+    }
   }
 
-  // Pick emoji
-  let emojiPath: string | null = null;
-  if (cleanedText.trim()) {
-    emojiPath = await humanize.emojiSystem.pickEmoji(cleanedText);
-  }
+  // Re-parse messages with cleaned text (removes [meme:...] markers)
+  const finalMessages = parseMessages(finalText);
 
   logger.info(
-    `[chat-engine] Session ${toolCtx.sessionId} done | ${messages.length} msg(s), ${allToolCalls.length} tool call(s)`,
+    `[chat-engine] Session ${toolCtx.sessionId} done | ${finalMessages.length} msg(s), ${allToolCalls.length} tool call(s)`,
   );
 
   return {
-    messages,
+    messages: finalMessages,
     pendingAt: [],
     pendingPoke: [],
     pendingQuote: undefined,

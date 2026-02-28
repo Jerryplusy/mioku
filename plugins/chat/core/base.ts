@@ -7,10 +7,8 @@ import type {
 } from "../types";
 import type { ChatDatabase } from "../db";
 import type { HumanizeEngine } from "../humanize";
-import type { SkillSessionManager } from "../manage/skill-session";
 import { parseLineMarkers, splitByReplyMarkers } from "../utils/queue";
 import { getGroupHistory } from "../utils";
-import { runChat } from "./chat-engine";
 
 export interface SendAIResponseOptions {
   ctx: MiokiContext;
@@ -321,7 +319,6 @@ export interface BuildToolContextOptions {
   aiService: AIService;
   db: ChatDatabase;
   botRole: "owner" | "admin" | "member";
-  hasAttachedImages?: boolean;
   pendingImageUrls?: string[];
   humanize: HumanizeEngine;
   targetMessage: TargetMessage;
@@ -340,7 +337,6 @@ export function buildToolContext(
     aiService,
     db,
     botRole,
-    hasAttachedImages,
     pendingImageUrls,
     humanize,
     targetMessage,
@@ -356,7 +352,6 @@ export function buildToolContext(
     aiService,
     db,
     botRole,
-    hasAttachedImages,
     pendingImageUrls,
     onTextContent: async (text, messageIndex) => {
       const messages = text
@@ -420,6 +415,43 @@ export async function sendEmoji(
     const emojiSegment = ctx.segment.image(`file://${emojiPath}`);
     await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
   } catch (err) {
-    ctx.logger.warn(`[Emoji] Failed to send: ${err}`);
+    try {
+      const fsPromises = await import("fs/promises");
+      const path = await import("path");
+
+      let fileExists = false;
+      try {
+        await fsPromises.access(emojiPath);
+        fileExists = true;
+      } catch {
+        fileExists = false;
+      }
+
+      if (!fileExists) {
+        ctx.logger.warn(`[Emoji] File not found: ${emojiPath}`);
+        return;
+      }
+
+      const buffer = await fsPromises.readFile(emojiPath);
+      const base64 = buffer.toString("base64");
+      const ext = path.extname(emojiPath).toLowerCase();
+      const mimeType =
+        ext === ".jpg" || ext === ".jpeg"
+          ? "image/jpeg"
+          : ext === ".png"
+            ? "image/png"
+            : ext === ".gif"
+              ? "image/gif"
+              : ext === ".webp"
+                ? "image/webp"
+                : "image/jpeg";
+
+      const base64DataUrl = `data:${mimeType};base64,${base64}`;
+      const base64Segment = ctx.segment.image(base64DataUrl);
+      await ctx.bot.sendGroupMsg(groupId, [base64Segment]);
+      ctx.logger.info(`[Emoji] Sent via base64: ${path.basename(emojiPath)}`);
+    } catch (base64Err) {
+      ctx.logger.error(`[Emoji] Base64 also failed: ${base64Err}`);
+    }
   }
 }

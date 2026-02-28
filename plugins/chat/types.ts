@@ -93,6 +93,7 @@ export interface ChatConfig {
   apiKey: string;
   model: string;
   workingModel: string;
+  multimodalWorkingModel: string;
   isMultimodal: boolean;
   nicknames: string[];
   persona: string;
@@ -101,6 +102,7 @@ export interface ChatConfig {
   historyCount: number;
   blacklistGroups: number[];
   whitelistGroups: number[];
+  imageAnalysisBlacklistUsers: number[];
   maxSessions: number;
   maxIterations: number;
   enableGroupAdmin: boolean;
@@ -141,7 +143,7 @@ export interface ChatMessage {
   id?: number;
   sessionId: string;
   role: "user" | "assistant" | "system";
-  content: string;
+  content: string; // 存储时统一为字符串
   userId?: number;
   userName?: string;
   userRole?: string; // "owner" | "admin" | "member"
@@ -205,10 +207,6 @@ export interface ToolContext {
    * 待附加到下一轮 AI 请求的图片 URL
    */
   pendingImageUrls?: string[];
-  /**
-   * 当前消息是否已附加图片
-   */
-  hasAttachedImages?: boolean;
 }
 
 /**
@@ -262,6 +260,21 @@ export interface EmojiRecord {
   description: string; // AI 生成的描述
   emotion: string; // 情感标签
   usageCount: number;
+  createdAt: number;
+}
+
+/**
+ * 图片记录
+ */
+export interface ImageRecord {
+  id?: number;
+  hash: string; // 图片哈希
+  url: string; // 原始 URL
+  type: "meme" | "image"; // 图片类型
+  description: string; // AI 生成的简要描述
+  emotion?: string; // 情感标签（仅表情包）
+  character?: string; // 角色名称（仅表情包）
+  filePath?: string; // 本地文件路径（仅表情包）
   createdAt: number;
 }
 

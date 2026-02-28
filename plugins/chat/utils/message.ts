@@ -166,7 +166,10 @@ export async function getGroupHistory(
   groupId: number,
   ctx: MiokiContext,
   count: number = 100,
-  db?: { getBotMessages(groupId: number, limit: number): ChatMessage[] },
+  db?: {
+    getBotMessages(groupId: number, limit: number): ChatMessage[];
+    getImageByHash?(hash: string): any;
+  },
 ): Promise<
   Array<{
     userId: number;
@@ -273,6 +276,19 @@ export async function getGroupHistory(
           }
           if (textContent) {
             parts.push(textContent);
+          }
+
+          // 处理图片消息
+          const imageSegs = msg.message.filter((seg: any) => seg.type === "image");
+          if (imageSegs.length > 0 && db?.getImageByHash) {
+            for (const imageSeg of imageSegs) {
+              const imageUrl = (imageSeg as any).url || (imageSeg as any).data?.url;
+              if (imageUrl) {
+                const { getImageTag } = await import("../core/image-analyzer");
+                const tag = await getImageTag(imageUrl, db as any);
+                parts.push(tag);
+              }
+            }
           }
 
           if (parts.length > 0) {
