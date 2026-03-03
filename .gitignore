@@ -124,6 +124,7 @@ dist
 !src/services/screenshot
 !src/services/config
 !src/services/help
+!src/services/webui
 !plugins/boot
 !plugins/help
 bun.lock
@@ -149,3 +150,5 @@ vite.config.ts.timestamp-*
 /src/services/
 /plugins
 /data/
+/webui/
+/mioku-webui/
