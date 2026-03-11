@@ -100,10 +100,9 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
       },
       handler: async (args) => {
         try {
-          const info = await toolCtx.ctx.bot.getGroupMemberInfo(
-            toolCtx.groupId!,
-            args.user_id,
-          );
+          const info = await toolCtx.ctx
+            .pickBot(toolCtx.event.self_id)
+            .getGroupMemberInfo(toolCtx.groupId!, args.user_id);
           return {
             nickname: info.nickname,
             card: info.card,
@@ -130,9 +129,9 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
       },
       handler: async () => {
         try {
-          const list = await toolCtx.ctx.bot.getGroupMemberList(
-            toolCtx.groupId!,
-          );
+          const list = await toolCtx.ctx
+            .pickBot(toolCtx.event.self_id)
+            .getGroupMemberList(toolCtx.groupId!);
           const members = (list as any[]).map((m) => ({
             user_id: m.user_id,
             nickname: m.card || m.nickname,
@@ -172,6 +171,7 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
           const imageUrl = await getImageUrlByMessageId(
             toolCtx.ctx,
             args.message_id,
+            toolCtx.event,
           );
 
           if (!imageUrl) {
@@ -282,11 +282,9 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
       },
       handler: async (args) => {
         try {
-          await toolCtx.ctx.bot.setGroupBan(
-            toolCtx.groupId!,
-            args.user_id,
-            args.duration,
-          );
+          await toolCtx.ctx
+            .pickBot(toolCtx.event.self_id)
+            .setGroupBan(toolCtx.groupId!, args.user_id, args.duration);
           const action = args.duration > 0 ? "muted" : "unmuted";
           return {
             success: true,
@@ -318,10 +316,12 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
         try {
           // 队列处理时 event 为 null，使用 groupId 替代
           const groupId = toolCtx.event?.group_id ?? toolCtx.groupId;
-          await toolCtx.ctx.bot.api("set_group_kick", {
-            group_id: groupId,
-            user_id: args.user_id,
-          });
+          await toolCtx.ctx
+            .pickBot(toolCtx.event.self_id)
+            .api("set_group_kick", {
+              group_id: groupId,
+              user_id: args.user_id,
+            });
           return {
             success: true,
             action: "kicked",
@@ -347,11 +347,9 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
       },
       handler: async (args) => {
         try {
-          await toolCtx.ctx.bot.setGroupCard(
-            toolCtx.groupId!,
-            args.user_id,
-            args.card,
-          );
+          await toolCtx.ctx
+            .pickBot(toolCtx.event.self_id)
+            .setGroupCard(toolCtx.groupId!, args.user_id, args.card);
           return {
             success: true,
             action: "card_set",
@@ -378,11 +376,9 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
       },
       handler: async (args) => {
         try {
-          await (toolCtx.ctx.bot as any).setGroupSpecialTitle(
-            toolCtx.groupId!,
-            args.user_id,
-            args.title,
-          );
+          await (
+            toolCtx.ctx.pickBot(toolCtx.event.self_id) as any
+          ).setGroupSpecialTitle(toolCtx.groupId!, args.user_id, args.title);
           return {
             success: true,
             action: "title_set",
@@ -411,10 +407,12 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
       },
       handler: async (args) => {
         try {
-          await toolCtx.ctx.bot.api("set_group_whole_ban", {
-            group_id: toolCtx.groupId,
-            enable: args.enable,
-          });
+          await toolCtx.ctx
+            .pickBot(toolCtx.event.self_id)
+            .api("set_group_whole_ban", {
+              group_id: toolCtx.groupId,
+              enable: args.enable,
+            });
           return {
             success: true,
             action: args.enable ? "group_muted" : "group_unmuted",

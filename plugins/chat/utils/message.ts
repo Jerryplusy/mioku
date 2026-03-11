@@ -11,7 +11,7 @@ export function shouldTrigger(
 
   // Only check if message @s the bot (seg format: {type: "at", qq: "123456"})
   const atSeg = e.message?.find((seg: any) => seg.type === "at");
-  return !!(atSeg && String(atSeg.qq) === String(ctx.bot.uin));
+  return !!(atSeg && String(atSeg.qq) === String(e.self_id));
 }
 
 /**
@@ -25,7 +25,7 @@ export async function isQuotingBot(
   if (e.quote_id) {
     try {
       const quoteMsg = await ctx.getQuoteMsg(e);
-      if (quoteMsg && String(quoteMsg.sender.user_id) === String(ctx.bot.uin)) {
+      if (quoteMsg && String(quoteMsg.sender.user_id) === String(e.self_id)) {
         const quotedText = quoteMsg.message
           ?.filter((s: any) => s.type === "text")
           .map((s: any) => s.text)
@@ -110,7 +110,7 @@ export function extractContent(
   // If text is empty but user @'d the bot, describe the action
   if (!text.trim() && e.message) {
     const hasAt = e.message.some(
-      (seg: any) => seg.type === "at" && String(seg.qq) === String(ctx.bot.uin),
+      (seg: any) => seg.type === "at" && String(seg.qq) === String(e.self_id),
     );
     if (hasAt) {
       text = "[@you with no text]";
@@ -149,9 +149,12 @@ export function extractContent(
 export async function getBotRole(
   groupId: number,
   ctx: MiokiContext,
+  e: any,
 ): Promise<"owner" | "admin" | "member"> {
   try {
-    const memberInfo = await ctx.bot.getGroupMemberInfo(groupId, ctx.bot.uin);
+    const memberInfo = await ctx
+      .pickBot(e.self_id)
+      .getGroupMemberInfo(groupId, e.self_id);
     return (memberInfo.role as "owner" | "admin" | "member") || "member";
   } catch {
     return "member";
@@ -170,6 +173,7 @@ export async function getGroupHistory(
     getBotMessages(groupId: number, limit: number): ChatMessage[];
     getImageByHash?(hash: string): any;
   },
+  e: any,
 ): Promise<
   Array<{
     userId: number;
@@ -206,22 +210,25 @@ export async function getGroupHistory(
 
   try {
     // 调用 OneBot API 获取群聊历史
-    const result = await (ctx.bot as any).api("get_group_msg_history", {
-      group_id: String(groupId),
-      message_seq: "0",
-      count: Math.min(count, 200), // 最多获取200条
-      reverse_order: false,
-      disable_get_url: false,
-      parse_mult_msg: true,
-      quick_reply: false,
-    });
+    const result = await (ctx.pickBot(e.self_id) as any).api(
+      "get_group_msg_history",
+      {
+        group_id: String(groupId),
+        message_seq: "0",
+        count: Math.min(count, 200), // 最多获取200条
+        reverse_order: false,
+        disable_get_url: false,
+        parse_mult_msg: true,
+        quick_reply: false,
+      },
+    );
     const messages = result?.messages || result?.data?.messages || [];
     if (!Array.isArray(messages)) {
       logger.warn("[getGroupHistory] API 返回格式异常:", result);
       return botMessages;
     }
 
-    const botUin = ctx.bot.uin;
+    const botUin = e.self_id;
 
     // 格式化消息
     const formatted: Array<{
@@ -279,10 +286,13 @@ export async function getGroupHistory(
           }
 
           // 处理图片消息
-          const imageSegs = msg.message.filter((seg: any) => seg.type === "image");
+          const imageSegs = msg.message.filter(
+            (seg: any) => seg.type === "image",
+          );
           if (imageSegs.length > 0 && db?.getImageByHash) {
             for (const imageSeg of imageSegs) {
-              const imageUrl = (imageSeg as any).url || (imageSeg as any).data?.url;
+              const imageUrl =
+                (imageSeg as any).url || (imageSeg as any).data?.url;
               if (imageUrl) {
                 const { getImageTag } = await import("../core/image-analyzer");
                 const tag = await getImageTag(imageUrl, db as any);

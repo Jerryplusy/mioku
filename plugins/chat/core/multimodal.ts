@@ -115,15 +115,17 @@ ${context ? `\nUser context: ${context}` : ""}`;
  * 获取指定消息 ID 中的图片 URL
  * @param ctx Mioki 上下文
  * @param messageId 消息 ID
+ * @param e
  * @returns 图片 URL 或 null
  */
 export async function getImageUrlByMessageId(
   ctx: MiokiContext,
   messageId: number,
+  e: any,
 ): Promise<string | null> {
   try {
     // 通过 message_id 获取消息详情
-    const msg = await ctx.bot.getMsg(messageId);
+    const msg = await ctx.pickBot(e.self_id).getMsg(messageId);
     if (!msg || !msg.message) {
       return null;
     }

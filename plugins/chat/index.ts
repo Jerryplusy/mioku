@@ -180,6 +180,7 @@ const chatPlugin: MiokuPlugin = {
       groupSessionId: string,
       groupId: number,
       cfg: ChatConfig,
+      e: any,
     ): Promise<void> {
       const queueData = dynamicDelayQueues.get(groupSessionId);
       if (!queueData || queueData.messages.length === 0) {
@@ -226,13 +227,15 @@ const chatPlugin: MiokuPlugin = {
           timestamp: Date.now(),
         };
 
-        const botRole = await getBotRole(groupId, ctx);
-        const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+        const botRole = await getBotRole(groupId, ctx, e);
+        const botNickname =
+          cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
 
         const { groupName, memberCount } = await getGroupInfoData(
           ctx,
           groupId,
           String(groupId),
+          e,
         );
 
         const { history } = await getGroupHistoryMessages(
@@ -241,6 +244,7 @@ const chatPlugin: MiokuPlugin = {
           ctx,
           cfg.historyCount,
           db,
+          e,
         );
 
         const toolCtx: ToolContext = buildToolContext({
@@ -298,16 +302,19 @@ const chatPlugin: MiokuPlugin = {
           skillManager,
         );
 
-        await sendAIResponse({
-          ctx,
-          groupId,
-          messages: result.messages,
-          sentIndices: toolCtx.sentMessageIndices,
-          typoGenerator: humanize.typoGenerator,
-        });
+        await sendAIResponse(
+          {
+            ctx,
+            groupId,
+            messages: result.messages,
+            sentIndices: toolCtx.sentMessageIndices,
+            typoGenerator: humanize.typoGenerator,
+          },
+          e,
+        );
 
         rateLimiter.clearGroupInteractions(groupId);
-        startCooldownTimer(groupSessionId, groupId);
+        startCooldownTimer(groupSessionId, groupId, e);
       } catch (err) {
         ctx.logger.error(
           `[DynamicDelay] group ${groupId} processing failed: ${err}`,
@@ -325,6 +332,7 @@ const chatPlugin: MiokuPlugin = {
       groupId: number,
       delayMs: number,
       cfg: ChatConfig,
+      e: any,
     ): void {
       let queueData = dynamicDelayQueues.get(groupSessionId);
 
@@ -348,7 +356,7 @@ const chatPlugin: MiokuPlugin = {
       );
 
       queueData.timer = setTimeout(async () => {
-        await processDynamicDelayQueue(groupSessionId, groupId, cfg);
+        await processDynamicDelayQueue(groupSessionId, groupId, cfg, e);
       }, delayMs);
     }
 
@@ -387,7 +395,11 @@ const chatPlugin: MiokuPlugin = {
     /**
      * 启动冷却计时器
      */
-    function startCooldownTimer(groupSessionId: string, groupId: number) {
+    function startCooldownTimer(
+      groupSessionId: string,
+      groupId: number,
+      e: any,
+    ) {
       // 清除之前的计时器
       const existingTimer = cooldownTimeoutIds.get(groupSessionId);
       if (existingTimer) {
@@ -424,6 +436,7 @@ const chatPlugin: MiokuPlugin = {
               groupId,
               collected,
               cfg,
+              e,
             );
           } else {
             // 没有直接 @bot，使用 planner 决定是否回复
@@ -432,6 +445,7 @@ const chatPlugin: MiokuPlugin = {
               groupId,
               collected,
               cfg,
+              e,
             );
           }
         } catch (err) {
@@ -491,6 +505,7 @@ const chatPlugin: MiokuPlugin = {
         isDirectAt: boolean;
       }>,
       cfg: ChatConfig,
+      e: any,
     ) {
       // 如果群正在处理，跳过
       if (processingSet.has(groupSessionId)) {
@@ -533,12 +548,19 @@ const chatPlugin: MiokuPlugin = {
           ctx,
           cfg.historyCount,
           db,
+          e,
         );
 
-        const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
-        const botRole = await getBotRole(groupId, ctx);
+        const botNickname =
+          cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
+        const botRole = await getBotRole(groupId, ctx, e);
 
-        const { groupName, memberCount } = await getGroupInfoData(ctx, groupId);
+        const { groupName, memberCount } = await getGroupInfoData(
+          ctx,
+          groupId,
+          undefined,
+          e,
+        );
 
         const toolCtx: ToolContext = buildToolContext({
           ctx,
@@ -596,15 +618,18 @@ const chatPlugin: MiokuPlugin = {
           skillManager,
         );
 
-        await sendAIResponse({
-          ctx,
-          groupId,
-          messages: result.messages,
-          sentIndices: toolCtx.sentMessageIndices,
-          typoGenerator: humanize.typoGenerator,
-        });
+        await sendAIResponse(
+          {
+            ctx,
+            groupId,
+            messages: result.messages,
+            sentIndices: toolCtx.sentMessageIndices,
+            typoGenerator: humanize.typoGenerator,
+          },
+          e,
+        );
 
-        await sendEmoji(ctx, groupId, result.emojiPath);
+        await sendEmoji(ctx, groupId, result.emojiPath, e);
 
         const now = Date.now();
         saveBotMessages(
@@ -617,12 +642,13 @@ const chatPlugin: MiokuPlugin = {
           ctx,
           groupLastBotMessageTime,
           groupMessageCountAfterBot,
+          e,
         );
 
         sessionManager.touch(groupSessionId);
 
         // 重新启动冷却计时器（处理完这批消息后）
-        startCooldownTimer(groupSessionId, groupId);
+        startCooldownTimer(groupSessionId, groupId, e);
       } finally {
         processingSet.delete(groupSessionId);
       }
@@ -644,6 +670,7 @@ const chatPlugin: MiokuPlugin = {
         isDirectAt: boolean;
       }>,
       cfg: ChatConfig,
+      e: any,
     ) {
       if (processingSet.has(groupSessionId)) {
         return;
@@ -662,9 +689,11 @@ const chatPlugin: MiokuPlugin = {
           ctx,
           cfg.historyCount,
           db,
+          e,
         );
 
-        const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+        const botNickname =
+          cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
 
         // 使用 planner 判断
         const planResult = await humanize.actionPlanner.plan(
@@ -684,7 +713,7 @@ const chatPlugin: MiokuPlugin = {
             timestamp: Date.now(),
           };
 
-          const botRole = await getBotRole(groupId, ctx);
+          const botRole = await getBotRole(groupId, ctx, e);
 
           const toolCtx: ToolContext = buildToolContext({
             ctx,
@@ -703,6 +732,8 @@ const chatPlugin: MiokuPlugin = {
           const { groupName, memberCount } = await getGroupInfoData(
             ctx,
             groupId,
+            undefined,
+            e,
           );
 
           const contexts = await getHumanizeContexts(
@@ -736,10 +767,7 @@ Planned reason: ${planResult.reason}`;
               replyContext: {
                 type: "comment",
                 targetUser: targetMessage.userName,
-                targetMessage:
-                  typeof targetMessage.content === "string"
-                    ? targetMessage.content
-                    : JSON.stringify(targetMessage.content),
+                targetMessage: targetMessage.content,
               },
               reviewMessages: {
                 contents: collected.map((m) => m.content),
@@ -751,15 +779,18 @@ Planned reason: ${planResult.reason}`;
             skillManager,
           );
 
-          await sendAIResponse({
-            ctx,
-            groupId,
-            messages: result.messages,
-            sentIndices: toolCtx.sentMessageIndices,
-            typoGenerator: humanize.typoGenerator,
-          });
+          await sendAIResponse(
+            {
+              ctx,
+              groupId,
+              messages: result.messages,
+              sentIndices: toolCtx.sentMessageIndices,
+              typoGenerator: humanize.typoGenerator,
+            },
+            e,
+          );
 
-          await sendEmoji(ctx, groupId, result.emojiPath);
+          await sendEmoji(ctx, groupId, result.emojiPath, e);
 
           const now = Date.now();
           saveBotMessages(
@@ -772,12 +803,13 @@ Planned reason: ${planResult.reason}`;
             ctx,
             groupLastBotMessageTime,
             groupMessageCountAfterBot,
+            e,
           );
 
           sessionManager.touch(groupSessionId);
 
           // 重新启动冷却计时器
-          startCooldownTimer(groupSessionId, groupId);
+          startCooldownTimer(groupSessionId, groupId, e);
         } else {
           ctx.logger.info(
             `[CooldownPlanner] Group ${groupId} planner decided not to reply: ${planResult.reason}`,
@@ -866,9 +898,11 @@ Planned reason: ${planResult.reason}`;
               ctx,
               cfg.historyCount,
               db,
+              e,
             );
 
-            const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+            const botNickname =
+              cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
 
             // 使用 planner 进行空闲检测
             const planResult = await humanize.actionPlanner.plan(
@@ -890,7 +924,7 @@ Planned reason: ${planResult.reason}`;
                 timestamp: now,
               };
 
-              const botRole = await getBotRole(groupId, ctx);
+              const botRole = await getBotRole(groupId, ctx, e);
 
               const toolCtx: ToolContext = buildToolContext({
                 ctx,
@@ -931,13 +965,16 @@ Suggestion:
                 skillManager,
               );
 
-              await sendAIResponse({
-                ctx,
-                groupId,
-                messages: result.messages,
-                sentIndices: toolCtx.sentMessageIndices,
-                typoGenerator: humanize.typoGenerator,
-              });
+              await sendAIResponse(
+                {
+                  ctx,
+                  groupId,
+                  messages: result.messages,
+                  sentIndices: toolCtx.sentMessageIndices,
+                  typoGenerator: humanize.typoGenerator,
+                },
+                e,
+              );
 
               const now2 = Date.now();
               saveBotMessages(
@@ -950,9 +987,10 @@ Suggestion:
                 ctx,
                 groupLastBotMessageTime,
                 groupMessageCountAfterBot,
+                e,
               );
 
-              startCooldownTimer(groupSessionId, groupId);
+              startCooldownTimer(groupSessionId, groupId, e);
 
               ctx.logger.info(
                 `[IdleCheck] group ${groupId} idle reply completed`,
@@ -981,6 +1019,7 @@ Suggestion:
     async function processQueuedMessages(
       groupSessionId: string,
       cfg: ChatConfig,
+      e: any,
     ): Promise<void> {
       // 获取当前队列中的所有消息
       try {
@@ -1044,7 +1083,7 @@ Suggestion:
         queueManager.clearActiveTarget(groupSessionId);
 
         const groupId = parseInt(groupSessionId.split(":")[1], 10);
-        const botRole = await getBotRole(groupId, ctx);
+        const botRole = await getBotRole(groupId, ctx, e);
 
         const toolCtx: ToolContext = buildToolContext({
           ctx,
@@ -1060,7 +1099,7 @@ Suggestion:
           targetMessage,
         });
 
-        const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+        const botNickname = cfg.nicknames[0] || ctx.pickBot(e.self_id) || "Bot";
 
         const { history } = await getGroupHistoryMessages(
           groupId,
@@ -1068,6 +1107,7 @@ Suggestion:
           ctx,
           cfg.historyCount,
           db,
+          e,
         );
 
         const contexts = await getHumanizeContexts(
@@ -1078,7 +1118,12 @@ Suggestion:
           history,
         );
 
-        const { groupName, memberCount } = await getGroupInfoData(ctx, groupId);
+        const { groupName, memberCount } = await getGroupInfoData(
+          ctx,
+          groupId,
+          undefined,
+          e,
+        );
 
         const result = await runChat(
           aiInstance,
@@ -1099,25 +1144,25 @@ Suggestion:
             replyContext: {
               type: "comment",
               targetUser: targetMessage.userName,
-              targetMessage:
-                typeof targetMessage.content === "string"
-                  ? targetMessage.content
-                  : JSON.stringify(targetMessage.content),
+              targetMessage: targetMessage.content,
             },
           },
           humanize,
           skillManager,
         );
 
-        await sendAIResponse({
-          ctx,
-          groupId,
-          messages: result.messages,
-          sentIndices: toolCtx.sentMessageIndices,
-          typoGenerator: humanize.typoGenerator,
-        });
+        await sendAIResponse(
+          {
+            ctx,
+            groupId,
+            messages: result.messages,
+            sentIndices: toolCtx.sentMessageIndices,
+            typoGenerator: humanize.typoGenerator,
+          },
+          e,
+        );
 
-        await sendEmoji(ctx, groupId, result.emojiPath);
+        await sendEmoji(ctx, groupId, result.emojiPath, e);
 
         const now = Date.now();
         saveBotMessages(
@@ -1130,6 +1175,7 @@ Suggestion:
           ctx,
           groupLastBotMessageTime,
           groupMessageCountAfterBot,
+          e,
         );
 
         // 清理
@@ -1254,7 +1300,7 @@ Suggestion:
 
         // 加载群聊历史消息
         const rawHistory = groupId
-          ? await getGroupHistory(groupId, ctx, cfg.historyCount, db)
+          ? await getGroupHistory(groupId, ctx, cfg.historyCount, db, e)
           : [];
 
         // 转换为 ChatMessage 格式
@@ -1271,7 +1317,8 @@ Suggestion:
         }));
 
         // 动作规划器
-        const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+        const botNickname =
+          cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
 
         if (!options?.skipPlanner) {
           const planResult = await humanize.actionPlanner.plan(
@@ -1305,12 +1352,17 @@ Suggestion:
         }
 
         // 获取 bot 角色和群信息
-        const botRole = groupId ? await getBotRole(groupId, ctx) : "member";
+        const botRole = groupId ? await getBotRole(groupId, ctx, e) : "member";
         let groupName: string | undefined;
         let memberCount: number | undefined;
 
         if (groupId) {
-          const groupInfo = await getGroupInfoData(ctx, groupId, e.group_name);
+          const groupInfo = await getGroupInfoData(
+            ctx,
+            groupId,
+            e.group_name,
+            e,
+          );
           groupName = groupInfo.groupName;
           memberCount = groupInfo.memberCount;
         }
@@ -1383,15 +1435,18 @@ Suggestion:
         );
 
         if (groupId) {
-          await sendAIResponse({
-            ctx,
-            groupId,
-            messages: result.messages,
-            sentIndices: toolCtx.sentMessageIndices,
-            typoGenerator: humanize.typoGenerator,
-          });
+          await sendAIResponse(
+            {
+              ctx,
+              groupId,
+              messages: result.messages,
+              sentIndices: toolCtx.sentMessageIndices,
+              typoGenerator: humanize.typoGenerator,
+            },
+            e,
+          );
 
-          await sendEmoji(ctx, groupId, result.emojiPath);
+          await sendEmoji(ctx, groupId, result.emojiPath, e);
 
           const now = Date.now();
           saveBotMessages(
@@ -1404,9 +1459,10 @@ Suggestion:
             ctx,
             groupLastBotMessageTime,
             groupMessageCountAfterBot,
+            e,
           );
 
-          startCooldownTimer(groupSessionId, groupId);
+          startCooldownTimer(groupSessionId, groupId, e);
         } else {
           const sentIndices = toolCtx.sentMessageIndices;
           if (result.messages.length > 0) {
@@ -1419,9 +1475,9 @@ Suggestion:
               const lines = msg.split("\n").filter((l) => l.trim());
               for (const line of lines) {
                 if (line.trim()) {
-                  await ctx.bot.sendPrivateMsg(userId, [
-                    ctx.segment.text(line.trim()),
-                  ]);
+                  await ctx
+                    .pickBot(e.self_id)
+                    .sendPrivateMsg(userId, [ctx.segment.text(line.trim())]);
                 }
               }
 
@@ -1477,7 +1533,7 @@ Suggestion:
       const userId: number = e.user_id || e.sender?.user_id;
 
       // 忽略自身消息
-      if (userId === ctx.bot.uin) return;
+      if (userId === e.self_id) return;
 
       // 处理命令
       // /空闲检查 调试指令
@@ -1504,7 +1560,8 @@ Suggestion:
             return;
           }
           const now = Date.now();
-          const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+          const botNickname =
+            cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
 
           ctx.logger.info(`[Debug] 手动触发空闲检测: 群 ${targetGroupId}`);
 
@@ -1514,6 +1571,7 @@ Suggestion:
             ctx,
             cfg.historyCount,
             db,
+            e,
           );
 
           // 使用 planner 进行空闲检测
@@ -1536,7 +1594,7 @@ Suggestion:
               timestamp: now,
             };
 
-            const botRole = await getBotRole(targetGroupId, ctx);
+            const botRole = await getBotRole(targetGroupId, ctx, e);
 
             const toolCtx: ToolContext = buildToolContext({
               ctx,
@@ -1577,13 +1635,16 @@ Suggestion:
               skillManager,
             );
 
-            await sendAIResponse({
-              ctx,
-              groupId: targetGroupId,
-              messages: result.messages,
-              sentIndices: toolCtx.sentMessageIndices,
-              typoGenerator: humanize.typoGenerator,
-            });
+            await sendAIResponse(
+              {
+                ctx,
+                groupId: targetGroupId,
+                messages: result.messages,
+                sentIndices: toolCtx.sentMessageIndices,
+                typoGenerator: humanize.typoGenerator,
+              },
+              e,
+            );
 
             const now2 = Date.now();
             saveBotMessages(
@@ -1596,6 +1657,7 @@ Suggestion:
               ctx,
               groupLastBotMessageTime,
               groupMessageCountAfterBot,
+              e,
             );
 
             await e.reply(
@@ -1759,6 +1821,7 @@ Suggestion:
                 groupId,
                 delayInfo.delayMs,
                 cfg,
+                e,
               );
               return;
             }
@@ -1776,8 +1839,10 @@ Suggestion:
             ctx,
             cfg.historyCount,
             db,
+            e,
           );
-          const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+          const botNickname =
+            cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
 
           const planResult = await humanize.actionPlanner.plan(
             groupSessionId!,
@@ -1799,7 +1864,7 @@ Suggestion:
         if (isGroup && groupId && groupSessionId) {
           processingSet.delete(groupSessionId);
           // 处理队列中的消息
-          await processQueuedMessages(groupSessionId, cfg);
+          await processQueuedMessages(groupSessionId, cfg, e);
         } else {
           processingSet.delete(`personal:${userId}`);
         }
@@ -1810,7 +1875,7 @@ Suggestion:
 
     // ==================== 戳一戳处理 ====================
     ctx.handle("notice.group.poke" as any, async (e: any) => {
-      if (e.target_id !== ctx.bot.uin) return;
+      if (e.target_id !== e.self_id) return;
 
       const cfg = await getConfig();
       if (!cfg.apiKey) return;
@@ -1842,12 +1907,15 @@ Suggestion:
 
       try {
         const userId = e.user_id || e.operator_id;
-        const botRole = await getBotRole(groupId, ctx);
-        const botNickname = cfg.nicknames[0] || ctx.bot.nickname || "Bot";
+        const botRole = await getBotRole(groupId, ctx, e);
+        const botNickname =
+          cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
 
         let senderName = String(userId);
         try {
-          const memberInfo = await ctx.bot.getGroupMemberInfo(groupId, userId);
+          const memberInfo = await ctx
+            .pickBot(e.self_id)
+            .getGroupMemberInfo(groupId, userId);
           senderName =
             (memberInfo as any).card ||
             (memberInfo as any).nickname ||
@@ -1869,9 +1937,15 @@ Suggestion:
           ctx,
           cfg.historyCount,
           db,
+          e,
         );
 
-        const { groupName, memberCount } = await getGroupInfoData(ctx, groupId);
+        const { groupName, memberCount } = await getGroupInfoData(
+          ctx,
+          groupId,
+          undefined,
+          e,
+        );
 
         const toolCtx: ToolContext = buildToolContext({
           ctx,
@@ -1910,13 +1984,16 @@ Suggestion:
           skillManager,
         );
 
-        await sendAIResponse({
-          ctx,
-          groupId,
-          messages: result.messages,
-          sentIndices: toolCtx.sentMessageIndices,
-          typoGenerator: humanize.typoGenerator,
-        });
+        await sendAIResponse(
+          {
+            ctx,
+            groupId,
+            messages: result.messages,
+            sentIndices: toolCtx.sentMessageIndices,
+            typoGenerator: humanize.typoGenerator,
+          },
+          e,
+        );
 
         const now = Date.now();
         saveBotMessages(
@@ -1929,9 +2006,10 @@ Suggestion:
           ctx,
           groupLastBotMessageTime,
           groupMessageCountAfterBot,
+          e,
         );
 
-        await sendEmoji(ctx, groupId, result.emojiPath);
+        await sendEmoji(ctx, groupId, result.emojiPath, e);
 
         sessionManager.touch(groupSessionId);
       } catch (err) {
