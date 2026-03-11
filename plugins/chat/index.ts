@@ -234,8 +234,8 @@ const chatPlugin: MiokuPlugin = {
         const { groupName, memberCount } = await getGroupInfoData(
           ctx,
           groupId,
-          String(groupId),
           e,
+          String(groupId),
         );
 
         const { history } = await getGroupHistoryMessages(
@@ -558,7 +558,6 @@ const chatPlugin: MiokuPlugin = {
         const { groupName, memberCount } = await getGroupInfoData(
           ctx,
           groupId,
-          undefined,
           e,
         );
 
@@ -732,7 +731,6 @@ const chatPlugin: MiokuPlugin = {
           const { groupName, memberCount } = await getGroupInfoData(
             ctx,
             groupId,
-            undefined,
             e,
           );
 
@@ -1121,7 +1119,6 @@ Suggestion:
         const { groupName, memberCount } = await getGroupInfoData(
           ctx,
           groupId,
-          undefined,
           e,
         );
 
@@ -1300,7 +1297,7 @@ Suggestion:
 
         // 加载群聊历史消息
         const rawHistory = groupId
-          ? await getGroupHistory(groupId, ctx, cfg.historyCount, db, e)
+          ? await getGroupHistory(groupId, ctx, cfg.historyCount, e, db)
           : [];
 
         // 转换为 ChatMessage 格式
@@ -1360,8 +1357,8 @@ Suggestion:
           const groupInfo = await getGroupInfoData(
             ctx,
             groupId,
-            e.group_name,
             e,
+            e.group_name,
           );
           groupName = groupInfo.groupName;
           memberCount = groupInfo.memberCount;
@@ -1943,7 +1940,6 @@ Suggestion:
         const { groupName, memberCount } = await getGroupInfoData(
           ctx,
           groupId,
-          undefined,
           e,
         );
 

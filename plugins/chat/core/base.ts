@@ -268,7 +268,7 @@ export async function getGroupHistoryMessages(
   db: ChatDatabase,
   e: any,
 ): Promise<GroupHistoryResult> {
-  const rawHistory = await getGroupHistory(groupId, ctx, historyCount, db, e);
+  const rawHistory = await getGroupHistory(groupId, ctx, historyCount, e, db);
   const history: ChatMessage[] = rawHistory.map((msg) => ({
     sessionId: groupSessionId,
     role: "user" as const,
@@ -292,8 +292,8 @@ export interface GroupInfoResult {
 export async function getGroupInfoData(
   ctx: MiokiContext,
   groupId: number,
-  fallbackGroupName?: string,
   e: any,
+  fallbackGroupName?: string,
 ): Promise<GroupInfoResult> {
   let groupName: string | undefined;
   let memberCount: number | undefined;

@@ -169,11 +169,11 @@ export async function getGroupHistory(
   groupId: number,
   ctx: MiokiContext,
   count: number = 100,
+  e: any,
   db?: {
     getBotMessages(groupId: number, limit: number): ChatMessage[];
     getImageByHash?(hash: string): any;
   },
-  e: any,
 ): Promise<
   Array<{
     userId: number;
