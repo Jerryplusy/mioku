@@ -8,10 +8,7 @@ export class RateLimiter {
     new Map();
   // 群组最后响应时间：groupId -> timestamp
   private groupLastResponse: Map<number, number> = new Map();
-  private groupInteractions: Map<
-    number,
-    Map<number, number[]>
-  > = new Map();
+  private groupInteractions: Map<number, Map<number, number[]>> = new Map();
 
   private readonly maxTriggersPerWindow: number;
   private readonly windowMs: number;
@@ -39,10 +36,6 @@ export class RateLimiter {
     };
 
     this.cleanupTimer = setInterval(() => this.cleanup(), 300_000);
-  }
-
-  updateDynamicDelayConfig(config: DynamicDelayConfig): void {
-    this.dynamicDelayConfig = config;
   }
 
   canProcess(

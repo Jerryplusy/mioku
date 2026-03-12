@@ -149,12 +149,12 @@ export function extractContent(
 export async function getBotRole(
   groupId: number,
   ctx: MiokiContext,
-  e: any,
+  selfId: number,
 ): Promise<"owner" | "admin" | "member"> {
   try {
     const memberInfo = await ctx
-      .pickBot(e.self_id)
-      .getGroupMemberInfo(groupId, e.self_id);
+      .pickBot(selfId)
+      .getGroupMemberInfo(groupId, selfId);
     return (memberInfo.role as "owner" | "admin" | "member") || "member";
   } catch {
     return "member";
@@ -169,7 +169,7 @@ export async function getGroupHistory(
   groupId: number,
   ctx: MiokiContext,
   count: number = 100,
-  e: any,
+  selfId: number,
   db?: {
     getBotMessages(groupId: number, limit: number): ChatMessage[];
     getImageByHash?(hash: string): any;
@@ -210,7 +210,7 @@ export async function getGroupHistory(
 
   try {
     // 调用 OneBot API 获取群聊历史
-    const result = await (ctx.pickBot(e.self_id) as any).api(
+    const result = await (ctx.pickBot(selfId) as any).api(
       "get_group_msg_history",
       {
         group_id: String(groupId),
@@ -228,7 +228,7 @@ export async function getGroupHistory(
       return botMessages;
     }
 
-    const botUin = e.self_id;
+    const botUin = selfId;
 
     // 格式化消息
     const formatted: Array<{

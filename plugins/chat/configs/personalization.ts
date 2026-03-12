@@ -70,6 +70,7 @@ export const PERSONALIZATION_CONFIG: {
     enabled: true,
     idleThresholdMs: 30 * 60_000, // 30分钟无消息视为空闲
     idleMessageCount: 100, // 保底消息数量，超过这个数量才触发空闲回复
+    idleCheckBotIds: [], // 空闲检查的 bot ID 列表，为空时使用所有已连接的 bot
   },
 
   typo: {

@@ -1,7 +1,7 @@
 import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
 import type { AIService } from "../../../src/services/ai";
 import { pickPersonalityState, pickReplyStyle } from "../humanize";
-import type { EmojiAgent } from "../humanize/emoji-agent";
+import type { EmojiAgent } from "../humanize";
 
 export interface PromptContext {
   config: ChatConfig;

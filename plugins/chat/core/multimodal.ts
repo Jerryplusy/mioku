@@ -173,10 +173,7 @@ export async function getQuoteImageUrl(
     }
 
     // 提取图片 URL
-    const imageUrl =
-      (imageSeg as any).url || (imageSeg as any).data?.url || null;
-
-    return imageUrl;
+    return (imageSeg as any).url || (imageSeg as any).data?.url || null;
   } catch (err) {
     logger.error(`[multimodal] Failed to get quote image URL: ${err}`);
     return null;
