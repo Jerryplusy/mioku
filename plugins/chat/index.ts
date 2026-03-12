@@ -1097,7 +1097,8 @@ Suggestion:
           targetMessage,
         });
 
-        const botNickname = cfg.nicknames[0] || ctx.pickBot(e.self_id) || "Bot";
+        const botNickname =
+          cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
 
         const { history } = await getGroupHistoryMessages(
           groupId,
