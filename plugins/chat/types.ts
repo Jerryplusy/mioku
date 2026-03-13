@@ -45,6 +45,7 @@ export interface PlannerConfig {
   enabled: boolean;
   idleThresholdMs: number; // 群聊空闲时间阈值（毫秒）
   idleMessageCount: number; // 群聊记录保底消息数量
+  idleCheckBotIds: number[]; // 空闲检查的 bot ID 列表
 }
 
 /**

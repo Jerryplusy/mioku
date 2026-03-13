@@ -21,6 +21,7 @@ export interface SendAIResponseOptions {
 
 export async function sendAIResponse(
   options: SendAIResponseOptions,
+  selfId: number,
 ): Promise<void> {
   const { ctx, groupId, messages, sentIndices, typoGenerator, onLineSent } =
     options;
@@ -61,7 +62,7 @@ export async function sendAIResponse(
 
       if (pokeUsers.length > 0) {
         for (const pokeId of pokeUsers) {
-          await ctx.bot.api("group_poke", {
+          await ctx.pickBot(selfId).api("group_poke", {
             group_id: groupId,
             user_id: pokeId,
           });
@@ -85,7 +86,7 @@ export async function sendAIResponse(
       }
 
       if (lineSegments.length > 0) {
-        await ctx.bot.sendGroupMsg(groupId, lineSegments);
+        await ctx.pickBot(selfId).sendGroupMsg(groupId, lineSegments);
       }
 
       if (j < expandedLines.length - 1) {
@@ -109,6 +110,7 @@ export async function sendMessage(
   typoGenerator: {
     apply: (text: string) => string;
   },
+  selfId: number,
 ): Promise<void> {
   try {
     // 应用错别字生成器
@@ -146,7 +148,7 @@ export async function sendMessage(
       // 戳人 - 立即执行
       if (groupId && pokeUsers.length > 0) {
         for (const pokeId of pokeUsers) {
-          await ctx.bot.api("group_poke", {
+          await ctx.pickBot(selfId).api("group_poke", {
             group_id: groupId,
             user_id: pokeId,
           });
@@ -195,7 +197,7 @@ export async function sendMessage(
 
             const atId = match[1];
             // 跳过 @ 机器人自己的情况
-            if (String(atId) !== String(ctx.bot.uin)) {
+            if (String(atId) !== String(selfId)) {
               segments.push(ctx.segment.at(atId));
             }
 
@@ -220,7 +222,7 @@ export async function sendMessage(
         // 发送消息
         if (segments.length > 0) {
           if (groupId) {
-            await ctx.bot.sendGroupMsg(groupId, segments);
+            await ctx.pickBot(selfId).sendGroupMsg(groupId, segments);
           }
         }
       } else {
@@ -236,9 +238,9 @@ export async function sendMessage(
           }
           if (sendSegments.length > 0) {
             if (groupId) {
-              await ctx.bot.sendGroupMsg(groupId, sendSegments);
+              await ctx.pickBot(selfId).sendGroupMsg(groupId, sendSegments);
             } else if (userId) {
-              await ctx.bot.sendPrivateMsg(userId, sendSegments);
+              await ctx.pickBot(selfId).sendPrivateMsg(userId, sendSegments);
             }
           }
         }
@@ -264,8 +266,15 @@ export async function getGroupHistoryMessages(
   ctx: MiokiContext,
   historyCount: number,
   db: ChatDatabase,
+  selfId: number,
 ): Promise<GroupHistoryResult> {
-  const rawHistory = await getGroupHistory(groupId, ctx, historyCount, db);
+  const rawHistory = await getGroupHistory(
+    groupId,
+    ctx,
+    historyCount,
+    selfId,
+    db,
+  );
   const history: ChatMessage[] = rawHistory.map((msg) => ({
     sessionId: groupSessionId,
     role: "user" as const,
@@ -289,13 +298,14 @@ export interface GroupInfoResult {
 export async function getGroupInfoData(
   ctx: MiokiContext,
   groupId: number,
+  selfId: number,
   fallbackGroupName?: string,
 ): Promise<GroupInfoResult> {
   let groupName: string | undefined;
   let memberCount: number | undefined;
 
   try {
-    const groupInfo = await ctx.bot.getGroupInfo(groupId);
+    const groupInfo = await ctx.pickBot(selfId).getGroupInfo(groupId);
     groupName = (groupInfo as any)?.group_name || fallbackGroupName;
     memberCount = (groupInfo as any)?.member_count;
   } catch {
@@ -339,6 +349,7 @@ export async function getHumanizeContexts(
 export interface BuildToolContextOptions {
   ctx: MiokiContext;
   event: any;
+  selfId: number;
   groupSessionId: string;
   groupId?: number;
   userId: number;
@@ -357,6 +368,7 @@ export function buildToolContext(
   const {
     ctx,
     event,
+    selfId,
     groupSessionId,
     groupId,
     userId,
@@ -394,6 +406,7 @@ export function buildToolContext(
           targetMessage.userId,
           messages[messageIndex],
           humanize.typoGenerator,
+          selfId,
         );
       }
     },
@@ -410,16 +423,23 @@ export function saveBotMessages(
   ctx: MiokiContext,
   groupLastBotMessageTime: Map<string, number>,
   groupMessageCountAfterBot: Map<string, number>,
+  selfId: number,
 ): void {
-  const botNickname = config.nicknames[0] || ctx.bot.nickname || "Miku";
+  const bot = ctx.pickBot(selfId);
+  const botNickname = config.nicknames[0] || (bot?.nickname ?? "Miku");
+
+  if (!bot) {
+    ctx.logger.warn(`[saveBotMessages] bot ${selfId} not available`);
+    return;
+  }
 
   for (const msg of messages) {
     const botMsg: ChatMessage = {
       sessionId: groupSessionId,
       role: "assistant",
-      content: msg,
-      userId: ctx.bot.uin,
-      userName: botNickname,
+      content: msg ?? "",
+      userId: selfId ?? 0,
+      userName: botNickname ?? "Miku",
       userRole: "member",
       groupId,
       timestamp,
@@ -435,18 +455,19 @@ export async function sendEmoji(
   ctx: MiokiContext,
   groupId: number,
   emojiPath: string | null | undefined,
+  selfId: number,
 ): Promise<void> {
   if (!emojiPath) return;
 
   try {
     const emojiSegment = ctx.segment.image(`file://${emojiPath}`);
-    await ctx.bot.sendGroupMsg(groupId, [emojiSegment]);
+    await ctx.pickBot(selfId).sendGroupMsg(groupId, [emojiSegment]);
   } catch (err) {
     try {
       const fsPromises = await import("fs/promises");
       const path = await import("path");
 
-      let fileExists = false;
+      let fileExists: boolean;
       try {
         await fsPromises.access(emojiPath);
         fileExists = true;
@@ -475,7 +496,7 @@ export async function sendEmoji(
 
       const base64DataUrl = `data:${mimeType};base64,${base64}`;
       const base64Segment = ctx.segment.image(base64DataUrl);
-      await ctx.bot.sendGroupMsg(groupId, [base64Segment]);
+      await ctx.pickBot(selfId).sendGroupMsg(groupId, [base64Segment]);
       ctx.logger.info(`[Emoji] Sent via base64: ${path.basename(emojiPath)}`);
     } catch (base64Err) {
       ctx.logger.error(`[Emoji] Base64 also failed: ${base64Err}`);

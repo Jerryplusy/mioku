@@ -246,7 +246,7 @@ export async function runChat(
     }
   }
 
-  // Re-parse messages with cleaned text (removes [meme:...] markers)
+  // Reparse messages with cleaned text (removes [meme:...] markers)
   const finalMessages = parseMessages(finalText);
 
   logger.info(

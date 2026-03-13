@@ -115,15 +115,17 @@ ${context ? `\nUser context: ${context}` : ""}`;
  * 获取指定消息 ID 中的图片 URL
  * @param ctx Mioki 上下文
  * @param messageId 消息 ID
+ * @param e
  * @returns 图片 URL 或 null
  */
 export async function getImageUrlByMessageId(
   ctx: MiokiContext,
   messageId: number,
+  e: any,
 ): Promise<string | null> {
   try {
     // 通过 message_id 获取消息详情
-    const msg = await ctx.bot.getMsg(messageId);
+    const msg = await ctx.pickBot(e.self_id).getMsg(messageId);
     if (!msg || !msg.message) {
       return null;
     }
@@ -171,10 +173,7 @@ export async function getQuoteImageUrl(
     }
 
     // 提取图片 URL
-    const imageUrl =
-      (imageSeg as any).url || (imageSeg as any).data?.url || null;
-
-    return imageUrl;
+    return (imageSeg as any).url || (imageSeg as any).data?.url || null;
   } catch (err) {
     logger.error(`[multimodal] Failed to get quote image URL: ${err}`);
     return null;

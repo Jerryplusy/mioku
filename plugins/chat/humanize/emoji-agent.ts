@@ -35,7 +35,7 @@ export class EmojiAgent {
   private ai: AIInstance;
   private config: ChatConfig;
   private db: ChatDatabase;
-  private memeBaseDir: string;
+  private readonly memeBaseDir: string;
 
   constructor(ai: AIInstance, config: ChatConfig, db: ChatDatabase) {
     this.ai = ai;
@@ -50,11 +50,9 @@ export class EmojiAgent {
     }
 
     const entries = readdirSync(this.memeBaseDir, { withFileTypes: true });
-    const dirs = entries
+    return entries
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
-
-    return dirs;
   }
 
   getAvailableEmotions(character: string): string[] {
@@ -64,25 +62,13 @@ export class EmojiAgent {
     }
 
     const entries = readdirSync(characterDir, { withFileTypes: true });
-    const dirs = entries
+    return entries
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
-
-    return dirs;
-  }
-
-  parseMemeIntent(text: string): { emotion: string } | null {
-    const regex = /\[meme:([^\]]+)\]/i;
-    const match = text.match(regex);
-    if (!match) return null;
-
-    return {
-      emotion: match[1].trim().toLowerCase(),
-    };
   }
 
   parseAllMemeIntents(text: string): { emotion: string }[] {
-    const regex = /\[meme:([^\]]+)\]/gi;
+    const regex = /\[meme:([^\]]+)]/gi;
     const matches = [...text.matchAll(regex)];
     return matches.map((m) => ({ emotion: m[1].trim().toLowerCase() }));
   }
@@ -242,7 +228,7 @@ export class EmojiAgent {
       }
 
       // 检查是否使用 AI 选择
-      const useAI = this.config.emoji?.useAISelection !== false;
+      const useAI = this.config.emoji?.useAISelection;
       if (!useAI) {
         // 不使用 AI，直接随机选择
         logger.info(`[emoji-agent] useAISelection=false, random pick`);
