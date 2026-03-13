@@ -1454,7 +1454,7 @@ Suggestion:
             e,
           );
 
-          await sendEmoji(ctx, groupId, result.emojiPath, e);
+          await sendEmoji(ctx, groupId, result.emojiPath, e.self_id);
 
           const now = Date.now();
           saveBotMessages(
