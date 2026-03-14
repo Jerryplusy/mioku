@@ -1856,7 +1856,7 @@ Suggestion:
             ctx,
             cfg.historyCount,
             db,
-            e,
+            e.self_id,
           );
           const botNickname =
             cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
