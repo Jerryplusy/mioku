@@ -1,12 +1,16 @@
 import { loadLocalConfig } from "./src/config-loader";
+import { runFirstRunSetup } from "./src/first-run-setup";
 
-loadLocalConfig(process.cwd());
+async function bootstrap() {
+  const cwd = process.cwd();
+  await runFirstRunSetup(cwd);
+  loadLocalConfig(cwd);
 
-import("./src").then(({ start }) => {
-  start({
-    cwd: process.cwd(),
-  }).catch((error) => {
-    console.error("Failed to start Mioku:", error);
-    process.exit(1);
-  });
+  const { start } = await import("./src");
+  await start({ cwd });
+}
+
+bootstrap().catch((error) => {
+  console.error("Failed to start Mioku:", error);
+  process.exit(1);
 });
