@@ -1,7 +1,7 @@
 import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
 import type { AIService } from "../../../src/services/ai";
 import { pickPersonalityState, pickReplyStyle } from "../humanize";
-import type { EmojiAgent } from "../humanize/emoji-agent";
+import type { EmojiAgent } from "../humanize";
 
 export interface PromptContext {
   config: ChatConfig;
@@ -75,7 +75,9 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   sections.push(buildChatHistorySection(ctx));
 
   // 8. Target Message
-  sections.push(buildTargetMessageSection(ctx.targetMessage));
+  sections.push(
+    buildTargetMessageSection(ctx.targetMessage, ctx.reviewMessages),
+  );
 
   // 9. Reply Context - tells AI what kind of reply this is
   if (ctx.replyContext) {
@@ -125,17 +127,35 @@ function buildReplyContextSection(
 
   const lines = [`## This Response Context`];
 
+  // Check if this is a multi-user interaction (reviewMessages has multiple different users)
+  const isMultiUserInteraction =
+    reviewMsgs &&
+    reviewMsgs.userNames.length > 1 &&
+    Array.from(new Set(reviewMsgs.userNames)).length > 1;
+
   switch (replyCtx.type) {
     case "reply":
-      lines.push(
-        `Someone mentioned you in the group, maybe like you asked a certain question, or just wanted to tease you.`,
-      );
-      lines.push(
-        `If the user is asking you a question or requesting your help, please use the most recent chat history and available tools to help them resolve the issue to the best of your ability. Avoid being vague or providing incorrect information.Keep your reply paragraphs concise, no more than four paragraphs, three paragraphs being ideal.`,
-      );
-      lines.push(
-        `If a user doesn't have a real problem and is just trying to tease you, don't get annoyed. Use the group chat history and any tools you can to figure out the other members' intentions. Don't focus too much on the group member who's getting your attention; pay more attention to the chat history and try to join in the conversation. If a user is being provocative or insulting, respond humorously but politely, for example, "用户：我是你爸爸 可选回复： 天啊我妈怎么找了个这么没礼貌的" Important!!: Keep your messages short, concise, and to the point. Don't be verbose or include too much information; 1-2 paragraphs at most.`,
-      );
+      if (isMultiUserInteraction) {
+        lines.push(
+          `Multiple people are interacting with you at the same time. You see messages from several group members directed at you.`,
+        );
+        lines.push(
+          `IMPORTANT: Do NOT reply to each person individually or try to address every single message. Instead, give a SINGLE, unified response that acknowledges the group as a whole. Be casual and natural - like you're talking to a group of friends, not giving individual responses.`,
+        );
+        lines.push(
+          `Keep it brief and conversational. One or two sentences max. Don't try to be comprehensive - just pick one thing to respond to or make a general comment that fits the vibe.`,
+        );
+      } else {
+        lines.push(
+          `Someone mentioned you in the group, maybe like you asked a certain question, or just wanted to tease you.`,
+        );
+        lines.push(
+          `If the user is asking you a question or requesting your help, please use the most recent chat history and available tools to help them resolve the issue to the best of your ability. Avoid being vague or providing incorrect information.Keep your reply paragraphs concise, no more than four paragraphs, three paragraphs being ideal.`,
+        );
+        lines.push(
+          `If a user doesn't have a real problem and is just trying to tease you, don't get annoyed. Use the group chat history and any tools you can to figure out the other members' intentions. Don't focus too much on the group member who's getting your attention; pay more attention to the chat history and try to join in the conversation. If a user is being provocative or insulting, respond humorously but politely, for example, "用户：我是你爸爸 可选回复： 天啊我妈怎么找了个这么没礼貌的" Important!!: Keep your messages short, concise, and to the point. Don't be verbose or include too much information; 1-2 paragraphs at most.`,
+        );
+      }
       break;
     case "comment":
       lines.push(
@@ -157,12 +177,21 @@ function buildReplyContextSection(
       );
       break;
     case "review":
-      lines.push(
-        `After you reply to other group members' messages, some people have new questions or replies to your answers.`,
-      );
-      lines.push(
-        `Please respond reasonably and naturally in context. Keep the message concise, since you’ve already said it, and it must fit in a single message, even a single word.`,
-      );
+      if (isMultiUserInteraction) {
+        lines.push(
+          `Multiple people have sent you messages while you were away. You see a batch of messages from different group members.`,
+        );
+        lines.push(
+          `CRITICAL: Do NOT try to reply to each message or each person separately. Give ONE brief, casual response that fits the overall conversation. Pick one thing to comment on or just say something general. Keep it to a single sentence or two at most.`,
+        );
+      } else {
+        lines.push(
+          `After you reply to other group members' messages, some people have new questions or replies to your answers.`,
+        );
+        lines.push(
+          `Please respond reasonably and naturally in context. Keep the message concise, since you've already said it, and it must fit in a single message, even a single word.`,
+        );
+      }
       break;
     case "poked":
       lines.push(
@@ -215,42 +244,106 @@ function buildChatHistorySection(ctx: PromptContext): string {
   const { chatHistory, config } = ctx;
   if (chatHistory.length === 0) return "## Chat History\n(No recent messages)";
 
-  const lines = chatHistory.map((msg) => {
+  const mergedLines: string[] = [];
+  let currentAssistantBlock: { timeStr: string; contents: string[] } | null =
+    null;
+
+  for (const msg of chatHistory) {
     const time = new Date(msg.timestamp);
     const timeStr = `${String(time.getMonth() + 1).padStart(2, "0")}-${String(time.getDate()).padStart(2, "0")} ${String(time.getHours()).padStart(2, "0")}:${String(time.getMinutes()).padStart(2, "0")}`;
 
     if (msg.role === "assistant") {
-      return `[${timeStr}] ${ctx.botNickname}: ${msg.content}`;
+      if (currentAssistantBlock && currentAssistantBlock.timeStr === timeStr) {
+        // Same timestamp, add to current block
+        currentAssistantBlock.contents.push(msg.content);
+      } else {
+        // New assistant block
+        if (currentAssistantBlock) {
+          // Flush previous block
+          const mergedContent = currentAssistantBlock.contents.join(" | ");
+          mergedLines.push(
+            `[${currentAssistantBlock.timeStr}] ${ctx.botNickname}: ${mergedContent}`,
+          );
+        }
+        currentAssistantBlock = { timeStr, contents: [msg.content] };
+      }
+    } else {
+      // Flush assistant block if exists
+      if (currentAssistantBlock) {
+        const mergedContent = currentAssistantBlock.contents.join(" | ");
+        mergedLines.push(
+          `[${currentAssistantBlock.timeStr}] ${ctx.botNickname}: ${mergedContent}`,
+        );
+        currentAssistantBlock = null;
+      }
+
+      const name = msg.userName || "unknown";
+      const roleLabel =
+        msg.userRole === "owner"
+          ? "Owner"
+          : msg.userRole === "admin"
+            ? "Admin"
+            : "Member";
+      const titleStr = msg.userTitle ? `, ${msg.userTitle}` : "";
+      const qqStr = msg.userId ? `${msg.userId}` : "";
+      const msgIdStr = msg.messageId ? ` #${msg.messageId}` : "";
+
+      mergedLines.push(
+        `[${timeStr}] ${name}(${qqStr}, ${roleLabel}${titleStr})${msgIdStr}): ${msg.content}`,
+      );
     }
+  }
 
-    const name = msg.userName || "unknown";
-    const roleLabel =
-      msg.userRole === "owner"
-        ? "Owner"
-        : msg.userRole === "admin"
-          ? "Admin"
-          : "Member";
-    const titleStr = msg.userTitle ? `, ${msg.userTitle}` : "";
-    const qqStr = msg.userId ? `${msg.userId}` : "";
-    const msgIdStr = msg.messageId ? ` #${msg.messageId}` : "";
-
-    return `[${timeStr}] ${name}(${qqStr}, ${roleLabel}${titleStr})${msgIdStr}): ${msg.content}`;
-  });
+  if (currentAssistantBlock) {
+    const mergedContent = currentAssistantBlock.contents.join(" | ");
+    mergedLines.push(
+      `[${currentAssistantBlock.timeStr}] ${ctx.botNickname}: ${mergedContent}`,
+    );
+  }
 
   return `## Recent Context (Only reference if directly relevant)
 Just the last few messages - don't overthink it or dig into old conversations:
 
-${lines.join("\n")}
+${mergedLines.join("\n")}
 
 Note: Messages may contain image tags like [meme:描述] or [image:描述]. These are brief descriptions of images. If you need detailed information about an image, use the view_image tool with the message ID.
 
 -- DON'T repeat yourself or bring up old topics - focus on what's being said right now. --`;
 }
 
-function buildTargetMessageSection(target: TargetMessage): string {
+function buildTargetMessageSection(
+  target: TargetMessage,
+  reviewMsgs?: PromptContext["reviewMessages"],
+): string {
   const time = new Date(target.timestamp);
   const timeStr = `${String(time.getMonth() + 1).padStart(2, "0")}-${String(time.getDate()).padStart(2, "0")} ${String(time.getHours()).padStart(2, "0")}:${String(time.getMinutes()).padStart(2, "0")}`;
   const msgIdStr = target.messageId ? ` #${target.messageId}` : "";
+
+  const isMultiUserInteraction =
+    reviewMsgs &&
+    reviewMsgs.userNames.length > 1 &&
+    new Set(reviewMsgs.userNames).size > 1;
+
+  if (isMultiUserInteraction && reviewMsgs) {
+    const uniqueUsers = Array.from(new Set(reviewMsgs.userNames));
+    const userList = uniqueUsers.join(", ");
+
+    const messageBlocks: string[] = [];
+    for (let i = 0; i < reviewMsgs.contents.length; i++) {
+      const userName = reviewMsgs.userNames[i];
+      const content = reviewMsgs.contents[i];
+      const msgId = reviewMsgs.messageIds[i];
+      const msgIdLabel = msgId ? ` #${msgId}` : "";
+      messageBlocks.push(`[${userName}${msgIdLabel}]: ${content}`);
+    }
+
+    return `## >>> Multiple People Are Interacting With You <<<
+${userList} sent you messages at around ${timeStr}:
+
+${messageBlocks.join("\n")}
+
+IMPORTANT: You do NOT need to reply to each person or each message above. Give ONE casual response to the group as a whole.`;
+  }
 
   return `## >>> Target Message (Reply to THIS) <<<
 [${timeStr}] ${target.userName}(${target.userId}, ${target.userRole}${target.userTitle ? `, ${target.userTitle}` : ""})${msgIdStr}: ${target.content}`;
@@ -347,25 +440,39 @@ function buildResponseFormatSection(ctx: PromptContext): string {
   - Example: "\[[[reply:456789]]]我来回复这条消息" will quote-reply message 456789 with the text "我来回复这条消息"
   - Example multiple replies: "\[[[reply:111]]]回复第一条" + newline + "\[[[reply:222]]]回复第二条" will send two separate messages, each quoting different messages`);
 
-  // Meme/Sticker sending guide (dynamic based on available resources)
+  // Meme/Sticker sending guide (controlled by replyProbability)
   const emojiAgent = ctx.emojiAgent;
-  if (emojiAgent) {
-    const characters = emojiAgent.getAvailableCharacters();
-    if (characters.length > 0) {
-      const characterEmotions: string[] = [];
-      for (const char of characters) {
-        const emotions = emojiAgent.getAvailableEmotions(char);
-        characterEmotions.push(...emotions);
-      }
-      const uniqueEmotions = [...new Set(characterEmotions)].sort();
+  if (emojiAgent && ctx.config.emoji?.enabled) {
+    const replyProb = ctx.config.emoji.replyProbability ?? 0;
+    if (Math.random() < replyProb) {
+      const configChars = ctx.config.emoji.characters || [];
+      let availableEmotions: string[] = [];
 
-      lines.push(`
-### Sending Stickers/Emojis
+      if (configChars.length > 0) {
+        // 使用配置中指定的角色
+        for (const char of configChars) {
+          const emotions = emojiAgent.getAvailableEmotions(char);
+          availableEmotions.push(...emotions);
+        }
+      } else {
+        // 使用所有可用角色
+        const allChars = emojiAgent.getAvailableCharacters();
+        for (const char of allChars) {
+          const emotions = emojiAgent.getAvailableEmotions(char);
+          availableEmotions.push(...emotions);
+        }
+      }
+
+      const uniqueEmotions = [...new Set(availableEmotions)].sort();
+      if (uniqueEmotions.length > 0) {
+        lines.push(`
+You like to send matching stickers/emojis when emotions are running high.
 If you want to send a sticker/emoji along with your message:
-- Use the format [meme:character:emotion] in your text
-- Available characters: ${characters.join(", ")}
+- Use the format [meme:emotion] in your text
 - Available emotions: ${uniqueEmotions.join(", ")}
+- Example: "[meme:happy]太棒了！" will send a happy sticker with your message
 - Use this sparingly - only when a sticker adds meaningful expression to your reply`);
+      }
     }
   }
 

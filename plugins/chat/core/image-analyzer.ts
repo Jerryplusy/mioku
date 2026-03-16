@@ -170,15 +170,15 @@ Instructions:
    ${imageUrls.length > 1 ? "\n   - Note: You are viewing multiple frames from an animated image (GIF). Consider the overall motion and emotion across all frames." : ""}
 
 3. For memes only:
-   - Emotion tag: ${EMOTION_TAGS.join(", ")}
-   - Character name (English) already existed: ${KNOWN_CHARACTERS.join(", ")} And you CAN add new one
+   - Emotion tag: ${EMOTION_TAGS.join(", ")} (choose ONLY ONE that best represents the overall mood)
+   - Character names: Can have multiple characters (array format), use English names. Already known: ${KNOWN_CHARACTERS.join(", ")}. You CAN add new ones.
 
 Response format (JSON):
 {
   "type": "meme" or "image",
   "description": "brief description in Chinese",
-  "emotion": "emotion tag (memes only)",
-  "character": "character name (memes only)"
+  "emotion": "emotion tag (choose ONLY ONE)",
+  "characters": ["character1", "character2", ...] (array of character names, can be empty or have multiple)
 }`;
 
     const userPrompt =

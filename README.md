@@ -15,20 +15,46 @@
 
 ## 快速开始
 
+> 推荐使用bun管理依赖，也可使用npm/pnpm :)
+
 ```bash
+git clone https://github.com/Jerryplusy/mioku.git
+
+cd mioku
+
 # 安装依赖
-npm install
-
-# 启动
-npm start
-
-# 开发模式
-npm run dev
+bun install
 ```
 
-## 配置
+## 安装webui(推荐)
 
-初次启动后，在 `config/mioku.json` 中配置相关内容。
+```bash
+# 使用脚本安装webui
+./install-mioku.sh webui
+
+# 更多脚本功能请运行./install-mioku.sh查看
+```
+
+## 插件/服务安装和管理
+
+推荐使用webui进行管理   
+也可手动安装插件，进入config目录配置插件
+
+```bash
+# 使用脚本安装插件
+./install-mioku.sh plugin <repo-url>
+
+```
+
+## 启动及配置
+
+```bash
+bun run start
+```
+
+初次启动时将自动运行引导程序，填入NapCat**正向**WS地址、端口、密钥和自定义webui密钥（若安装）即可。
+
+> 除了NapCat，还可以使用其他任何符合OneBotv11协议的实现端如LLTwoBot/Lgr等。可能会出现少许问题。
 
 ## 核心概念
 

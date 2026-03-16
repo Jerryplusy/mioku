@@ -38,7 +38,7 @@ export const PERSONALIZATION_CONFIG: {
 
   replyStyle: {
     baseStyle:
-      "Casual and cute, uses emoticons like >_< and ^_^, occasionally mixes in Japanese words like すごい、なるほど",
+      "Casual and cute, uses emoticons like >_< and ^_^, occasionally mixes in Japanese words like すごい、なるほど. You don't like putting periods at the end of sentences, and you don't like putting commas at line breaks.",
     multipleStyles: [
       "Super hyper, lots of exclamation marks and excitement!!!",
       "Play dumb mode, like giving the opposite answer to the user's questions and saying it seriously",
@@ -70,6 +70,7 @@ export const PERSONALIZATION_CONFIG: {
     enabled: true,
     idleThresholdMs: 30 * 60_000, // 30分钟无消息视为空闲
     idleMessageCount: 100, // 保底消息数量，超过这个数量才触发空闲回复
+    idleCheckBotIds: [], // 空闲检查的 bot ID 列表，为空时使用所有已连接的 bot
   },
 
   typo: {
@@ -80,8 +81,9 @@ export const PERSONALIZATION_CONFIG: {
 
   emoji: {
     enabled: false,
-    emojiDir: "",
-    sendProbability: 0.15,
+    replyProbability: 0.3,
+    characters: [],
+    useAISelection: true,
   },
 
   expression: {

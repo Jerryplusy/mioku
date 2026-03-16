@@ -45,6 +45,7 @@ export interface PlannerConfig {
   enabled: boolean;
   idleThresholdMs: number; // 群聊空闲时间阈值（毫秒）
   idleMessageCount: number; // 群聊记录保底消息数量
+  idleCheckBotIds: number[]; // 空闲检查的 bot ID 列表
 }
 
 /**
@@ -61,8 +62,9 @@ export interface TypoConfig {
  */
 export interface EmojiConfig {
   enabled: boolean;
-  emojiDir: string; // 表情包目录
-  sendProbability: number; // 发送表情包的概率 (0-1)
+  replyProbability: number;
+  characters: string[];
+  useAISelection: boolean;
 }
 
 /**

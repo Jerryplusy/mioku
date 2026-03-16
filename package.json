@@ -1,6 +1,6 @@
 {
   "name": "mioku",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Jerryplusy",
   "license": "MIT",
   "description": "AI-powered bot application based on mioki",
@@ -12,7 +12,7 @@
     "src/services/*"
   ],
   "dependencies": {
-    "mioki": "^0.16.0",
+    "mioki": "^0.16.1",
     "puppeteer": "^24.37.5"
   },
   "devDependencies": {

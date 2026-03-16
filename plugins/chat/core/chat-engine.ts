@@ -243,13 +243,10 @@ export async function runChat(
     if (memeResult.success && memeResult.emojiPath) {
       emojiPath = memeResult.emojiPath;
       finalText = memeResult.cleanedText || cleanedText;
-      logger.info(
-        `[chat-engine] Meme selected: ${memeResult.emojiDescription}, cleaned text: "${finalText}"`,
-      );
     }
   }
 
-  // Re-parse messages with cleaned text (removes [meme:...] markers)
+  // Reparse messages with cleaned text (removes [meme:...] markers)
   const finalMessages = parseMessages(finalText);
 
   logger.info(
