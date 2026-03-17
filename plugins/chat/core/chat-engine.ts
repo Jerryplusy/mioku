@@ -34,6 +34,8 @@ export async function runChat(
   const allToolCalls: { name: string; args: any; result: any }[] = [];
   let toolResults: { toolName: string; result: any }[] = [];
   let lastTextContent = "";
+  const failedToolCallKeys = new Set<string>();
+  const failedToolNames = new Set<string>();
 
   logger.info(
     `[chat-engine] Session ${toolCtx.sessionId} | target: ${targetMessage.userName}(${targetMessage.userId}): "${targetMessage.content}"`,
@@ -190,10 +192,32 @@ export async function runChat(
         `[chat-engine] Tool call: ${tc.name}(${JSON.stringify(args).substring(0, 100)})`,
       );
 
+      const callKey = buildToolCallKey(tc.name, args);
+      if (failedToolCallKeys.has(callKey)) {
+        const skippedResult = {
+          success: false,
+          error:
+            "Tool call skipped: the same tool call with identical arguments already failed in this turn.",
+        };
+        allToolCalls.push({ name: tc.name, args, result: skippedResult });
+
+        if (handler.tool.returnToAI) {
+          newToolResults.push({ toolName: tc.name, result: skippedResult });
+          hasReturnToAI = true;
+        }
+        failedToolNames.add(tc.name);
+        continue;
+      }
+
       const toolPromise = (async () => {
         try {
           const result = await handler.tool.handler(args, toolCtx.event);
           allToolCalls.push({ name: tc.name, args, result });
+
+          if (isToolErrorResult(result)) {
+            failedToolCallKeys.add(callKey);
+            failedToolNames.add(tc.name);
+          }
 
           if (handler.tool.returnToAI) {
             newToolResults.push({ toolName: tc.name, result });
@@ -203,6 +227,8 @@ export async function runChat(
           logger.warn(`[chat-engine] Tool ${tc.name} failed: ${err}`);
           const errorResult = { error: String(err) };
           allToolCalls.push({ name: tc.name, args, result: errorResult });
+          failedToolCallKeys.add(callKey);
+          failedToolNames.add(tc.name);
 
           if (handler.tool.returnToAI) {
             newToolResults.push({ toolName: tc.name, result: errorResult });
@@ -227,7 +253,11 @@ export async function runChat(
   }
 
   // Clean markers from text for storage/emoji pick
-  const cleanedText = cleanMarkers(lastTextContent);
+  let cleanedText = cleanMarkers(lastTextContent);
+  if (!cleanedText && failedToolNames.size > 0) {
+    const failedToolLabel = [...failedToolNames].join(", ");
+    cleanedText = `抱歉，刚刚工具调用失败了（${failedToolLabel}）。请稍后再试，或换个方式描述你的需求。`;
+  }
 
   // Parse messages (markers will be processed when sending)
   const messages = parseMessages(cleanedText);
@@ -333,4 +363,29 @@ function buildOpenAITools(
   }
 
   return tools;
+}
+
+function isToolErrorResult(result: any): boolean {
+  if (!result || typeof result !== "object") return false;
+  if (result.error) return true;
+  if (result.success === false) return true;
+  return false;
+}
+
+function buildToolCallKey(name: string, args: any): string {
+  return `${name}:${stableStringify(args ?? {})}`;
+}
+
+function stableStringify(value: any): string {
+  if (value === null || value === undefined) return String(value);
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+
+  const keys = Object.keys(value).sort();
+  const pairs = keys.map(
+    (key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`,
+  );
+  return `{${pairs.join(",")}}`;
 }

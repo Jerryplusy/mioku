@@ -114,9 +114,18 @@ function buildToolResultsSection(
     return `- **${tr.toolName}**: ${resultStr}`;
   });
 
-  const hint = `⚠️ IMPORTANT: A tool has successfully completed its operation (success: true). The operation is DONE - do NOT call the same tool again with the same or similar arguments. If you need to verify the result, use a query tool (like get_group_member_info or get_group_member_list) instead of repeating the action.`;
+  const hasToolFailure = toolResults.some((tr) => {
+    const result = tr.result;
+    if (!result || typeof result !== "object") return false;
+    return Boolean(result.error) || result.success === false;
+  });
 
-  return `## Tool Call Results\nResults from your previous tool calls:\n${lines.join("\n")}${hint || ""}`;
+  const hint = `⚠️ IMPORTANT: A tool has successfully completed its operation (success: true). The operation is DONE - do NOT call the same tool again with the same or similar arguments. If you need to verify the result, use a query tool (like get_group_member_info or get_group_member_list) instead of repeating the action.`;
+  const failureHint = hasToolFailure
+    ? `\n⚠️ IMPORTANT: Some tool calls failed. Do NOT repeat the same tool call with the same arguments. Briefly tell the user the tool failed and what they can try next.`
+    : "";
+
+  return `## Tool Call Results\nResults from your previous tool calls:\n${lines.join("\n")}${hint || ""}${failureHint}`;
 }
 
 function buildReplyContextSection(
@@ -474,6 +483,14 @@ If you want to send a sticker/emoji along with your message:
 - Use this sparingly - only when a sticker adds meaningful expression to your reply`);
       }
     }
+  }
+
+  // Web search tool note
+  if (ctx.config.searxng?.enabled) {
+    lines.push(`
+### Web Search Tool
+- web_search: Use this when you need current or external information that is not in chat history.
+- Prefer web_search over guessing for news, prices, release info,proper nouns, internet memes or factual claims you are not sure about.`);
   }
 
   // Admin tools note

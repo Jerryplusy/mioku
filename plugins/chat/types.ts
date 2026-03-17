@@ -88,6 +88,17 @@ export interface DynamicDelayConfig {
 }
 
 /**
+ * SearXNG 网页搜索配置
+ */
+export interface SearxngConfig {
+  enabled: boolean;
+  baseUrl: string;
+  timeoutMs: number;
+  defaultLimit: number;
+  maxLimit: number;
+}
+
+/**
  * 聊天插件配置
  */
 export interface ChatConfig {
@@ -101,6 +112,7 @@ export interface ChatConfig {
   persona: string;
   maxContextTokens: number;
   temperature: number;
+  searxng: SearxngConfig;
   historyCount: number;
   blacklistGroups: number[];
   whitelistGroups: number[];

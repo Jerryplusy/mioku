@@ -7,6 +7,13 @@ export const BASE_CONFIG = {
   isMultimodal: true,
   maxContextTokens: 128,
   temperature: 0.8,
+  searxng: {
+    enabled: false,
+    baseUrl: "your-api-url",
+    timeoutMs: 8000,
+    defaultLimit: 5,
+    maxLimit: 8,
+  },
   historyCount: 100, // 群聊历史消息数量
   maxIterations: 20, // AI 迭代次数限制，-1 表示不限制
 };
