@@ -1,6 +1,7 @@
 import { logger } from "mioki";
 import type { AITool } from "../../../src";
 import type { SkillSession, ToolContext } from "../types";
+import { searchWebWithSearxng } from "./searxng";
 
 interface CreateToolsResult {
   tools: AITool[];
@@ -141,6 +142,50 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
         } catch (err) {
           return { error: `Failed to get member list: ${err}` };
         }
+      },
+      returnToAI: true,
+    });
+  }
+
+  if (toolCtx.config.searxng?.enabled && toolCtx.config.searxng.baseUrl) {
+    tools.push({
+      name: "web_search",
+      description:
+        "Search the web using SearXNG. Use this for current events, external facts, documentation, or anything not in chat history.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Search query",
+          },
+          limit: {
+            type: "number",
+            description:
+              "Max number of results to return. Will be clamped by config maxLimit.",
+          },
+          time_range: {
+            type: "string",
+            enum: ["day", "month", "year"],
+            description: "Optional time filter for recent results",
+          },
+          categories: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Optional categories, e.g. [\"general\"], [\"news\"], [\"science\"]",
+          },
+          engines: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Optional engines, e.g. [\"google\"], [\"bing\"], [\"duckduckgo\"]",
+          },
+        },
+        required: ["query"],
+      },
+      handler: async (args) => {
+        return searchWebWithSearxng(toolCtx.config.searxng, args || {});
       },
       returnToAI: true,
     });
