@@ -493,6 +493,14 @@ If you want to send a sticker/emoji along with your message:
 - Prefer web_search over guessing for news, prices, release info,proper nouns, internet memes or factual claims you are not sure about.`);
   }
 
+  if (ctx.config.webReader?.enabled) {
+    lines.push(`
+### Web Reading Tool
+- web_read_page: Read a webpage URL, extract the main content, and return a compressed content block that preserves as much page information as possible.
+- Use web_search first to find a page, then use web_read_page when search snippets are not enough.
+- Only set render_js=true when the page clearly needs JavaScript rendering, because it costs much more CPU and memory.`);
+  }
+
   // Admin tools note
   if (
     ctx.isGroup &&

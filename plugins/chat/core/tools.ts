@@ -2,6 +2,7 @@ import { logger } from "mioki";
 import type { AITool } from "../../../src";
 import type { SkillSession, ToolContext } from "../types";
 import { searchWebWithSearxng } from "./searxng";
+import { readWebPage } from "./web-reader";
 
 interface CreateToolsResult {
   tools: AITool[];
@@ -186,6 +187,54 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
       },
       handler: async (args) => {
         return searchWebWithSearxng(toolCtx.config.searxng, args || {});
+      },
+      returnToAI: true,
+    });
+  }
+
+  if (toolCtx.config.webReader?.enabled) {
+    tools.push({
+      name: "web_read_page",
+      description:
+        "Read a webpage by URL, extract its main content, and compress the content into a short, information-dense passage. Use this after web_search when you need page details instead of just search snippets.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            description: "The http/https URL of the webpage to read",
+          },
+          render_js: {
+            type: "boolean",
+            description:
+              "Set true only if the page likely requires JavaScript rendering. This uses much more CPU and memory.",
+          },
+          question: {
+            type: "string",
+            description:
+              "Optional question or focus. The tool will prioritize webpage details relevant to this question.",
+          },
+        },
+        required: ["url"],
+      },
+      handler: async (args) => {
+        try {
+          const ai = toolCtx.config.webReader.useWorkingModel
+            ? toolCtx.aiService.getDefault()
+            : undefined;
+          if (toolCtx.config.webReader.useWorkingModel && !ai) {
+            return { success: false, error: "AI instance not available" };
+          }
+
+          return await readWebPage(
+            ai,
+            toolCtx.config.workingModel || toolCtx.config.model,
+            toolCtx.config.webReader,
+            args || {},
+          );
+        } catch (err) {
+          return { success: false, error: `Failed to read webpage: ${err}` };
+        }
       },
       returnToAI: true,
     });

@@ -1,4 +1,20 @@
 export const SETTINGS_CONFIG = {
+  searxng: {
+    enabled: false,
+    baseUrl: "your-api-url",
+    timeoutMs: 8000,
+    defaultLimit: 5,
+    maxLimit: 8,
+  },
+  webReader: {
+    enabled: true,
+    useWorkingModel: true,
+    timeoutMs: 10_000,
+    maxHtmlBytes: 1_500_000,
+    maxExtractedChars: 12_000,
+    browserTimeoutMs: 15_000,
+    allowedContentTypes: ["text/html", "application/xhtml+xml", "text/plain"],
+  },
   blacklistGroups: [],
   whitelistGroups: [],
   imageAnalysisBlacklistUsers: [], // 图片分析黑名单用户（QQ号）
