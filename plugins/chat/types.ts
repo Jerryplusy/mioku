@@ -99,6 +99,19 @@ export interface SearxngConfig {
 }
 
 /**
+ * 网页阅读工具配置
+ */
+export interface WebReaderConfig {
+  enabled: boolean;
+  useWorkingModel: boolean;
+  timeoutMs: number;
+  maxHtmlBytes: number;
+  maxExtractedChars: number;
+  browserTimeoutMs: number;
+  allowedContentTypes: string[];
+}
+
+/**
  * 聊天插件配置
  */
 export interface ChatConfig {
@@ -113,6 +126,7 @@ export interface ChatConfig {
   maxContextTokens: number;
   temperature: number;
   searxng: SearxngConfig;
+  webReader: WebReaderConfig;
   historyCount: number;
   blacklistGroups: number[];
   whitelistGroups: number[];
