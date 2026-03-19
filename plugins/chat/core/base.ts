@@ -25,6 +25,13 @@ export async function sendAIResponse(
 ): Promise<void> {
   const { ctx, groupId, messages, sentIndices, typoGenerator, onLineSent } =
     options;
+  const bot = ctx.pickBot(selfId);
+  if (!bot) {
+    ctx.logger.error(
+      `[sendAIResponse] bot ${String(selfId)} not found, skip sending group message`,
+    );
+    return;
+  }
 
   if (messages.length === 0) return;
 
@@ -62,7 +69,7 @@ export async function sendAIResponse(
 
       if (pokeUsers.length > 0) {
         for (const pokeId of pokeUsers) {
-          await ctx.pickBot(selfId).api("group_poke", {
+          await bot.api("group_poke", {
             group_id: groupId,
             user_id: pokeId,
           });
@@ -86,7 +93,7 @@ export async function sendAIResponse(
       }
 
       if (lineSegments.length > 0) {
-        await ctx.pickBot(selfId).sendGroupMsg(groupId, lineSegments);
+        await bot.sendGroupMsg(groupId, lineSegments);
       }
 
       if (j < expandedLines.length - 1) {
@@ -113,6 +120,14 @@ export async function sendMessage(
   selfId: number,
 ): Promise<void> {
   try {
+    const bot = ctx.pickBot(selfId);
+    if (!bot) {
+      ctx.logger.error(
+        `[sendMessage] bot ${String(selfId)} not found, skip sending`,
+      );
+      return;
+    }
+
     // 应用错别字生成器
     let msg = typoGenerator.apply(text);
 
@@ -148,7 +163,7 @@ export async function sendMessage(
       // 戳人 - 立即执行
       if (groupId && pokeUsers.length > 0) {
         for (const pokeId of pokeUsers) {
-          await ctx.pickBot(selfId).api("group_poke", {
+          await bot.api("group_poke", {
             group_id: groupId,
             user_id: pokeId,
           });
@@ -222,7 +237,7 @@ export async function sendMessage(
         // 发送消息
         if (segments.length > 0) {
           if (groupId) {
-            await ctx.pickBot(selfId).sendGroupMsg(groupId, segments);
+            await bot.sendGroupMsg(groupId, segments);
           }
         }
       } else {
@@ -238,9 +253,9 @@ export async function sendMessage(
           }
           if (sendSegments.length > 0) {
             if (groupId) {
-              await ctx.pickBot(selfId).sendGroupMsg(groupId, sendSegments);
+              await bot.sendGroupMsg(groupId, sendSegments);
             } else if (userId) {
-              await ctx.pickBot(selfId).sendPrivateMsg(userId, sendSegments);
+              await bot.sendPrivateMsg(userId, sendSegments);
             }
           }
         }
@@ -458,10 +473,17 @@ export async function sendEmoji(
   selfId: number,
 ): Promise<void> {
   if (!emojiPath) return;
+  const bot = ctx.pickBot(selfId);
+  if (!bot) {
+    ctx.logger.error(
+      `[sendEmoji] bot ${String(selfId)} not found, skip sending emoji`,
+    );
+    return;
+  }
 
   try {
     const emojiSegment = ctx.segment.image(`file://${emojiPath}`);
-    await ctx.pickBot(selfId).sendGroupMsg(groupId, [emojiSegment]);
+    await bot.sendGroupMsg(groupId, [emojiSegment]);
   } catch (err) {
     try {
       const fsPromises = await import("fs/promises");
@@ -496,7 +518,7 @@ export async function sendEmoji(
 
       const base64DataUrl = `data:${mimeType};base64,${base64}`;
       const base64Segment = ctx.segment.image(base64DataUrl);
-      await ctx.pickBot(selfId).sendGroupMsg(groupId, [base64Segment]);
+      await bot.sendGroupMsg(groupId, [base64Segment]);
       ctx.logger.info(`[Emoji] Sent via base64: ${path.basename(emojiPath)}`);
     } catch (base64Err) {
       ctx.logger.error(`[Emoji] Base64 also failed: ${base64Err}`);

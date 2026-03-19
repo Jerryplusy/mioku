@@ -51,8 +51,12 @@ export interface CompleteOptions {
   model: string;
   messages: ChatCompletionMessageParam[];
   tools?: ChatCompletionTool[];
+  executableTools?: SessionToolDefinition[];
+  sessionId?: string;
+  toolContextTtlMs?: number;
   temperature?: number;
   max_tokens?: number;
+  maxIterations?: number;
 }
 
 /**
@@ -67,6 +71,13 @@ export interface CompleteResponse {
     arguments: string;
   }[];
   raw: ChatCompletionMessageParam;
+  iterations?: number;
+  allToolCalls?: ToolCallRecord[];
+}
+
+export interface SessionToolDefinition {
+  name: string;
+  tool: AITool;
 }
 
 /**
@@ -103,9 +114,11 @@ export interface AIInstance {
 
   /**
    * 原始补全调用，提供对 OpenAI API 的直接访问
-   * 适用于需要自行管理工具循环、消息流的场景
+   * 当传入 executableTools 时，会走标准 tool loop，并可按 sessionId 保留 tool 上下文
    */
   complete(options: CompleteOptions): Promise<CompleteResponse>;
+
+  clearToolContext(sessionId?: string): boolean;
 
   registerPrompt(name: string, prompt: string): boolean;
   getPrompt(name: string): string | undefined;
@@ -141,6 +154,12 @@ export interface AIService {
   // 工具查询（扁平化访问）
   getTool(toolName: string): AITool | undefined;
   getAllTools(): Map<string, AITool>;
+  clearToolContext(sessionId: string): boolean;
+}
+
+interface StoredToolContext {
+  messages: ChatCompletionMessageParam[];
+  expiresAt: number;
 }
 
 /**
@@ -150,6 +169,7 @@ class AIInstanceImpl implements AIInstance {
   private client: OpenAI;
   private prompts: Map<string, string> = new Map();
   private readonly globalSkills: Map<string, AISkill>;
+  private readonly toolContexts: Map<string, StoredToolContext> = new Map();
 
   constructor(
     apiUrl: string,
@@ -235,6 +255,10 @@ class AIInstanceImpl implements AIInstance {
   }
 
   async complete(options: CompleteOptions): Promise<CompleteResponse> {
+    if (options.executableTools && options.executableTools.length > 0) {
+      return this.completeWithExecutableTools(options);
+    }
+
     const response = await this.client.chat.completions.create({
       model: options.model,
       messages: options.messages,
@@ -273,6 +297,198 @@ class AIInstanceImpl implements AIInstance {
     };
   }
 
+  private async completeWithExecutableTools(
+    options: CompleteOptions,
+  ): Promise<CompleteResponse> {
+    const maxIterations = options.maxIterations ?? 40;
+    const allToolCalls: ToolCallRecord[] = [];
+    const failedToolCallKeys = new Set<string>();
+    const retained = this.getToolContext(options.sessionId);
+    const retainedMessages = retained ? [...retained.messages] : [];
+    const sessionMessages = mergeSessionMessages(
+      options.messages,
+      retainedMessages,
+    );
+    const retainedToolMessages: ChatCompletionMessageParam[] = [];
+    const toolMap = new Map<string, AITool>();
+    const tools: ChatCompletionTool[] = [];
+    let iterations = 0;
+    let content = "";
+    let reasoning: string | null = null;
+    let raw: ChatCompletionMessageParam = { role: "assistant", content: "" };
+
+    for (const definition of options.executableTools || []) {
+      toolMap.set(definition.name, definition.tool);
+      tools.push({
+        type: "function",
+        function: {
+          name: definition.name,
+          description: definition.tool.description,
+          parameters: definition.tool.parameters,
+        },
+      });
+    }
+
+    while (iterations < maxIterations) {
+      iterations++;
+
+      const response = await this.client.chat.completions.create({
+        model: options.model,
+        messages: sessionMessages,
+        tools: tools.length > 0 ? tools : undefined,
+        temperature: options.temperature ?? 0.7,
+        ...(options.max_tokens != null && {
+          max_completion_tokens: options.max_tokens,
+        }),
+      });
+
+      const message = response.choices[0]?.message;
+      if (!message) {
+        break;
+      }
+
+      content = extractTextContent(message.content);
+      reasoning =
+        (message as any).reasoning_content || (message as any).reasoning || null;
+      raw = message as ChatCompletionMessageParam;
+      sessionMessages.push(message as ChatCompletionMessageParam);
+
+      if (!message.tool_calls || message.tool_calls.length === 0) {
+        this.persistToolContext(
+          options.sessionId,
+          retainedMessages,
+          retainedToolMessages,
+          retainedMessages.length > 0 || retainedToolMessages.length > 0,
+          options.toolContextTtlMs,
+        );
+
+        return {
+          content,
+          reasoning,
+          toolCalls: [],
+          raw,
+          iterations,
+          allToolCalls,
+        };
+      }
+
+      const toolMessages: ChatCompletionMessageParam[] = [];
+      let shouldRetainTurn = false;
+
+      for (const toolCall of message.tool_calls) {
+        if (toolCall.type !== "function") {
+          continue;
+        }
+
+        const toolName = toolCall.function.name;
+        const tool = toolMap.get(toolName);
+        const args = parseToolArguments(toolCall.function.arguments);
+        const callKey = buildToolCallKey(toolName, args);
+        let result: any;
+        let returnedToAI = tool?.returnToAI ?? false;
+
+        if (!tool) {
+          logger.warn(`Tool ${toolName} not found`);
+          result = { error: `Tool ${toolName} not found` };
+          returnedToAI = false;
+        } else if (failedToolCallKeys.has(callKey)) {
+          result = {
+            success: false,
+            error:
+              "Tool call skipped: the same tool call with identical arguments already failed in this turn.",
+          };
+          returnedToAI = tool.returnToAI ?? false;
+        } else {
+          try {
+            result = await tool.handler(args);
+          } catch (error) {
+            logger.error(`Tool ${toolName} execution failed: ${error}`);
+            result = { error: String(error) };
+          }
+        }
+
+        if (isToolErrorResult(result)) {
+          failedToolCallKeys.add(callKey);
+        }
+
+        if (returnedToAI) {
+          shouldRetainTurn = true;
+        }
+
+        allToolCalls.push({
+          name: toolName,
+          arguments: args,
+          result,
+          returnedToAI,
+        });
+
+        const toolMessage = {
+          role: "tool",
+          content: JSON.stringify(result),
+          tool_call_id: toolCall.id,
+        } as ChatCompletionMessageParam;
+
+        sessionMessages.push(toolMessage);
+        toolMessages.push(toolMessage);
+      }
+
+      if (shouldRetainTurn) {
+        retainedToolMessages.push(message as ChatCompletionMessageParam);
+        retainedToolMessages.push(...toolMessages);
+        this.persistToolContext(
+          options.sessionId,
+          retainedMessages,
+          retainedToolMessages,
+          true,
+          options.toolContextTtlMs,
+        );
+        continue;
+      }
+
+      this.persistToolContext(
+        options.sessionId,
+        retainedMessages,
+        retainedToolMessages,
+        retainedMessages.length > 0 || retainedToolMessages.length > 0,
+        options.toolContextTtlMs,
+      );
+
+      return {
+        content,
+        reasoning,
+        toolCalls: (message.tool_calls || [])
+          .filter((tc) => tc.type === "function")
+          .map((tc) => ({
+            id: tc.id,
+            name: tc.function.name,
+            arguments: tc.function.arguments,
+          })),
+        raw,
+        iterations,
+        allToolCalls,
+      };
+    }
+
+    logger.warn(
+      `Reached maximum iterations (${maxIterations}) for complete with executable tools`,
+    );
+    this.persistToolContext(
+      options.sessionId,
+      retainedMessages,
+      retainedToolMessages,
+      retainedMessages.length > 0 || retainedToolMessages.length > 0,
+      options.toolContextTtlMs,
+    );
+    return {
+      content: "达到最大迭代次数限制",
+      reasoning,
+      toolCalls: [],
+      raw,
+      iterations,
+      allToolCalls,
+    };
+  }
+
   async generateWithTools(options: {
     prompt?: string;
     messages: TextMessage[] | MultimodalMessage[];
@@ -284,149 +500,37 @@ class AIInstanceImpl implements AIInstance {
     iterations: number;
     allToolCalls: ToolCallRecord[];
   }> {
-    const maxIterations = options.maxIterations ?? 40;
-    let iterations = 0;
-    const allToolCalls: ToolCallRecord[] = [];
-
-    // 构建工具列表（扁平化所有 skills 的工具）
-    const tools: ChatCompletionTool[] = [];
-    const toolMap = new Map<string, AITool>();
+    const executableTools: SessionToolDefinition[] = [];
 
     for (const [skillName, skill] of this.globalSkills) {
       for (const tool of skill.tools) {
-        const fullToolName = `${skillName}.${tool.name}`;
-        tools.push({
-          type: "function",
-          function: {
-            name: fullToolName,
+        executableTools.push({
+          name: `${skillName}.${tool.name}`,
+          tool: {
+            ...tool,
             description: `[${skillName}] ${tool.description}`,
-            parameters: tool.parameters,
           },
         });
-        toolMap.set(fullToolName, tool);
       }
     }
 
-    let currentMessages = this.convertMessages(options.messages);
+    let messages = this.convertMessages(options.messages);
     if (options.prompt) {
-      currentMessages = [
-        { role: "system", content: options.prompt },
-        ...currentMessages,
-      ];
+      messages = [{ role: "system", content: options.prompt }, ...messages];
     }
 
-    let content = "";
+    const response = await this.complete({
+      model: options.model,
+      messages,
+      executableTools,
+      temperature: options.temperature,
+      maxIterations: options.maxIterations,
+    });
 
-    while (iterations < maxIterations) {
-      iterations++;
-
-      const response = await this.client.chat.completions.create({
-        model: options.model,
-        messages: currentMessages,
-        tools: tools.length > 0 ? tools : undefined,
-        temperature: options.temperature ?? 0.7,
-      });
-
-      const message = response.choices[0]?.message;
-      if (!message) break;
-
-      content = message.content || "";
-      currentMessages.push(message as ChatCompletionMessageParam);
-
-      // 检查是否有工具调用
-      if (message.tool_calls && message.tool_calls.length > 0) {
-        let hasReturnToAI = false;
-
-        for (const toolCall of message.tool_calls) {
-          if (toolCall.type === "function") {
-            const toolName = toolCall.function.name;
-            const tool = toolMap.get(toolName);
-
-            if (!tool) {
-              logger.warn(`Tool ${toolName} not found`);
-              // OpenAI 要求所有 tool_call 都必须有对应的 tool result
-              currentMessages.push({
-                role: "tool",
-                content: JSON.stringify({
-                  error: `Tool ${toolName} not found`,
-                }),
-                tool_call_id: toolCall.id,
-              } as ChatCompletionMessageParam);
-              continue;
-            }
-
-            try {
-              const args = JSON.parse(toolCall.function.arguments);
-              const result = await tool.handler(args);
-              const returnedToAI = tool.returnToAI ?? false;
-
-              allToolCalls.push({
-                name: toolName,
-                arguments: args,
-                result,
-                returnedToAI,
-              });
-
-              // 始终推送工具结果到消息列表（OpenAI 要求所有 tool_call 都必须有结果）
-              currentMessages.push({
-                role: "tool",
-                content: JSON.stringify(result),
-                tool_call_id: toolCall.id,
-              } as ChatCompletionMessageParam);
-
-              if (returnedToAI) {
-                hasReturnToAI = true;
-              }
-            } catch (error) {
-              logger.error(`Tool ${toolName} execution failed: ${error}`);
-              const errorResult = { error: String(error) };
-              const returnedToAI = tool.returnToAI ?? false;
-
-              allToolCalls.push({
-                name: toolName,
-                arguments: toolCall.function.arguments,
-                result: errorResult,
-                returnedToAI,
-              });
-
-              // 始终推送错误结果到消息列表
-              currentMessages.push({
-                role: "tool",
-                content: JSON.stringify(errorResult),
-                tool_call_id: toolCall.id,
-              } as ChatCompletionMessageParam);
-
-              if (returnedToAI) {
-                hasReturnToAI = true;
-              }
-            }
-          }
-        }
-
-        if (!hasReturnToAI) {
-          return {
-            content,
-            iterations,
-            allToolCalls,
-          };
-        }
-      } else {
-        // 没有工具调用，结束
-        return {
-          content,
-          iterations,
-          allToolCalls,
-        };
-      }
-    }
-
-    logger.warn(
-      `Reached maximum iterations (${maxIterations}) for generateWithTools`,
-    );
     return {
-      content: "达到最大迭代次数限制",
-      iterations,
-      allToolCalls,
+      content: response.content || "",
+      iterations: response.iterations ?? 1,
+      allToolCalls: response.allToolCalls || [],
     };
   }
 
@@ -464,6 +568,18 @@ class AIInstanceImpl implements AIInstance {
     }
   }
 
+  clearToolContext(sessionId?: string): boolean {
+    this.clearExpiredToolContexts();
+
+    if (sessionId) {
+      return this.toolContexts.delete(sessionId);
+    }
+
+    const hadContexts = this.toolContexts.size > 0;
+    this.toolContexts.clear();
+    return hadContexts;
+  }
+
   registerPrompt(name: string, prompt: string): boolean {
     if (this.prompts.has(name)) {
       logger.warn(`Prompt ${name} already exists, overwriting`);
@@ -491,6 +607,51 @@ class AIInstanceImpl implements AIInstance {
       logger.info(`Prompt ${name} removed`);
     }
     return deleted;
+  }
+
+  private getToolContext(sessionId?: string): StoredToolContext | undefined {
+    if (!sessionId) {
+      return undefined;
+    }
+    this.clearExpiredToolContexts();
+    return this.toolContexts.get(sessionId);
+  }
+
+  private persistToolContext(
+    sessionId: string | undefined,
+    retainedMessages: ChatCompletionMessageParam[],
+    newMessages: ChatCompletionMessageParam[],
+    shouldPersist: boolean,
+    ttlMs?: number,
+  ): void {
+    if (!sessionId) {
+      return;
+    }
+
+    if (!shouldPersist) {
+      this.toolContexts.delete(sessionId);
+      return;
+    }
+
+    const messages = [...retainedMessages, ...newMessages];
+    if (messages.length === 0) {
+      this.toolContexts.delete(sessionId);
+      return;
+    }
+
+    this.toolContexts.set(sessionId, {
+      messages,
+      expiresAt: Date.now() + normalizeToolContextTtl(ttlMs),
+    });
+  }
+
+  private clearExpiredToolContexts(): void {
+    const now = Date.now();
+    for (const [sessionId, context] of this.toolContexts) {
+      if (context.expiresAt <= now) {
+        this.toolContexts.delete(sessionId);
+      }
+    }
   }
 }
 
@@ -616,6 +777,99 @@ class AIServiceImpl implements AIService {
     }
     return allTools;
   }
+
+  clearToolContext(sessionId: string): boolean {
+    let cleared = false;
+
+    for (const instance of this.instances.values()) {
+      if (instance.clearToolContext(sessionId)) {
+        cleared = true;
+      }
+    }
+
+    return cleared;
+  }
+}
+
+function normalizeToolContextTtl(ttlMs?: number): number {
+  if (typeof ttlMs !== "number" || !Number.isFinite(ttlMs) || ttlMs <= 0) {
+    return 30 * 60 * 1000;
+  }
+  return Math.floor(ttlMs);
+}
+
+function parseToolArguments(raw: string): any {
+  try {
+    return JSON.parse(raw || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function isToolErrorResult(result: any): boolean {
+  if (!result || typeof result !== "object") return false;
+  if (result.error) return true;
+  if (result.success === false) return true;
+  return false;
+}
+
+function buildToolCallKey(name: string, args: any): string {
+  return `${name}:${stableStringify(args ?? {})}`;
+}
+
+function stableStringify(value: any): string {
+  if (value === null || value === undefined) return String(value);
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+
+  const keys = Object.keys(value).sort();
+  const pairs = keys.map(
+    (key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`,
+  );
+  return `{${pairs.join(",")}}`;
+}
+
+function mergeSessionMessages(
+  messages: ChatCompletionMessageParam[],
+  retainedMessages: ChatCompletionMessageParam[],
+): ChatCompletionMessageParam[] {
+  if (retainedMessages.length === 0) {
+    return [...messages];
+  }
+
+  const merged: ChatCompletionMessageParam[] = [];
+  let index = 0;
+
+  while (index < messages.length && messages[index]?.role === "system") {
+    merged.push(messages[index]);
+    index++;
+  }
+
+  merged.push(...retainedMessages);
+  merged.push(...messages.slice(index));
+  return merged;
+}
+
+function extractTextContent(
+  content: ChatCompletionMessageParam["content"] | null | undefined,
+): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .filter((part): part is { type: "text"; text: string } => {
+      return Boolean(part && part.type === "text" && typeof part.text === "string");
+    })
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
 }
 
 const aiService: MiokuService = {

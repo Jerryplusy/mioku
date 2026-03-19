@@ -1,5 +1,7 @@
-import type { AIInstance } from "../../../src/services/ai";
-import type { ChatCompletionTool } from "openai/resources/chat/completions";
+import type {
+  AIInstance,
+  SessionToolDefinition,
+} from "../../../src/services/ai";
 import { logger } from "mioki";
 import type { AITool } from "../../../src";
 import type {
@@ -15,7 +17,7 @@ import { createTools } from "./tools";
 import { buildSystemPrompt } from "./prompt";
 
 /**
- * Run a single chat turn — AI responds directly via text, tools are side effects
+ * Run a single chat turn using standard assistant/tool messages retained by AI service.
  */
 export async function runChat(
   ai: AIInstance,
@@ -24,245 +26,90 @@ export async function runChat(
   targetMessage: TargetMessage,
   promptCtx: Omit<
     PromptContext,
-    "toolResults" | "activeSkillsInfo" | "chatHistory" | "targetMessage"
+    "activeSkillsInfo" | "chatHistory" | "targetMessage"
   >,
   humanize: HumanizeEngine,
   skillManager: SkillSessionManager,
 ): Promise<ChatResult> {
   const { tools: chatTools } = createTools(toolCtx, skillManager);
-
-  const allToolCalls: { name: string; args: any; result: any }[] = [];
-  let toolResults: { toolName: string; result: any }[] = [];
-  let lastTextContent = "";
-  const failedToolCallKeys = new Set<string>();
-  const failedToolNames = new Set<string>();
+  const skillTools = skillManager.getTools(toolCtx.sessionId);
+  const activeSkillsInfo = skillManager.getActiveSkillsInfo(toolCtx.sessionId);
+  const prompt = buildSystemPrompt({
+    ...promptCtx,
+    activeSkillsInfo: activeSkillsInfo || undefined,
+    chatHistory: history,
+    targetMessage,
+    emojiAgent: humanize.emojiAgent,
+  });
 
   logger.info(
     `[chat-engine] Session ${toolCtx.sessionId} | target: ${targetMessage.userName}(${targetMessage.userId}): "${targetMessage.content}"`,
   );
+  logger.info("[chat-engine] === Prompt ===");
+  logger.info(prompt);
+  logger.info("[chat-engine] === End Prompt ===");
 
-  // 获取迭代次数限制
-  const maxIterations = toolCtx.config.maxIterations ?? 20;
-
-  for (
-    let iteration = 0;
-    maxIterations === -1 || iteration < maxIterations;
-    iteration++
-  ) {
-    // Build prompt fresh each iteration
-    const activeSkillsInfo = skillManager.getActiveSkillsInfo(
-      toolCtx.sessionId,
-    );
-    const prompt = buildSystemPrompt({
-      ...promptCtx,
-      toolResults: iteration > 0 ? toolResults : undefined,
-      activeSkillsInfo: activeSkillsInfo || undefined,
-      chatHistory: history,
+  const response = await ai.complete({
+    sessionId: toolCtx.sessionId,
+    model: toolCtx.config.model,
+    messages: buildCurrentMessages(
+      prompt,
       targetMessage,
-      emojiAgent: humanize.emojiAgent,
-    });
+      toolCtx.pendingImageUrls,
+    ),
+    executableTools: buildSessionTools(chatTools, skillTools),
+    toolContextTtlMs: toolCtx.config.toolContextTtlMs,
+    temperature: toolCtx.config.temperature,
+    maxIterations: toolCtx.config.maxIterations,
+  });
 
-    logger.info(`[chat-engine] === Prompt (iter ${iteration}) ===`);
-    logger.info(prompt);
-    logger.info(`[chat-engine] === End Prompt ===`);
+  if (response.reasoning) {
+    logger.info(`[chat-engine] AI reasoning: ${response.reasoning}`);
+  }
 
-    // Build tool definitions
-    const skillTools = skillManager.getTools(toolCtx.sessionId);
-    const openaiTools = buildOpenAITools(chatTools, skillTools);
+  const allToolCalls = response.allToolCalls || [];
 
-    // 构建消息
-    const pendingImages = toolCtx.pendingImageUrls;
-    const hasImages = pendingImages && pendingImages.length > 0;
-
-    let messages: any[] = [{ role: "system", content: prompt }];
-
-    // 第一轮迭代，添加用户消息
-    if (iteration === 0 && hasImages) {
-      const userContent: any[] = [
-        { type: "text", text: targetMessage.content },
-      ];
-      for (const url of pendingImages) {
-        userContent.push({ type: "image_url", image_url: { url } });
-      }
-      messages.push({ role: "user", content: userContent });
-
-      // 清除已附加的图片
-      toolCtx.pendingImageUrls = [];
-    }
-
-    // Call AI
-    const resp = await ai.complete({
-      model: toolCtx.config.model,
-      messages,
-      tools: openaiTools.length > 0 ? openaiTools : undefined,
-      temperature: toolCtx.config.temperature,
-    });
-
-    // Log AI reasoning if present
-    if (resp.reasoning) {
+  if (allToolCalls.length > 0) {
+    for (const toolCall of allToolCalls) {
       logger.info(
-        `[chat-engine] AI reasoning (iter ${iteration}): ${resp.reasoning}`,
+        `[chat-engine] Tool call: ${toolCall.name}(${JSON.stringify(toolCall.arguments).substring(0, 100)})`,
       );
-    }
-
-    // Capture text content
-    if (resp.content) {
-      lastTextContent = resp.content;
-      logger.info(
-        `[chat-engine] AI reply (iter ${iteration}): "${resp.content}"`,
-      );
-
-      // 如果有回调函数，立即发送文本内容（需要先清理 meme 标记）
-      if (toolCtx.onTextContent && lastTextContent.trim()) {
-        const cleanedForCallback = lastTextContent
-          .replace(/\[meme:[^\]]+\]/gi, "")
-          .replace(/\n{3,}/g, "\n\n")
-          .split("\n")
-          .map((l) => l.trim())
-          .join("\n")
-          .trim();
-
-        const messages = parseMessages(cleanedForCallback);
-        if (messages.length > 0) {
-          if (!toolCtx.sentMessageIndices) {
-            toolCtx.sentMessageIndices = new Set();
-          }
-          toolCtx.sentMessageIndices.add(0);
-
-          const callbackResult = toolCtx.onTextContent(
-            cleanedForCallback,
-            0,
-            messages.length,
-          );
-          if (callbackResult && typeof callbackResult.then === "function") {
-            callbackResult.catch((err: any) =>
-              logger.warn(
-                `[chat-engine] onTextContent callback failed: ${err}`,
-              ),
-            );
-          }
-        }
-      }
-    }
-
-    // No tool calls → done
-    if (!resp.toolCalls || resp.toolCalls.length === 0) {
-      break;
-    }
-
-    // Process tool calls in parallel (不阻塞文本发送)
-    const toolPromises: Promise<void>[] = [];
-    const newToolResults: { toolName: string; result: any }[] = [];
-    let hasReturnToAI = false;
-
-    for (const tc of resp.toolCalls) {
-      let args: any;
-      try {
-        args = JSON.parse(tc.arguments || "{}");
-      } catch {
-        args = {};
-      }
-
-      // Find handler
-      const handler = findToolHandler(tc.name, chatTools, skillTools);
-      if (!handler) {
-        logger.warn(`[chat-engine] Unknown tool: ${tc.name}`);
-        continue;
-      }
-
-      // end_session 工具：立即结束会话
-      if (tc.name === "end_session") {
-        await handler.tool.handler(args, toolCtx.event);
-        logger.info(
-          `[chat-engine] Session ended: ${args.reason || "no reason"}`,
-        );
-        // 不发送任何消息，直接结束
-        return {
-          messages: [],
-          pendingAt: [],
-          pendingPoke: [],
-          pendingQuote: undefined,
-          toolCalls: allToolCalls,
-          emojiPath: null,
-        };
-      }
-
-      // Execute handler asynchronously
-      logger.info(
-        `[chat-engine] Tool call: ${tc.name}(${JSON.stringify(args).substring(0, 100)})`,
-      );
-
-      const callKey = buildToolCallKey(tc.name, args);
-      if (failedToolCallKeys.has(callKey)) {
-        const skippedResult = {
-          success: false,
-          error:
-            "Tool call skipped: the same tool call with identical arguments already failed in this turn.",
-        };
-        allToolCalls.push({ name: tc.name, args, result: skippedResult });
-
-        if (handler.tool.returnToAI) {
-          newToolResults.push({ toolName: tc.name, result: skippedResult });
-          hasReturnToAI = true;
-        }
-        failedToolNames.add(tc.name);
-        continue;
-      }
-
-      const toolPromise = (async () => {
-        try {
-          const result = await handler.tool.handler(args, toolCtx.event);
-          allToolCalls.push({ name: tc.name, args, result });
-
-          if (isToolErrorResult(result)) {
-            failedToolCallKeys.add(callKey);
-            failedToolNames.add(tc.name);
-          }
-
-          if (handler.tool.returnToAI) {
-            newToolResults.push({ toolName: tc.name, result });
-            hasReturnToAI = true;
-          }
-        } catch (err) {
-          logger.warn(`[chat-engine] Tool ${tc.name} failed: ${err}`);
-          const errorResult = { error: String(err) };
-          allToolCalls.push({ name: tc.name, args, result: errorResult });
-          failedToolCallKeys.add(callKey);
-          failedToolNames.add(tc.name);
-
-          if (handler.tool.returnToAI) {
-            newToolResults.push({ toolName: tc.name, result: errorResult });
-            hasReturnToAI = true;
-          }
-        }
-      })();
-
-      toolPromises.push(toolPromise);
-    }
-
-    // Wait for all tools to complete (but text was already sent via callback)
-    await Promise.all(toolPromises);
-
-    // Update tool results for next iteration
-    toolResults = newToolResults;
-
-    // If no returnToAI tools were called, we're done
-    if (!hasReturnToAI) {
-      break;
     }
   }
 
-  // Clean markers from text for storage/emoji pick
-  let cleanedText = cleanMarkers(lastTextContent);
-  if (!cleanedText && failedToolNames.size > 0) {
-    const failedToolLabel = [...failedToolNames].join(", ");
-    cleanedText = `抱歉，刚刚工具调用失败了（${failedToolLabel}）。请稍后再试，或换个方式描述你的需求。`;
+  if (shouldEndSession(allToolCalls)) {
+    ai.clearToolContext(toolCtx.sessionId);
+    logger.info(`[chat-engine] Session ${toolCtx.sessionId} ended by tool`);
+    return {
+      messages: [],
+      pendingAt: [],
+      pendingPoke: [],
+      pendingQuote: undefined,
+      toolCalls: allToolCalls.map((toolCall) => ({
+        name: toolCall.name,
+        args: toolCall.arguments,
+        result: toolCall.result,
+      })),
+      emojiPath: null,
+    };
   }
 
-  // Parse messages (markers will be processed when sending)
-  const messages = parseMessages(cleanedText);
+  let cleanedText = cleanMarkers(response.content || "");
+  if (!cleanedText) {
+    const failedToolCalls = allToolCalls.filter((toolCall) =>
+      isToolErrorResult(toolCall.result),
+    );
+    if (failedToolCalls.length > 0) {
+      cleanedText = await generateToolFailureReply(
+        ai,
+        toolCtx,
+        prompt,
+        targetMessage,
+        failedToolCalls,
+      );
+    }
+  }
 
-  // Process meme intent using new EmojiAgent
   let emojiPath: string | null = null;
   let finalText = cleanedText;
   if (cleanedText.trim()) {
@@ -276,7 +123,6 @@ export async function runChat(
     }
   }
 
-  // Reparse messages with cleaned text (removes [meme:...] markers)
   const finalMessages = parseMessages(finalText);
 
   logger.info(
@@ -288,18 +134,84 @@ export async function runChat(
     pendingAt: [],
     pendingPoke: [],
     pendingQuote: undefined,
-    toolCalls: allToolCalls,
+    toolCalls: allToolCalls.map((toolCall) => ({
+      name: toolCall.name,
+      args: toolCall.arguments,
+      result: toolCall.result,
+    })),
     emojiPath,
   };
 }
 
+function buildCurrentMessages(
+  prompt: string,
+  targetMessage: TargetMessage,
+  pendingImageUrls?: string[],
+): any[] {
+  const messages: any[] = [{ role: "system", content: prompt }];
+  const hasImages = Boolean(pendingImageUrls && pendingImageUrls.length > 0);
+
+  if (!hasImages) {
+    messages.push({
+      role: "user",
+      content: targetMessage.content,
+    });
+    return messages;
+  }
+
+  const userContent: any[] = [{ type: "text", text: targetMessage.content }];
+  for (const url of pendingImageUrls || []) {
+    userContent.push({ type: "image_url", image_url: { url } });
+  }
+
+  messages.push({
+    role: "user",
+    content: userContent,
+  });
+  return messages;
+}
+
+function buildSessionTools(
+  chatTools: AITool[],
+  skillTools: Map<string, AITool>,
+): SessionToolDefinition[] {
+  const tools: SessionToolDefinition[] = [];
+
+  for (const tool of chatTools) {
+    tools.push({
+      name: tool.name,
+      tool,
+    });
+  }
+
+  for (const [name, tool] of skillTools) {
+    tools.push({
+      name,
+      tool,
+    });
+  }
+
+  return tools;
+}
+
+function shouldEndSession(
+  toolCalls: Array<{ name: string; result: any }>,
+): boolean {
+  return toolCalls.some((toolCall) => {
+    if (toolCall.name !== "end_session") {
+      return false;
+    }
+
+    const result = toolCall.result;
+    return Boolean(result && typeof result === "object" && result.ended);
+  });
+}
+
 /**
- * Remove action markers from text for storage/display
+ * Remove action markers from text for storage/display.
  * Note: ALL markers are preserved here - they'll be parsed by parseLineMarkers in index.ts
  */
 function cleanMarkers(text: string): string {
-  // Don't remove any markers here - let parseLineMarkers handle them
-  // This ensures AT, poke, and reply markers are available for message construction
   return text.trim();
 }
 
@@ -314,57 +226,6 @@ function parseMessages(text: string): string[] {
     .filter(Boolean);
 }
 
-/**
- * Find a tool handler by name from chat tools or skill tools
- */
-function findToolHandler(
-  name: string,
-  chatTools: AITool[],
-  skillTools: Map<string, AITool>,
-): { tool: AITool } | undefined {
-  const chatTool = chatTools.find((t) => t.name === name);
-  if (chatTool) return { tool: chatTool };
-
-  const skillTool = skillTools.get(name);
-  if (skillTool) return { tool: skillTool };
-
-  return undefined;
-}
-
-/**
- * Build OpenAI-format tool definitions
- */
-function buildOpenAITools(
-  chatTools: AITool[],
-  skillTools: Map<string, AITool>,
-): ChatCompletionTool[] {
-  const tools: ChatCompletionTool[] = [];
-
-  for (const tool of chatTools) {
-    tools.push({
-      type: "function",
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters,
-      },
-    });
-  }
-
-  for (const [name, tool] of skillTools) {
-    tools.push({
-      type: "function",
-      function: {
-        name,
-        description: tool.description,
-        parameters: tool.parameters,
-      },
-    });
-  }
-
-  return tools;
-}
-
 function isToolErrorResult(result: any): boolean {
   if (!result || typeof result !== "object") return false;
   if (result.error) return true;
@@ -372,20 +233,52 @@ function isToolErrorResult(result: any): boolean {
   return false;
 }
 
-function buildToolCallKey(name: string, args: any): string {
-  return `${name}:${stableStringify(args ?? {})}`;
-}
+async function generateToolFailureReply(
+  ai: AIInstance,
+  toolCtx: ToolContext,
+  chatSystemPrompt: string,
+  targetMessage: TargetMessage,
+  failedToolCalls: Array<{ name: string; result: any }>,
+): Promise<string> {
+  const failedToolNames = [...new Set(failedToolCalls.map((t) => t.name))];
+  const failedSummary = failedToolCalls
+    .map((item) => {
+      const raw =
+        typeof item.result === "string"
+          ? item.result
+          : JSON.stringify(item.result);
+      return `- ${item.name}: ${raw}`;
+    })
+    .join("\n");
+  const userPrompt = `用户原始消息：${targetMessage.content}
 
-function stableStringify(value: any): string {
-  if (value === null || value === undefined) return String(value);
-  if (typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+补充上下文：你刚才尝试调用工具，但以下工具失败了：
+${failedSummary}
+
+请基于当前会话的人设与语气，给用户一条自然、简短的回复。
+要求：
+- 可以简要提到“刚刚没查到/调用失败”，但不要泄露内部系统细节。
+- 给出可执行的下一步建议（如补充关键词、提供更具体链接、稍后再试）。
+- 直接输出最终回复文本，不要解释你在做什么。`;
+
+  try {
+    const retry = await ai.complete({
+      model: toolCtx.config.model,
+      messages: [
+        { role: "system", content: chatSystemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: Math.max(0.2, Math.min(0.8, toolCtx.config.temperature)),
+      max_tokens: 120,
+    });
+
+    const text = cleanMarkers(retry.content || "");
+    if (text) {
+      return text;
+    }
+  } catch (err) {
+    logger.warn(`[chat-engine] Failed to generate tool-failure fallback reply: ${err}`);
   }
 
-  const keys = Object.keys(value).sort();
-  const pairs = keys.map(
-    (key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`,
-  );
-  return `{${pairs.join(",")}}`;
+  return "我刚刚查这条信息时出了点问题，你可以换个关键词再试试，或者给我更具体一点的线索。";
 }

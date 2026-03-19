@@ -1359,7 +1359,9 @@ Suggestion:
         }
 
         // 获取 bot 角色和群信息
-        const botRole = groupId ? await getBotRole(groupId, ctx, e) : "member";
+        const botRole = groupId
+          ? await getBotRole(groupId, ctx, e.self_id)
+          : "member";
         let groupName: string | undefined;
         let memberCount: number | undefined;
 
@@ -1367,7 +1369,7 @@ Suggestion:
           const groupInfo = await getGroupInfoData(
             ctx,
             groupId,
-            e,
+            e.self_id,
             e.group_name,
           );
           groupName = groupInfo.groupName;
@@ -1451,7 +1453,7 @@ Suggestion:
               sentIndices: toolCtx.sentMessageIndices,
               typoGenerator: humanize.typoGenerator,
             },
-            e,
+            e.self_id,
           );
 
           await sendEmoji(ctx, groupId, result.emojiPath, e.self_id);
@@ -1689,11 +1691,13 @@ Suggestion:
         if (groupId) {
           const groupSessionId = `group:${groupId}`;
           sessionManager.resetBotMessages(groupSessionId);
+          aiService?.clearToolContext(groupSessionId);
           await e.reply("已清除本群会话中 AI 发送的消息~");
           return;
         }
         const personalSessionId = `personal:${userId}`;
         sessionManager.resetBotMessages(personalSessionId);
+        aiService?.clearToolContext(personalSessionId);
         await e.reply("已清除你的个人会话中 AI 发送的消息~");
         return;
       }

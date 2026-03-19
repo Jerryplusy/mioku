@@ -148,7 +148,7 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
     });
   }
 
-  if (toolCtx.config.searxng?.enabled && toolCtx.config.searxng.baseUrl) {
+  if (toolCtx.config.searxng?.enabled) {
     tools.push({
       name: "web_search",
       description:
@@ -159,6 +159,12 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
           query: {
             type: "string",
             description: "Search query",
+          },
+          queries: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Alternative input. Multiple search queries; only the first non-empty query will be used.",
           },
           limit: {
             type: "number",
@@ -183,7 +189,7 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
               "Optional engines, e.g. [\"google\"], [\"bing\"], [\"duckduckgo\"]",
           },
         },
-        required: ["query"],
+        required: [],
       },
       handler: async (args) => {
         return searchWebWithSearxng(toolCtx.config.searxng, args || {});
@@ -196,7 +202,7 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
     tools.push({
       name: "web_read_page",
       description:
-        "Read a webpage by URL, extract its main content, and compress the content into a short, information-dense passage. Use this after web_search when you need page details instead of just search snippets.",
+        "Read a webpage by URL, extract its main content, and compress the content into a short, information-dense passage. Use this directly when the user already provides a URL, or combine with web_search when you need to discover relevant pages first.",
       parameters: {
         type: "object",
         properties: {
