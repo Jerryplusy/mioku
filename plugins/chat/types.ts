@@ -138,6 +138,8 @@ export interface ChatConfig {
   stream: boolean;
   enableTypingDelay: boolean;
   debug: boolean;
+  outputLengthConstraintStrength: "low" | "medium" | "high";
+  toolCallConstraintStrength: "low" | "medium" | "high";
   toolContextTtlMs: number;
   cooldownAfterReplyMs: number;
   dynamicDelay: DynamicDelayConfig;
