@@ -5,6 +5,7 @@ type TimeRange = "day" | "month" | "year";
 
 interface WebSearchArgs {
   query?: string;
+  queries?: string[];
   limit?: number;
   time_range?: TimeRange;
   categories?: string[];
@@ -59,7 +60,10 @@ export async function searchWebWithSearxng(
   cfg: SearxngConfig,
   args: WebSearchArgs,
 ): Promise<WebSearchResult> {
-  const query = String(args.query || "").trim();
+  const fallbackQuery = Array.isArray(args.queries)
+    ? args.queries.map((item) => String(item || "").trim()).find(Boolean) || ""
+    : "";
+  const query = String(args.query || fallbackQuery).trim();
   if (!query) {
     return {
       success: false,

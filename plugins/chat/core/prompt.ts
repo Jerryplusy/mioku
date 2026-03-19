@@ -15,8 +15,6 @@ export interface PromptContext {
   memoryContext?: string;
   topicContext?: string;
   expressionContext?: string;
-  // Dynamic per-iteration content
-  toolResults?: { toolName: string; result: any }[];
   activeSkillsInfo?: string;
   chatHistory: ChatMessage[];
   targetMessage: TargetMessage;
@@ -43,50 +41,45 @@ export interface PromptContext {
 export function buildSystemPrompt(ctx: PromptContext): string {
   const sections: string[] = [];
 
-  // 1. Tool Call Results (only on iteration > 1)
-  if (ctx.toolResults && ctx.toolResults.length > 0) {
-    sections.push(buildToolResultsSection(ctx.toolResults));
-  }
-
-  // 2. Extra Info — loaded external skills
+  // 1. Extra Info — loaded external skills
   if (ctx.activeSkillsInfo) {
     sections.push(ctx.activeSkillsInfo);
   }
 
-  // 3. Expression Habits
+  // 2. Expression Habits
   if (ctx.expressionContext) {
     sections.push(ctx.expressionContext);
   }
 
-  // 4. Memory Retrieval Results
+  // 3. Memory Retrieval Results
   if (ctx.memoryContext) {
     sections.push(
       `## Memory Retrieval Results\nRelevant context retrieved from conversation history:\n${ctx.memoryContext}`,
     );
   }
 
-  // 5. Slang Dictionary (placeholder)
+  // 4. Slang Dictionary (placeholder)
   // TODO: slang dictionary injection
 
-  // 6. Current Time & Environment
+  // 5. Current Time & Environment
   sections.push(buildEnvironmentSection(ctx));
 
-  // 7. Chat History
+  // 6. Chat History
   sections.push(buildChatHistorySection(ctx));
 
-  // 8. Target Message
+  // 7. Target Message
   sections.push(
     buildTargetMessageSection(ctx.targetMessage, ctx.reviewMessages),
   );
 
-  // 9. Reply Context - tells AI what kind of reply this is
+  // 8. Reply Context - tells AI what kind of reply this is
   if (ctx.replyContext) {
     sections.push(
       buildReplyContextSection(ctx.replyContext, ctx.reviewMessages),
     );
   }
 
-  // 10. Planner's Thoughts
+  // 9. Planner's Thoughts
   if (ctx.plannerThoughts) {
     sections.push(`## Planner's Analysis\n${ctx.plannerThoughts}`);
   }
@@ -104,29 +97,6 @@ export function buildSystemPrompt(ctx: PromptContext): string {
 }
 
 // ==================== Section Builders ====================
-
-function buildToolResultsSection(
-  toolResults: { toolName: string; result: any }[],
-): string {
-  const lines = toolResults.map((tr) => {
-    const resultStr =
-      typeof tr.result === "string" ? tr.result : JSON.stringify(tr.result);
-    return `- **${tr.toolName}**: ${resultStr}`;
-  });
-
-  const hasToolFailure = toolResults.some((tr) => {
-    const result = tr.result;
-    if (!result || typeof result !== "object") return false;
-    return Boolean(result.error) || result.success === false;
-  });
-
-  const hint = `⚠️ IMPORTANT: A tool has successfully completed its operation (success: true). The operation is DONE - do NOT call the same tool again with the same or similar arguments. If you need to verify the result, use a query tool (like get_group_member_info or get_group_member_list) instead of repeating the action.`;
-  const failureHint = hasToolFailure
-    ? `\n⚠️ IMPORTANT: Some tool calls failed. Do NOT repeat the same tool call with the same arguments. Briefly tell the user the tool failed and what they can try next.`
-    : "";
-
-  return `## Tool Call Results\nResults from your previous tool calls:\n${lines.join("\n")}${hint || ""}${failureHint}`;
-}
 
 function buildReplyContextSection(
   replyCtx: PromptContext["replyContext"],
@@ -494,10 +464,13 @@ If you want to send a sticker/emoji along with your message:
   }
 
   if (ctx.config.webReader?.enabled) {
+    const independentUseLine = ctx.config.searxng?.enabled
+      ? "- web_search and web_read_page are independent. Use web_search when you need to discover URLs; use web_read_page directly when the user already gave a URL."
+      : "- web_read_page can be used directly when the user provides a URL.";
     lines.push(`
 ### Web Reading Tool
 - web_read_page: Read a webpage URL, extract the main content, and return a compressed content block that preserves as much page information as possible.
-- Use web_search first to find a page, then use web_read_page when search snippets are not enough.
+${independentUseLine}
 - Only set render_js=true when the page clearly needs JavaScript rendering, because it costs much more CPU and memory.`);
   }
 
