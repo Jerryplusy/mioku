@@ -17,14 +17,33 @@ export interface SendAIResponseOptions {
   sentIndices?: Set<number>;
   typoGenerator: { apply: (text: string) => string };
   onLineSent?: () => void | Promise<void>;
+  typingDelayEnabled?: boolean;
+}
+
+const FAST_TYPING_BASE_MS = 150;
+const FAST_TYPING_PER_CHAR_MS = 65;
+const FAST_TYPING_MIN_MS = 150;
+const FAST_TYPING_MAX_MS = 2000;
+
+function calculateTypingDelayMs(text: string): number {
+  const chars = Array.from(text.replace(/\s+/g, "")).length;
+  const estimated = FAST_TYPING_BASE_MS + chars * FAST_TYPING_PER_CHAR_MS;
+  return Math.max(FAST_TYPING_MIN_MS, Math.min(FAST_TYPING_MAX_MS, estimated));
 }
 
 export async function sendAIResponse(
   options: SendAIResponseOptions,
   selfId: number,
 ): Promise<void> {
-  const { ctx, groupId, messages, sentIndices, typoGenerator, onLineSent } =
-    options;
+  const {
+    ctx,
+    groupId,
+    messages,
+    sentIndices,
+    typoGenerator,
+    onLineSent,
+    typingDelayEnabled = false,
+  } = options;
   const bot = ctx.pickBot(selfId);
   if (!bot) {
     ctx.logger.error(
@@ -50,6 +69,7 @@ export async function sendAIResponse(
     }
 
     let pendingReply: number | undefined;
+    let lastDelayBasisText = "";
 
     for (let j = 0; j < expandedLines.length; j++) {
       const line = expandedLines[j];
@@ -94,15 +114,18 @@ export async function sendAIResponse(
 
       if (lineSegments.length > 0) {
         await bot.sendGroupMsg(groupId, lineSegments);
+        lastDelayBasisText = cleanText || line;
       }
 
-      if (j < expandedLines.length - 1) {
-        await new Promise((r) => setTimeout(r, 300));
+      if (typingDelayEnabled && j < expandedLines.length - 1) {
+        const delayMs = calculateTypingDelayMs(lastDelayBasisText || line);
+        await new Promise((r) => setTimeout(r, delayMs));
       }
     }
 
-    if (i < messages.length - 1) {
-      await new Promise((r) => setTimeout(r, 300));
+    if (typingDelayEnabled && i < messages.length - 1) {
+      const delayMs = calculateTypingDelayMs(lastDelayBasisText || msg);
+      await new Promise((r) => setTimeout(r, delayMs));
     }
 
     await onLineSent?.();
@@ -118,6 +141,7 @@ export async function sendMessage(
     apply: (text: string) => string;
   },
   selfId: number,
+  typingDelayEnabled: boolean = false,
 ): Promise<void> {
   try {
     const bot = ctx.pickBot(selfId);
@@ -143,6 +167,7 @@ export async function sendMessage(
     }
 
     let pendingReply: number | undefined;
+    let lastDelayBasisText = "";
 
     for (let j = 0; j < expandedLines.length; j++) {
       const line = expandedLines[j];
@@ -238,6 +263,7 @@ export async function sendMessage(
         if (segments.length > 0) {
           if (groupId) {
             await bot.sendGroupMsg(groupId, segments);
+            lastDelayBasisText = cleanText || line;
           }
         }
       } else {
@@ -254,15 +280,18 @@ export async function sendMessage(
           if (sendSegments.length > 0) {
             if (groupId) {
               await bot.sendGroupMsg(groupId, sendSegments);
+              lastDelayBasisText = cleanText || line;
             } else if (userId) {
               await bot.sendPrivateMsg(userId, sendSegments);
+              lastDelayBasisText = cleanText || line;
             }
           }
         }
       }
 
-      if (j < expandedLines.length - 1) {
-        await new Promise((r) => setTimeout(r, 300));
+      if (typingDelayEnabled && j < expandedLines.length - 1) {
+        const delayMs = calculateTypingDelayMs(lastDelayBasisText || line);
+        await new Promise((r) => setTimeout(r, delayMs));
       }
     }
   } catch (err) {
@@ -407,23 +436,18 @@ export function buildToolContext(
     db,
     botRole,
     pendingImageUrls,
-    onTextContent: async (text, messageIndex) => {
-      const messages = text
-        .trim()
-        .split("\n---\n")
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      if (messages[messageIndex]) {
-        await sendMessage(
-          ctx,
-          groupId,
-          targetMessage.userId,
-          messages[messageIndex],
-          humanize.typoGenerator,
-          selfId,
-        );
-      }
+    onTextContent: async (text) => {
+      const content = text.trim();
+      if (!content) return;
+      await sendMessage(
+        ctx,
+        groupId,
+        targetMessage.userId,
+        content,
+        humanize.typoGenerator,
+        selfId,
+        config.enableTypingDelay,
+      );
     },
   };
 }

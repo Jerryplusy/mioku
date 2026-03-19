@@ -30,6 +30,7 @@ import { PERSONALIZATION_CONFIG } from "./configs/personalization";
 import { MessageQueueManager } from "./utils/queue";
 import {
   sendAIResponse,
+  sendMessage,
   getGroupHistoryMessages,
   getGroupInfoData,
   getHumanizeContexts,
@@ -89,14 +90,20 @@ const chatPlugin: MiokuPlugin = {
         "chat",
         "personalization",
       );
-      return {
+      const merged = {
         ...BASE_CONFIG,
         ...SETTINGS_CONFIG,
         ...PERSONALIZATION_CONFIG,
         ...base,
         ...settings,
         ...personalization,
-      } as ChatConfig;
+      } as any;
+
+      if (typeof merged.stream !== "boolean") {
+        merged.stream = true;
+      }
+
+      return merged as ChatConfig;
     };
 
     const config = await getConfig();
@@ -312,6 +319,7 @@ const chatPlugin: MiokuPlugin = {
             messages: result.messages,
             sentIndices: toolCtx.sentMessageIndices,
             typoGenerator: humanize.typoGenerator,
+            typingDelayEnabled: cfg.enableTypingDelay,
           },
           selfId,
         );
@@ -625,6 +633,7 @@ const chatPlugin: MiokuPlugin = {
             messages: result.messages,
             sentIndices: toolCtx.sentMessageIndices,
             typoGenerator: humanize.typoGenerator,
+            typingDelayEnabled: cfg.enableTypingDelay,
           },
           selfId,
         );
@@ -786,6 +795,7 @@ Planned reason: ${planResult.reason}`;
               messages: result.messages,
               sentIndices: toolCtx.sentMessageIndices,
               typoGenerator: humanize.typoGenerator,
+              typingDelayEnabled: cfg.enableTypingDelay,
             },
             selfId,
           );
@@ -979,6 +989,7 @@ Suggestion:
                   messages: result.messages,
                   sentIndices: toolCtx.sentMessageIndices,
                   typoGenerator: humanize.typoGenerator,
+                  typingDelayEnabled: cfg.enableTypingDelay,
                 },
                 selfId,
               );
@@ -1165,6 +1176,7 @@ Suggestion:
             messages: result.messages,
             sentIndices: toolCtx.sentMessageIndices,
             typoGenerator: humanize.typoGenerator,
+            typingDelayEnabled: cfg.enableTypingDelay,
           },
           selfId,
         );
@@ -1452,6 +1464,7 @@ Suggestion:
               messages: result.messages,
               sentIndices: toolCtx.sentMessageIndices,
               typoGenerator: humanize.typoGenerator,
+              typingDelayEnabled: cfg.enableTypingDelay,
             },
             e.self_id,
           );
@@ -1478,22 +1491,15 @@ Suggestion:
           if (result.messages.length > 0) {
             for (let i = 0; i < result.messages.length; i++) {
               if (sentIndices?.has(i)) continue;
-
-              let msg = result.messages[i];
-              msg = humanize.typoGenerator.apply(msg);
-
-              const lines = msg.split("\n").filter((l) => l.trim());
-              for (const line of lines) {
-                if (line.trim()) {
-                  await ctx
-                    .pickBot(e.self_id)
-                    .sendPrivateMsg(userId, [ctx.segment.text(line.trim())]);
-                }
-              }
-
-              if (i < result.messages.length - 1) {
-                await new Promise((r) => setTimeout(r, 300));
-              }
+              await sendMessage(
+                ctx,
+                undefined,
+                userId,
+                result.messages[i],
+                humanize.typoGenerator,
+                e.self_id,
+                cfg.enableTypingDelay,
+              );
             }
           }
 
@@ -1653,6 +1659,7 @@ Suggestion:
                 messages: result.messages,
                 sentIndices: toolCtx.sentMessageIndices,
                 typoGenerator: humanize.typoGenerator,
+                typingDelayEnabled: cfg.enableTypingDelay,
               },
               e.self_id,
             );
@@ -2012,6 +2019,7 @@ Suggestion:
             messages: result.messages,
             sentIndices: toolCtx.sentMessageIndices,
             typoGenerator: humanize.typoGenerator,
+            typingDelayEnabled: cfg.enableTypingDelay,
           },
           e.self_id,
         );

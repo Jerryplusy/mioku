@@ -45,9 +45,50 @@ export async function runChat(
   logger.info(
     `[chat-engine] Session ${toolCtx.sessionId} | target: ${targetMessage.userName}(${targetMessage.userId}): "${targetMessage.content}"`,
   );
-  logger.info("[chat-engine] === Prompt ===");
-  logger.info(prompt);
-  logger.info("[chat-engine] === End Prompt ===");
+  if (toolCtx.config.debug) {
+    logger.info("[chat-engine] === Prompt ===");
+    logger.info(prompt);
+    logger.info("[chat-engine] === End Prompt ===");
+  }
+
+  const streamEnabled = Boolean(toolCtx.config.stream);
+  const streamedMessages: string[] = [];
+  let streamBuffer = "";
+
+  const emitStreamSegment = async (segment: string): Promise<void> => {
+    const text = cleanMarkers(segment)
+      .replace(/\[meme:[^\]]+\]/gi, "")
+      .replace(/\r/g, "")
+      .trim();
+    if (!text || text === "---") {
+      return;
+    }
+
+    const index = streamedMessages.length;
+    if (toolCtx.onTextContent) {
+      await toolCtx.onTextContent(text, index, index + 1);
+      toolCtx.sentMessageIndices ??= new Set<number>();
+      toolCtx.sentMessageIndices.add(index);
+    }
+    streamedMessages.push(text);
+  };
+
+  const flushStreamBuffer = async (force: boolean): Promise<void> => {
+    while (true) {
+      const newlineIndex = streamBuffer.indexOf("\n");
+      if (newlineIndex < 0) break;
+
+      const segment = streamBuffer.slice(0, newlineIndex);
+      streamBuffer = streamBuffer.slice(newlineIndex + 1);
+      await emitStreamSegment(segment);
+    }
+
+    if (force && streamBuffer.trim()) {
+      const segment = streamBuffer;
+      streamBuffer = "";
+      await emitStreamSegment(segment);
+    }
+  };
 
   const response = await ai.complete({
     sessionId: toolCtx.sessionId,
@@ -61,7 +102,18 @@ export async function runChat(
     toolContextTtlMs: toolCtx.config.toolContextTtlMs,
     temperature: toolCtx.config.temperature,
     maxIterations: toolCtx.config.maxIterations,
+    stream: streamEnabled,
+    onTextDelta: streamEnabled
+      ? async (delta) => {
+          streamBuffer += delta;
+          await flushStreamBuffer(false);
+        }
+      : undefined,
   });
+
+  if (streamEnabled) {
+    await flushStreamBuffer(true);
+  }
 
   if (response.reasoning) {
     logger.info(`[chat-engine] AI reasoning: ${response.reasoning}`);
@@ -123,7 +175,10 @@ export async function runChat(
     }
   }
 
-  const finalMessages = parseMessages(finalText);
+  const finalMessages =
+    streamEnabled && streamedMessages.length > 0
+      ? streamedMessages
+      : parseMessages(finalText);
 
   logger.info(
     `[chat-engine] Session ${toolCtx.sessionId} done | ${finalMessages.length} msg(s), ${allToolCalls.length} tool call(s)`,

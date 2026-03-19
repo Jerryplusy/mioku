@@ -76,6 +76,8 @@ declare global {
             temperature?: number;
             max_tokens?: number;
             maxIterations?: number;
+            stream?: boolean;
+            onTextDelta?: (delta: string) => void | Promise<void>;
         }): Promise<{
             content: string | null;
             reasoning: string | null;

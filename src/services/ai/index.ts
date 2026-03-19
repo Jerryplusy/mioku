@@ -57,6 +57,8 @@ export interface CompleteOptions {
   temperature?: number;
   max_tokens?: number;
   maxIterations?: number;
+  stream?: boolean;
+  onTextDelta?: (delta: string) => void | Promise<void>;
 }
 
 /**
@@ -162,6 +164,17 @@ interface StoredToolContext {
   expiresAt: number;
 }
 
+interface AssistantMessageResult {
+  content: string;
+  reasoning: string | null;
+  toolCalls: Array<{
+    id: string;
+    name: string;
+    arguments: string;
+  }>;
+  raw: ChatCompletionMessageParam;
+}
+
 /**
  * AI 实例实现
  */
@@ -259,41 +272,21 @@ class AIInstanceImpl implements AIInstance {
       return this.completeWithExecutableTools(options);
     }
 
-    const response = await this.client.chat.completions.create({
+    const assistant = await this.requestAssistantMessage({
       model: options.model,
       messages: options.messages,
       tools: options.tools,
       temperature: options.temperature ?? 0.7,
-      ...(options.max_tokens != null && {
-        max_completion_tokens: options.max_tokens,
-      }),
+      max_tokens: options.max_tokens,
+      stream: options.stream,
+      onTextDelta: options.onTextDelta,
     });
 
-    const message = response.choices[0]?.message;
-    if (!message) {
-      return {
-        content: null,
-        reasoning: null,
-        toolCalls: [],
-        raw: { role: "assistant", content: "" },
-      };
-    }
-
-    const reasoning =
-      (message as any).reasoning_content || (message as any).reasoning || null;
-    const toolCalls = (message.tool_calls || [])
-      .filter((tc) => tc.type === "function")
-      .map((tc) => ({
-        id: tc.id,
-        name: tc.function.name,
-        arguments: tc.function.arguments,
-      }));
-
     return {
-      content: message.content,
-      reasoning,
-      toolCalls,
-      raw: message as ChatCompletionMessageParam,
+      content: assistant.content || null,
+      reasoning: assistant.reasoning,
+      toolCalls: assistant.toolCalls,
+      raw: assistant.raw,
     };
   }
 
@@ -332,28 +325,22 @@ class AIInstanceImpl implements AIInstance {
     while (iterations < maxIterations) {
       iterations++;
 
-      const response = await this.client.chat.completions.create({
+      const assistant = await this.requestAssistantMessage({
         model: options.model,
         messages: sessionMessages,
         tools: tools.length > 0 ? tools : undefined,
         temperature: options.temperature ?? 0.7,
-        ...(options.max_tokens != null && {
-          max_completion_tokens: options.max_tokens,
-        }),
+        max_tokens: options.max_tokens,
+        stream: options.stream,
+        onTextDelta: options.onTextDelta,
       });
 
-      const message = response.choices[0]?.message;
-      if (!message) {
-        break;
-      }
+      content = assistant.content;
+      reasoning = assistant.reasoning;
+      raw = assistant.raw;
+      sessionMessages.push(assistant.raw);
 
-      content = extractTextContent(message.content);
-      reasoning =
-        (message as any).reasoning_content || (message as any).reasoning || null;
-      raw = message as ChatCompletionMessageParam;
-      sessionMessages.push(message as ChatCompletionMessageParam);
-
-      if (!message.tool_calls || message.tool_calls.length === 0) {
+      if (assistant.toolCalls.length === 0) {
         this.persistToolContext(
           options.sessionId,
           retainedMessages,
@@ -375,14 +362,10 @@ class AIInstanceImpl implements AIInstance {
       const toolMessages: ChatCompletionMessageParam[] = [];
       let shouldRetainTurn = false;
 
-      for (const toolCall of message.tool_calls) {
-        if (toolCall.type !== "function") {
-          continue;
-        }
-
-        const toolName = toolCall.function.name;
+      for (const toolCall of assistant.toolCalls) {
+        const toolName = toolCall.name;
         const tool = toolMap.get(toolName);
-        const args = parseToolArguments(toolCall.function.arguments);
+        const args = parseToolArguments(toolCall.arguments);
         const callKey = buildToolCallKey(toolName, args);
         let result: any;
         let returnedToAI = tool?.returnToAI ?? false;
@@ -433,7 +416,7 @@ class AIInstanceImpl implements AIInstance {
       }
 
       if (shouldRetainTurn) {
-        retainedToolMessages.push(message as ChatCompletionMessageParam);
+        retainedToolMessages.push(assistant.raw);
         retainedToolMessages.push(...toolMessages);
         this.persistToolContext(
           options.sessionId,
@@ -456,13 +439,7 @@ class AIInstanceImpl implements AIInstance {
       return {
         content,
         reasoning,
-        toolCalls: (message.tool_calls || [])
-          .filter((tc) => tc.type === "function")
-          .map((tc) => ({
-            id: tc.id,
-            name: tc.function.name,
-            arguments: tc.function.arguments,
-          })),
+        toolCalls: assistant.toolCalls,
         raw,
         iterations,
         allToolCalls,
@@ -486,6 +463,157 @@ class AIInstanceImpl implements AIInstance {
       raw,
       iterations,
       allToolCalls,
+    };
+  }
+
+  private async requestAssistantMessage(args: {
+    model: string;
+    messages: ChatCompletionMessageParam[];
+    tools?: ChatCompletionTool[];
+    temperature: number;
+    max_tokens?: number;
+    stream?: boolean;
+    onTextDelta?: (delta: string) => void | Promise<void>;
+  }): Promise<AssistantMessageResult> {
+    if (args.stream) {
+      return this.requestAssistantMessageStream(args);
+    }
+    return this.requestAssistantMessageNonStream(args);
+  }
+
+  private async requestAssistantMessageNonStream(args: {
+    model: string;
+    messages: ChatCompletionMessageParam[];
+    tools?: ChatCompletionTool[];
+    temperature: number;
+    max_tokens?: number;
+  }): Promise<AssistantMessageResult> {
+    const response = await this.client.chat.completions.create({
+      model: args.model,
+      messages: args.messages,
+      tools: args.tools,
+      temperature: args.temperature,
+      ...(args.max_tokens != null && {
+        max_completion_tokens: args.max_tokens,
+      }),
+    });
+
+    const message = response.choices[0]?.message;
+    if (!message) {
+      return {
+        content: "",
+        reasoning: null,
+        toolCalls: [],
+        raw: { role: "assistant", content: "" },
+      };
+    }
+
+    const reasoning =
+      (message as any).reasoning_content || (message as any).reasoning || null;
+    const toolCalls = (message.tool_calls || [])
+      .filter((tc) => tc.type === "function")
+      .map((tc) => ({
+        id: tc.id,
+        name: tc.function.name,
+        arguments: tc.function.arguments,
+      }));
+
+    return {
+      content: extractTextContent(message.content),
+      reasoning,
+      toolCalls,
+      raw: message as ChatCompletionMessageParam,
+    };
+  }
+
+  private async requestAssistantMessageStream(args: {
+    model: string;
+    messages: ChatCompletionMessageParam[];
+    tools?: ChatCompletionTool[];
+    temperature: number;
+    max_tokens?: number;
+    onTextDelta?: (delta: string) => void | Promise<void>;
+  }): Promise<AssistantMessageResult> {
+    const stream = await this.client.chat.completions.create({
+      model: args.model,
+      messages: args.messages,
+      tools: args.tools,
+      temperature: args.temperature,
+      stream: true,
+      ...(args.max_tokens != null && {
+        max_completion_tokens: args.max_tokens,
+      }),
+    });
+
+    let content = "";
+    let reasoning = "";
+    const toolCallsByIndex = new Map<
+      number,
+      { id: string; name: string; arguments: string }
+    >();
+
+    for await (const chunk of stream as AsyncIterable<any>) {
+      const choice = chunk?.choices?.[0];
+      const delta = choice?.delta;
+      if (!delta) continue;
+
+      const textDelta = extractTextDelta(delta.content);
+      if (textDelta) {
+        content += textDelta;
+        if (args.onTextDelta) {
+          await args.onTextDelta(textDelta);
+        }
+      }
+
+      if (typeof delta.reasoning_content === "string") {
+        reasoning += delta.reasoning_content;
+      } else if (typeof delta.reasoning === "string") {
+        reasoning += delta.reasoning;
+      }
+
+      const deltaToolCalls = Array.isArray(delta.tool_calls)
+        ? delta.tool_calls
+        : [];
+      for (const item of deltaToolCalls) {
+        const index =
+          typeof item?.index === "number" && item.index >= 0 ? item.index : 0;
+        const acc = toolCallsByIndex.get(index) || {
+          id: "",
+          name: "",
+          arguments: "",
+        };
+
+        if (typeof item?.id === "string" && item.id) {
+          acc.id = item.id;
+        }
+        if (typeof item?.function?.name === "string" && item.function.name) {
+          acc.name += item.function.name;
+        }
+        if (
+          typeof item?.function?.arguments === "string" &&
+          item.function.arguments
+        ) {
+          acc.arguments += item.function.arguments;
+        }
+
+        toolCallsByIndex.set(index, acc);
+      }
+    }
+
+    const toolCalls = Array.from(toolCallsByIndex.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([index, item]) => ({
+        id: item.id || `tool_call_${index}_${Date.now()}`,
+        name: item.name,
+        arguments: item.arguments || "{}",
+      }))
+      .filter((item) => item.name);
+
+    return {
+      content,
+      reasoning: reasoning || null,
+      toolCalls,
+      raw: buildAssistantRawMessage(content, toolCalls),
     };
   }
 
@@ -870,6 +998,45 @@ function extractTextContent(
     .map((part) => part.text)
     .join("\n")
     .trim();
+}
+
+function extractTextDelta(content: any): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .map((part) => {
+      if (!part || part.type !== "text") return "";
+      return typeof part.text === "string" ? part.text : "";
+    })
+    .join("");
+}
+
+function buildAssistantRawMessage(
+  content: string,
+  toolCalls: Array<{ id: string; name: string; arguments: string }>,
+): ChatCompletionMessageParam {
+  if (toolCalls.length === 0) {
+    return { role: "assistant", content };
+  }
+
+  return {
+    role: "assistant",
+    content,
+    tool_calls: toolCalls.map((toolCall) => ({
+      id: toolCall.id,
+      type: "function" as const,
+      function: {
+        name: toolCall.name,
+        arguments: toolCall.arguments,
+      },
+    })),
+  } as ChatCompletionMessageParam;
 }
 
 const aiService: MiokuService = {

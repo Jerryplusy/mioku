@@ -135,6 +135,9 @@ export interface ChatConfig {
   maxIterations: number;
   enableGroupAdmin: boolean;
   enableExternalSkills: boolean;
+  stream: boolean;
+  enableTypingDelay: boolean;
+  debug: boolean;
   toolContextTtlMs: number;
   cooldownAfterReplyMs: number;
   dynamicDelay: DynamicDelayConfig;
