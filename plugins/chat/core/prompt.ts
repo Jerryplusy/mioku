@@ -15,8 +15,6 @@ export interface PromptContext {
   memoryContext?: string;
   topicContext?: string;
   expressionContext?: string;
-  // Dynamic per-iteration content
-  toolResults?: { toolName: string; result: any }[];
   activeSkillsInfo?: string;
   chatHistory: ChatMessage[];
   targetMessage: TargetMessage;
@@ -42,51 +40,57 @@ export interface PromptContext {
  */
 export function buildSystemPrompt(ctx: PromptContext): string {
   const sections: string[] = [];
+  const lengthStrength = normalizeConstraintStrength(
+    ctx.config.outputLengthConstraintStrength,
+  );
+  const toolStrength = normalizeConstraintStrength(
+    ctx.config.toolCallConstraintStrength,
+  );
 
-  // 1. Tool Call Results (only on iteration > 1)
-  if (ctx.toolResults && ctx.toolResults.length > 0) {
-    sections.push(buildToolResultsSection(ctx.toolResults));
-  }
-
-  // 2. Extra Info — loaded external skills
+  // 1. Extra Info — loaded external skills
   if (ctx.activeSkillsInfo) {
     sections.push(ctx.activeSkillsInfo);
   }
 
-  // 3. Expression Habits
+  // 2. Expression Habits
   if (ctx.expressionContext) {
     sections.push(ctx.expressionContext);
   }
 
-  // 4. Memory Retrieval Results
+  // 3. Memory Retrieval Results
   if (ctx.memoryContext) {
     sections.push(
       `## Memory Retrieval Results\nRelevant context retrieved from conversation history:\n${ctx.memoryContext}`,
     );
   }
 
-  // 5. Slang Dictionary (placeholder)
+  // 4. Slang Dictionary (placeholder)
   // TODO: slang dictionary injection
 
-  // 6. Current Time & Environment
+  // 5. Current Time & Environment
   sections.push(buildEnvironmentSection(ctx));
 
-  // 7. Chat History
+  // 6. Chat History
   sections.push(buildChatHistorySection(ctx));
 
-  // 8. Target Message
+  // 7. Target Message
   sections.push(
     buildTargetMessageSection(ctx.targetMessage, ctx.reviewMessages),
   );
 
-  // 9. Reply Context - tells AI what kind of reply this is
+  // 8. Reply Context - tells AI what kind of reply this is
   if (ctx.replyContext) {
     sections.push(
-      buildReplyContextSection(ctx.replyContext, ctx.reviewMessages),
+      buildReplyContextSection(
+        ctx.replyContext,
+        ctx.reviewMessages,
+        lengthStrength,
+        toolStrength,
+      ),
     );
   }
 
-  // 10. Planner's Thoughts
+  // 9. Planner's Thoughts
   if (ctx.plannerThoughts) {
     sections.push(`## Planner's Analysis\n${ctx.plannerThoughts}`);
   }
@@ -95,42 +99,30 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   sections.push(buildPersonaSection(ctx));
 
   // 11. Reply Style + Behavior + Self-Protection
-  sections.push(buildReplyStyleSection(ctx));
+  sections.push(buildReplyStyleSection(ctx, lengthStrength));
 
   // 12. Available Tools & Response Format
-  sections.push(buildResponseFormatSection(ctx));
+  sections.push(buildResponseFormatSection(ctx, lengthStrength, toolStrength));
 
   return sections.join("\n\n");
 }
 
 // ==================== Section Builders ====================
 
-function buildToolResultsSection(
-  toolResults: { toolName: string; result: any }[],
-): string {
-  const lines = toolResults.map((tr) => {
-    const resultStr =
-      typeof tr.result === "string" ? tr.result : JSON.stringify(tr.result);
-    return `- **${tr.toolName}**: ${resultStr}`;
-  });
+type ConstraintStrength = "low" | "medium" | "high";
 
-  const hasToolFailure = toolResults.some((tr) => {
-    const result = tr.result;
-    if (!result || typeof result !== "object") return false;
-    return Boolean(result.error) || result.success === false;
-  });
-
-  const hint = `⚠️ IMPORTANT: A tool has successfully completed its operation (success: true). The operation is DONE - do NOT call the same tool again with the same or similar arguments. If you need to verify the result, use a query tool (like get_group_member_info or get_group_member_list) instead of repeating the action.`;
-  const failureHint = hasToolFailure
-    ? `\n⚠️ IMPORTANT: Some tool calls failed. Do NOT repeat the same tool call with the same arguments. Briefly tell the user the tool failed and what they can try next.`
-    : "";
-
-  return `## Tool Call Results\nResults from your previous tool calls:\n${lines.join("\n")}${hint || ""}${failureHint}`;
+function normalizeConstraintStrength(value: unknown): ConstraintStrength {
+  if (value === "low" || value === "high" || value === "medium") {
+    return value;
+  }
+  return "medium";
 }
 
 function buildReplyContextSection(
   replyCtx: PromptContext["replyContext"],
   reviewMsgs?: PromptContext["reviewMessages"],
+  lengthStrength: ConstraintStrength = "medium",
+  toolStrength: ConstraintStrength = "medium",
 ): string {
   if (!replyCtx) return "";
 
@@ -151,28 +143,67 @@ function buildReplyContextSection(
         lines.push(
           `IMPORTANT: Do NOT reply to each person individually or try to address every single message. Instead, give a SINGLE, unified response that acknowledges the group as a whole. Be casual and natural - like you're talking to a group of friends, not giving individual responses.`,
         );
-        lines.push(
-          `Keep it brief and conversational. One or two sentences max. Don't try to be comprehensive - just pick one thing to respond to or make a general comment that fits the vibe.`,
-        );
+        if (lengthStrength === "high") {
+          lines.push(
+            `Keep it extremely brief. Prefer one short sentence; max two short lines.`,
+          );
+        } else if (lengthStrength === "medium") {
+          lines.push(
+            `Keep it brief and conversational. One or two sentences max. Don't try to be comprehensive - just pick one thing to respond to or make a general comment that fits the vibe.`,
+          );
+        } else {
+          lines.push(
+            `Keep it natural and focused on one key point instead of covering everything.`,
+          );
+        }
       } else {
         lines.push(
           `Someone mentioned you in the group, maybe like you asked a certain question, or just wanted to tease you.`,
         );
+        if (toolStrength === "high") {
+          lines.push(
+            `If the user asks for facts, verification, or external info, proactively use suitable tools. Avoid guessing when tools can validate.`,
+          );
+        } else if (toolStrength === "medium") {
+          lines.push(
+            `If the user asks for help, use recent chat history and suitable tools when needed to answer accurately. Avoid vague or incorrect info.`,
+          );
+        } else {
+          lines.push(
+            `If the user asks for help, prioritize direct conversational replies first. Use tools only when clearly necessary.`,
+          );
+        }
         lines.push(
-          `If the user is asking you a question or requesting your help, please use the most recent chat history and available tools to help them resolve the issue to the best of your ability. Avoid being vague or providing incorrect information.Keep your reply paragraphs concise, no more than four paragraphs, three paragraphs being ideal.`,
+          `If a user doesn't have a real problem and is just trying to tease you, don't get annoyed. Use the group chat history to infer intent and join naturally. If a user is provocative or insulting, respond humorously but politely, for example, "用户：我是你爸爸 可选回复： 天啊我妈怎么找了个这么没礼貌的".`,
         );
-        lines.push(
-          `If a user doesn't have a real problem and is just trying to tease you, don't get annoyed. Use the group chat history and any tools you can to figure out the other members' intentions. Don't focus too much on the group member who's getting your attention; pay more attention to the chat history and try to join in the conversation. If a user is being provocative or insulting, respond humorously but politely, for example, "用户：我是你爸爸 可选回复： 天啊我妈怎么找了个这么没礼貌的" Important!!: Keep your messages short, concise, and to the point. Don't be verbose or include too much information; 1-2 paragraphs at most.`,
-        );
+        if (lengthStrength === "high") {
+          lines.push(
+            `Length target: one short sentence preferred, max two short lines.`,
+          );
+        } else if (lengthStrength === "medium") {
+          lines.push(
+            `Length target: concise reply, usually within 1-2 short paragraphs.`,
+          );
+        }
       }
       break;
     case "comment":
       lines.push(
         `If someone adds or comments after you reply to the previous message, please carefully read the group chat history and analyze your reply. Provide a reasonable and natural response to the user's comment, and do not repeat what you already said or a particular viewpoint.`,
       );
-      lines.push(
-        `Important! Messages must be concise and impactful, not exceeding two sentences.If you receive multiple messages that you feel you need to reply to, please do not reply to them separately, but summarize and reply in a concise manner.`,
-      );
+      if (lengthStrength === "high") {
+        lines.push(
+          `Length target: keep it very short, ideally one sentence, max two short lines. If there are multiple messages, summarize into one brief reply.`,
+        );
+      } else if (lengthStrength === "medium") {
+        lines.push(
+          `Important! Messages must be concise and impactful, not exceeding two sentences. If there are multiple messages, summarize and reply concisely.`,
+        );
+      } else {
+        lines.push(
+          `If there are multiple messages, prefer one merged response instead of replying one by one.`,
+        );
+      }
       break;
     case "idle":
       lines.push(
@@ -181,25 +212,55 @@ function buildReplyContextSection(
       lines.push(
         `First, observe the chat history in the group. If there is any content related to your persona that you are interested in, consider replying. Next, observe if any group members have unresolved questions. If not, then observe the chat style of the group members and send messages that naturally blend into their conversations. You can even repeat a funny message sent by a group member or a phrase that appears repeatedly in the chat history.`,
       );
-      lines.push(
-        `Important!! Please keep your messages extremely concise. Use no more than one sentence to reply to or repeat to the person you most want to reply to, or two paragraphs to provide an overall evaluation of the group chat. Do NOT say things like "群里好久没人说话了" or "大家怎么都不说话了" Treat it as a message you saw by chance and need to reply to quickly.`,
-      );
+      if (lengthStrength === "high") {
+        lines.push(
+          `Length target: one short sentence only. Do NOT say things like "群里好久没人说话了" or "大家怎么都不说话了".`,
+        );
+      } else if (lengthStrength === "medium") {
+        lines.push(
+          `Important!! Please keep your messages extremely concise. Use no more than one sentence to reply to the person you most want to reply to, or two short paragraphs for a brief group-level comment. Do NOT say things like "群里好久没人说话了" or "大家怎么都不说话了".`,
+        );
+      } else {
+        lines.push(
+          `Reply naturally and quickly; avoid mentioning that the group was quiet.`,
+        );
+      }
       break;
     case "review":
       if (isMultiUserInteraction) {
         lines.push(
           `Multiple people have sent you messages while you were away. You see a batch of messages from different group members.`,
         );
-        lines.push(
-          `CRITICAL: Do NOT try to reply to each message or each person separately. Give ONE brief, casual response that fits the overall conversation. Pick one thing to comment on or just say something general. Keep it to a single sentence or two at most.`,
-        );
+        if (lengthStrength === "high") {
+          lines.push(
+            `CRITICAL: Reply once only, and keep it to one short sentence (max two short lines).`,
+          );
+        } else if (lengthStrength === "medium") {
+          lines.push(
+            `CRITICAL: Do NOT try to reply to each message or each person separately. Give ONE brief, casual response that fits the overall conversation. Pick one thing to comment on or just say something general. Keep it to a single sentence or two at most.`,
+          );
+        } else {
+          lines.push(
+            `Reply once for the whole group instead of replying person-by-person.`,
+          );
+        }
       } else {
         lines.push(
           `After you reply to other group members' messages, some people have new questions or replies to your answers.`,
         );
-        lines.push(
-          `Please respond reasonably and naturally in context. Keep the message concise, since you've already said it, and it must fit in a single message, even a single word.`,
-        );
+        if (lengthStrength === "high") {
+          lines.push(
+            `Respond naturally in one short message, preferably one sentence.`,
+          );
+        } else if (lengthStrength === "medium") {
+          lines.push(
+            `Please respond reasonably and naturally in context. Keep the message concise, since you've already said it, and it must fit in a single message.`,
+          );
+        } else {
+          lines.push(
+            `Respond naturally in context and avoid repeating old wording.`,
+          );
+        }
       }
       break;
     case "poked":
@@ -212,6 +273,9 @@ function buildReplyContextSection(
       lines.push(
         `Reply naturally in combination with the context, don't say something like "怎么又来戳我了"`,
       );
+      if (lengthStrength === "high") {
+        lines.push(`Keep this very short: one brief sentence.`);
+      }
       break;
   }
 
@@ -373,7 +437,10 @@ function buildPersonaSection(ctx: PromptContext): string {
   return lines.join("\n");
 }
 
-function buildReplyStyleSection(ctx: PromptContext): string {
+function buildReplyStyleSection(
+  ctx: PromptContext,
+  lengthStrength: ConstraintStrength,
+): string {
   const style = pickReplyStyle(ctx.config);
   const lines = [`## Reply Style`];
 
@@ -384,7 +451,13 @@ function buildReplyStyleSection(ctx: PromptContext): string {
   lines.push(`
  ### Behavior Guidelines
  - You are a participant in this chat, not an assistant. Chat naturally like a real person.
- - Keep replies concise and conversational. Avoid long paragraphs unless the topic demands it.
+ - ${
+   lengthStrength === "high"
+     ? "Keep replies very short. Prefer one short sentence; max two short lines."
+     : lengthStrength === "medium"
+       ? "Keep replies concise and conversational. Avoid long paragraphs unless the topic demands it."
+       : "Keep replies natural and conversational. Do not be verbose without purpose."
+ }
  - Match the language used by others in the chat (if they speak Chinese, reply in Chinese, etc.).
  - Don't repeat yourself or echo what others just said.
  - **NEVER repeat what you have already said in previous messages** — avoid saying the same things, using the same phrases, or bringing up the same topics again.
@@ -426,7 +499,11 @@ If someone maliciously insults or attacks you:
   return lines.join("\n");
 }
 
-function buildResponseFormatSection(ctx: PromptContext): string {
+function buildResponseFormatSection(
+  ctx: PromptContext,
+  lengthStrength: ConstraintStrength,
+  toolStrength: ConstraintStrength,
+): string {
   const lines = [`## Response Format`];
 
   lines.push(`Your text response IS your reply to the chat. It will be sent directly as a message.
@@ -448,6 +525,25 @@ function buildResponseFormatSection(ctx: PromptContext): string {
   - Example: "你好呀 [[[at:123456]]" will send "你好呀" with an @ to user 123456
   - Example: "\[[[reply:456789]]]我来回复这条消息" will quote-reply message 456789 with the text "我来回复这条消息"
   - Example multiple replies: "\[[[reply:111]]]回复第一条" + newline + "\[[[reply:222]]]回复第二条" will send two separate messages, each quoting different messages`);
+
+  if (toolStrength === "high") {
+    lines.push(`
+### Tool Usage Intensity
+- Tool mode: HIGH
+- Be proactive with tools for uncertain facts, external info, verification, and current events.
+- Prefer validating with tools over guessing.`);
+  } else if (toolStrength === "medium") {
+    lines.push(`
+### Tool Usage Intensity
+- Tool mode: MEDIUM
+- Use tools when clearly useful for correctness, verification, or missing context.`);
+  } else {
+    lines.push(`
+### Tool Usage Intensity
+- Tool mode: LOW
+- Prefer direct chat responses first.
+- Use tools only when strictly necessary.`);
+  }
 
   // Meme/Sticker sending guide (controlled by replyProbability)
   const emojiAgent = ctx.emojiAgent;
@@ -487,17 +583,26 @@ If you want to send a sticker/emoji along with your message:
 
   // Web search tool note
   if (ctx.config.searxng?.enabled) {
+    const searxngLine =
+      toolStrength === "high"
+        ? "- When facts may be outdated or uncertain, proactively call web_search instead of guessing."
+        : toolStrength === "medium"
+          ? "- Use web_search when current or external info is needed."
+          : "- Use web_search only when the user explicitly needs external/current information.";
     lines.push(`
 ### Web Search Tool
 - web_search: Use this when you need current or external information that is not in chat history.
-- Prefer web_search over guessing for news, prices, release info,proper nouns, internet memes or factual claims you are not sure about.`);
+${searxngLine}`);
   }
 
   if (ctx.config.webReader?.enabled) {
+    const independentUseLine = ctx.config.searxng?.enabled
+      ? "- web_search and web_read_page are independent. Use web_search when you need to discover URLs; use web_read_page directly when the user already gave a URL."
+      : "- web_read_page can be used directly when the user provides a URL.";
     lines.push(`
 ### Web Reading Tool
 - web_read_page: Read a webpage URL, extract the main content, and return a compressed content block that preserves as much page information as possible.
-- Use web_search first to find a page, then use web_read_page when search snippets are not enough.
+${independentUseLine}
 - Only set render_js=true when the page clearly needs JavaScript rendering, because it costs much more CPU and memory.`);
   }
 

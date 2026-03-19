@@ -21,6 +21,12 @@ export const SETTINGS_CONFIG = {
   maxSessions: 100,
   enableGroupAdmin: true,
   enableExternalSkills: true,
+  stream: true,
+  enableTypingDelay: true,
+  debug: false,
+  outputLengthConstraintStrength: "medium",
+  toolCallConstraintStrength: "medium",
+  toolContextTtlMs: 30 * 60_000,
   nicknames: ["miku", "未来", "初音"],
   cooldownAfterReplyMs: 20_000,
   dynamicDelay: {

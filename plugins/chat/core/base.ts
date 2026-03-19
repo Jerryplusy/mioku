@@ -17,14 +17,40 @@ export interface SendAIResponseOptions {
   sentIndices?: Set<number>;
   typoGenerator: { apply: (text: string) => string };
   onLineSent?: () => void | Promise<void>;
+  typingDelayEnabled?: boolean;
+}
+
+const FAST_TYPING_BASE_MS = 150;
+const FAST_TYPING_PER_CHAR_MS = 65;
+const FAST_TYPING_MIN_MS = 150;
+const FAST_TYPING_MAX_MS = 2000;
+
+function calculateTypingDelayMs(text: string): number {
+  const chars = Array.from(text.replace(/\s+/g, "")).length;
+  const estimated = FAST_TYPING_BASE_MS + chars * FAST_TYPING_PER_CHAR_MS;
+  return Math.max(FAST_TYPING_MIN_MS, Math.min(FAST_TYPING_MAX_MS, estimated));
 }
 
 export async function sendAIResponse(
   options: SendAIResponseOptions,
   selfId: number,
 ): Promise<void> {
-  const { ctx, groupId, messages, sentIndices, typoGenerator, onLineSent } =
-    options;
+  const {
+    ctx,
+    groupId,
+    messages,
+    sentIndices,
+    typoGenerator,
+    onLineSent,
+    typingDelayEnabled = false,
+  } = options;
+  const bot = ctx.pickBot(selfId);
+  if (!bot) {
+    ctx.logger.error(
+      `[sendAIResponse] bot ${String(selfId)} not found, skip sending group message`,
+    );
+    return;
+  }
 
   if (messages.length === 0) return;
 
@@ -43,6 +69,7 @@ export async function sendAIResponse(
     }
 
     let pendingReply: number | undefined;
+    let lastDelayBasisText = "";
 
     for (let j = 0; j < expandedLines.length; j++) {
       const line = expandedLines[j];
@@ -62,7 +89,7 @@ export async function sendAIResponse(
 
       if (pokeUsers.length > 0) {
         for (const pokeId of pokeUsers) {
-          await ctx.pickBot(selfId).api("group_poke", {
+          await bot.api("group_poke", {
             group_id: groupId,
             user_id: pokeId,
           });
@@ -86,16 +113,19 @@ export async function sendAIResponse(
       }
 
       if (lineSegments.length > 0) {
-        await ctx.pickBot(selfId).sendGroupMsg(groupId, lineSegments);
+        await bot.sendGroupMsg(groupId, lineSegments);
+        lastDelayBasisText = cleanText || line;
       }
 
-      if (j < expandedLines.length - 1) {
-        await new Promise((r) => setTimeout(r, 300));
+      if (typingDelayEnabled && j < expandedLines.length - 1) {
+        const delayMs = calculateTypingDelayMs(lastDelayBasisText || line);
+        await new Promise((r) => setTimeout(r, delayMs));
       }
     }
 
-    if (i < messages.length - 1) {
-      await new Promise((r) => setTimeout(r, 300));
+    if (typingDelayEnabled && i < messages.length - 1) {
+      const delayMs = calculateTypingDelayMs(lastDelayBasisText || msg);
+      await new Promise((r) => setTimeout(r, delayMs));
     }
 
     await onLineSent?.();
@@ -111,8 +141,17 @@ export async function sendMessage(
     apply: (text: string) => string;
   },
   selfId: number,
+  typingDelayEnabled: boolean = false,
 ): Promise<void> {
   try {
+    const bot = ctx.pickBot(selfId);
+    if (!bot) {
+      ctx.logger.error(
+        `[sendMessage] bot ${String(selfId)} not found, skip sending`,
+      );
+      return;
+    }
+
     // 应用错别字生成器
     let msg = typoGenerator.apply(text);
 
@@ -128,6 +167,7 @@ export async function sendMessage(
     }
 
     let pendingReply: number | undefined;
+    let lastDelayBasisText = "";
 
     for (let j = 0; j < expandedLines.length; j++) {
       const line = expandedLines[j];
@@ -148,7 +188,7 @@ export async function sendMessage(
       // 戳人 - 立即执行
       if (groupId && pokeUsers.length > 0) {
         for (const pokeId of pokeUsers) {
-          await ctx.pickBot(selfId).api("group_poke", {
+          await bot.api("group_poke", {
             group_id: groupId,
             user_id: pokeId,
           });
@@ -222,7 +262,8 @@ export async function sendMessage(
         // 发送消息
         if (segments.length > 0) {
           if (groupId) {
-            await ctx.pickBot(selfId).sendGroupMsg(groupId, segments);
+            await bot.sendGroupMsg(groupId, segments);
+            lastDelayBasisText = cleanText || line;
           }
         }
       } else {
@@ -238,16 +279,19 @@ export async function sendMessage(
           }
           if (sendSegments.length > 0) {
             if (groupId) {
-              await ctx.pickBot(selfId).sendGroupMsg(groupId, sendSegments);
+              await bot.sendGroupMsg(groupId, sendSegments);
+              lastDelayBasisText = cleanText || line;
             } else if (userId) {
-              await ctx.pickBot(selfId).sendPrivateMsg(userId, sendSegments);
+              await bot.sendPrivateMsg(userId, sendSegments);
+              lastDelayBasisText = cleanText || line;
             }
           }
         }
       }
 
-      if (j < expandedLines.length - 1) {
-        await new Promise((r) => setTimeout(r, 300));
+      if (typingDelayEnabled && j < expandedLines.length - 1) {
+        const delayMs = calculateTypingDelayMs(lastDelayBasisText || line);
+        await new Promise((r) => setTimeout(r, delayMs));
       }
     }
   } catch (err) {
@@ -392,23 +436,18 @@ export function buildToolContext(
     db,
     botRole,
     pendingImageUrls,
-    onTextContent: async (text, messageIndex) => {
-      const messages = text
-        .trim()
-        .split("\n---\n")
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      if (messages[messageIndex]) {
-        await sendMessage(
-          ctx,
-          groupId,
-          targetMessage.userId,
-          messages[messageIndex],
-          humanize.typoGenerator,
-          selfId,
-        );
-      }
+    onTextContent: async (text) => {
+      const content = text.trim();
+      if (!content) return;
+      await sendMessage(
+        ctx,
+        groupId,
+        targetMessage.userId,
+        content,
+        humanize.typoGenerator,
+        selfId,
+        config.enableTypingDelay,
+      );
     },
   };
 }
@@ -458,10 +497,17 @@ export async function sendEmoji(
   selfId: number,
 ): Promise<void> {
   if (!emojiPath) return;
+  const bot = ctx.pickBot(selfId);
+  if (!bot) {
+    ctx.logger.error(
+      `[sendEmoji] bot ${String(selfId)} not found, skip sending emoji`,
+    );
+    return;
+  }
 
   try {
     const emojiSegment = ctx.segment.image(`file://${emojiPath}`);
-    await ctx.pickBot(selfId).sendGroupMsg(groupId, [emojiSegment]);
+    await bot.sendGroupMsg(groupId, [emojiSegment]);
   } catch (err) {
     try {
       const fsPromises = await import("fs/promises");
@@ -496,7 +542,7 @@ export async function sendEmoji(
 
       const base64DataUrl = `data:${mimeType};base64,${base64}`;
       const base64Segment = ctx.segment.image(base64DataUrl);
-      await ctx.pickBot(selfId).sendGroupMsg(groupId, [base64Segment]);
+      await bot.sendGroupMsg(groupId, [base64Segment]);
       ctx.logger.info(`[Emoji] Sent via base64: ${path.basename(emojiPath)}`);
     } catch (base64Err) {
       ctx.logger.error(`[Emoji] Base64 also failed: ${base64Err}`);
