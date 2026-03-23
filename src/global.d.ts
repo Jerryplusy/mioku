@@ -86,6 +86,7 @@ declare global {
             }>;
             raw: any;
             iterations?: number;
+            turnMessages?: any[];
             allToolCalls?: Array<{
                 name: string;
                 arguments: any;

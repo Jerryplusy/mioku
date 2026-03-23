@@ -26,6 +26,7 @@ export const SETTINGS_CONFIG = {
   debug: false,
   outputLengthConstraintStrength: "medium",
   toolCallConstraintStrength: "medium",
+  groupStructuredHistoryTtlMs: 10 * 60_000,
   nicknames: ["miku", "未来", "初音"],
   cooldownAfterReplyMs: 20_000,
   dynamicDelay: {

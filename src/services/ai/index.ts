@@ -73,6 +73,7 @@ export interface CompleteResponse {
   raw: ChatCompletionMessageParam;
   iterations?: number;
   allToolCalls?: ToolCallRecord[];
+  turnMessages?: ChatCompletionMessageParam[];
 }
 
 export interface SessionToolDefinition {
@@ -276,6 +277,7 @@ class AIInstanceImpl implements AIInstance {
       reasoning: assistant.reasoning,
       toolCalls: assistant.toolCalls,
       raw: assistant.raw,
+      turnMessages: [assistant.raw],
     };
   }
 
@@ -286,6 +288,7 @@ class AIInstanceImpl implements AIInstance {
     const allToolCalls: ToolCallRecord[] = [];
     const failedToolCallKeys = new Set<string>();
     const sessionMessages = [...options.messages];
+    const turnMessages: ChatCompletionMessageParam[] = [];
     const toolMap = new Map<string, AITool>();
     const tools: ChatCompletionTool[] = [];
     let iterations = 0;
@@ -322,6 +325,7 @@ class AIInstanceImpl implements AIInstance {
       reasoning = assistant.reasoning;
       raw = assistant.raw;
       sessionMessages.push(assistant.raw);
+      turnMessages.push(assistant.raw);
 
       if (assistant.toolCalls.length === 0) {
         return {
@@ -331,6 +335,7 @@ class AIInstanceImpl implements AIInstance {
           raw,
           iterations,
           allToolCalls,
+          turnMessages,
         };
       }
 
@@ -386,6 +391,7 @@ class AIInstanceImpl implements AIInstance {
         } as ChatCompletionMessageParam;
 
         sessionMessages.push(toolMessage);
+        turnMessages.push(toolMessage);
       }
 
       if (shouldContinueLoop) {
@@ -399,6 +405,7 @@ class AIInstanceImpl implements AIInstance {
         raw,
         iterations,
         allToolCalls,
+        turnMessages,
       };
     }
 
@@ -412,6 +419,7 @@ class AIInstanceImpl implements AIInstance {
       raw,
       iterations,
       allToolCalls,
+      turnMessages,
     };
   }
 

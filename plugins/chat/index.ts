@@ -29,6 +29,10 @@ import { SETTINGS_CONFIG } from "./configs/settings";
 import { PERSONALIZATION_CONFIG } from "./configs/personalization";
 import { MessageQueueManager } from "./utils/queue";
 import {
+  GroupStructuredHistoryManager,
+  type StructuredUserInput,
+} from "./manage/group-structured-history";
+import {
   sendAIResponse,
   sendMessage,
   getGroupHistoryMessages,
@@ -38,6 +42,54 @@ import {
   saveBotMessages,
   sendEmoji,
 } from "./core/base";
+
+function buildStructuredUserInput(
+  params: StructuredUserInput,
+): StructuredUserInput {
+  return {
+    userName: params.userName || "unknown",
+    userId: params.userId || 0,
+    userRole: params.userRole || "member",
+    userTitle: params.userTitle,
+    content: params.content,
+    messageId: params.messageId,
+    timestamp: params.timestamp,
+  };
+}
+
+function buildStructuredUserInputFromEvent(
+  event: any,
+  content: string,
+  fallbackTimestamp: number = Date.now(),
+): StructuredUserInput {
+  return buildStructuredUserInput({
+    userName:
+      event?.sender?.card ||
+      event?.sender?.nickname ||
+      String(event?.user_id || event?.sender?.user_id || 0),
+    userId: event?.user_id || event?.sender?.user_id || 0,
+    userRole: event?.sender?.role || "member",
+    userTitle: event?.sender?.title || undefined,
+    content,
+    messageId: event?.message_id,
+    timestamp:
+      typeof event?.time === "number" ? event.time * 1000 : fallbackTimestamp,
+  });
+}
+
+function buildStructuredUserInputFromTarget(
+  targetMessage: TargetMessage,
+): StructuredUserInput {
+  return buildStructuredUserInput({
+    userName: targetMessage.userName,
+    userId: targetMessage.userId,
+    userRole: targetMessage.userRole,
+    userTitle: targetMessage.userTitle,
+    content: targetMessage.content,
+    messageId: targetMessage.messageId,
+    timestamp: targetMessage.timestamp,
+  });
+}
 
 const chatPlugin: MiokuPlugin = {
   name: "chat",
@@ -143,6 +195,7 @@ const chatPlugin: MiokuPlugin = {
     const POKE_COOLDOWN_MS = 10 * 60_000;
     const processingSet = new Set<string>();
     const queueManager = new MessageQueueManager();
+    const groupStructuredHistory = new GroupStructuredHistoryManager();
     const groupLastActivityTime = new Map<string, number>();
     const groupMessageCount = new Map<string, number>();
     const groupLastBotMessageTime = new Map<string, number>();
@@ -217,11 +270,15 @@ const chatPlugin: MiokuPlugin = {
         const mergedContents: string[] = [];
         const userNames: string[] = [];
         const messageIds: number[] = [];
+        const structuredUserInputs: StructuredUserInput[] = [];
 
         for (const msg of messages) {
           mergedContents.push(msg.content);
           userNames.push(msg.userName);
           messageIds.push(msg.messageId);
+          structuredUserInputs.push(
+            buildStructuredUserInputFromEvent(msg.event, msg.content, msg.timestamp),
+          );
         }
 
         const mergedContent = mergedContents.join("\n---\n");
@@ -310,6 +367,11 @@ const chatPlugin: MiokuPlugin = {
           },
           humanize,
           skillManager,
+          {
+            manager: groupStructuredHistory,
+            ttlMs: cfg.groupStructuredHistoryTtlMs,
+            currentUserInputs: structuredUserInputs,
+          },
         );
 
         await sendAIResponse(
@@ -624,6 +686,13 @@ const chatPlugin: MiokuPlugin = {
           },
           humanize,
           skillManager,
+          {
+            manager: groupStructuredHistory,
+            ttlMs: cfg.groupStructuredHistoryTtlMs,
+            currentUserInputs: collected.map((msg) =>
+              buildStructuredUserInputFromEvent(msg.event, msg.content, msg.timestamp),
+            ),
+          },
         );
 
         await sendAIResponse(
@@ -786,6 +855,17 @@ Planned reason: ${planResult.reason}`;
             },
             humanize,
             skillManager,
+            {
+              manager: groupStructuredHistory,
+              ttlMs: cfg.groupStructuredHistoryTtlMs,
+              currentUserInputs: collected.map((msg) =>
+                buildStructuredUserInputFromEvent(
+                  msg.event,
+                  msg.content,
+                  msg.timestamp,
+                ),
+              ),
+            },
           );
 
           await sendAIResponse(
@@ -1052,6 +1132,7 @@ Suggestion:
 
         // 收集所有队列消息的内容
         const queuedContents: string[] = [];
+        const structuredUserInputs: StructuredUserInput[] = [];
         for (const item of queue) {
           const { text: extractedText, multimodal } = extractContent(
             item.event,
@@ -1061,6 +1142,9 @@ Suggestion:
           let content = multimodal ? JSON.stringify(multimodal) : extractedText;
           if (content) {
             queuedContents.push(content);
+            structuredUserInputs.push(
+              buildStructuredUserInputFromEvent(item.event, content, item.queuedAt),
+            );
           }
         }
 
@@ -1167,6 +1251,11 @@ Suggestion:
           },
           humanize,
           skillManager,
+          {
+            manager: groupStructuredHistory,
+            ttlMs: cfg.groupStructuredHistoryTtlMs,
+            currentUserInputs: structuredUserInputs,
+          },
         );
 
         await sendAIResponse(
@@ -1454,6 +1543,15 @@ Suggestion:
           },
           humanize,
           skillManager,
+          groupId
+            ? {
+                manager: groupStructuredHistory,
+                ttlMs: cfg.groupStructuredHistoryTtlMs,
+                currentUserInputs: [
+                  buildStructuredUserInputFromTarget(targetMessage),
+                ],
+              }
+            : undefined,
         );
 
         if (groupId) {
@@ -1698,11 +1796,13 @@ Suggestion:
         if (groupId) {
           const groupSessionId = `group:${groupId}`;
           sessionManager.resetBotMessages(groupSessionId);
+          groupStructuredHistory.clear(groupSessionId);
           await e.reply("已清除本群会话中 AI 发送的消息~");
           return;
         }
         const personalSessionId = `personal:${userId}`;
         sessionManager.resetBotMessages(personalSessionId);
+        groupStructuredHistory.clear(personalSessionId);
         await e.reply("已清除你的个人会话中 AI 发送的消息~");
         return;
       }
@@ -2008,6 +2108,11 @@ Suggestion:
           },
           humanize,
           skillManager,
+          {
+            manager: groupStructuredHistory,
+            ttlMs: cfg.groupStructuredHistoryTtlMs,
+            currentUserInputs: [buildStructuredUserInputFromTarget(targetMessage)],
+          },
         );
 
         await sendAIResponse(
