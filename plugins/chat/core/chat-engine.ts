@@ -15,9 +15,21 @@ import type { PromptContext } from "./prompt";
 import type { SkillSessionManager } from "./tools";
 import { createTools } from "./tools";
 import { buildSystemPrompt } from "./prompt";
+import {
+  attachImagesToCurrentUserMessages,
+  buildStructuredUserMessages,
+  GroupStructuredHistoryManager,
+  type StructuredUserInput,
+} from "../manage/group-structured-history";
+
+interface StructuredHistoryRunContext {
+  manager: GroupStructuredHistoryManager;
+  ttlMs: number;
+  currentUserInputs: StructuredUserInput[];
+}
 
 /**
- * Run a single chat turn using standard assistant/tool messages retained by AI service.
+ * Run a single chat turn using a fresh tool loop inside the current request.
  */
 export async function runChat(
   ai: AIInstance,
@@ -30,6 +42,7 @@ export async function runChat(
   >,
   humanize: HumanizeEngine,
   skillManager: SkillSessionManager,
+  structuredHistory?: StructuredHistoryRunContext,
 ): Promise<ChatResult> {
   const { tools: chatTools } = createTools(toolCtx, skillManager);
   const skillTools = skillManager.getTools(toolCtx.sessionId);
@@ -49,6 +62,24 @@ export async function runChat(
     logger.info("[chat-engine] === Prompt ===");
     logger.info(prompt);
     logger.info("[chat-engine] === End Prompt ===");
+  }
+
+  const hasStructuredHistory =
+    Boolean(toolCtx.groupId) &&
+    Boolean(structuredHistory) &&
+    structuredHistory!.currentUserInputs.length > 0;
+  const cachedHistory = hasStructuredHistory
+    ? structuredHistory!.manager.getMessages(
+        toolCtx.sessionId,
+        structuredHistory!.ttlMs,
+      )
+    : [];
+  const currentUserMessages = hasStructuredHistory
+    ? buildStructuredUserMessages(structuredHistory!.currentUserInputs)
+    : [];
+
+  if (hasStructuredHistory) {
+    structuredHistory!.manager.touch(toolCtx.sessionId, structuredHistory!.ttlMs);
   }
 
   const streamEnabled = Boolean(toolCtx.config.stream);
@@ -91,15 +122,15 @@ export async function runChat(
   };
 
   const response = await ai.complete({
-    sessionId: toolCtx.sessionId,
     model: toolCtx.config.model,
     messages: buildCurrentMessages(
       prompt,
       targetMessage,
+      cachedHistory,
+      currentUserMessages,
       toolCtx.pendingImageUrls,
     ),
     executableTools: buildSessionTools(chatTools, skillTools),
-    toolContextTtlMs: toolCtx.config.toolContextTtlMs,
     temperature: toolCtx.config.temperature,
     maxIterations: toolCtx.config.maxIterations,
     stream: streamEnabled,
@@ -130,7 +161,13 @@ export async function runChat(
   }
 
   if (shouldEndSession(allToolCalls)) {
-    ai.clearToolContext(toolCtx.sessionId);
+    persistStructuredHistory(
+      structuredHistory,
+      toolCtx.sessionId,
+      response.turnMessages,
+      currentUserMessages,
+      [],
+    );
     logger.info(`[chat-engine] Session ${toolCtx.sessionId} ended by tool`);
     return {
       messages: [],
@@ -143,6 +180,7 @@ export async function runChat(
         result: toolCall.result,
       })),
       emojiPath: null,
+      protocolMessages: response.turnMessages,
     };
   }
 
@@ -184,6 +222,14 @@ export async function runChat(
     `[chat-engine] Session ${toolCtx.sessionId} done | ${finalMessages.length} msg(s), ${allToolCalls.length} tool call(s)`,
   );
 
+  persistStructuredHistory(
+    structuredHistory,
+    toolCtx.sessionId,
+    response.turnMessages,
+    currentUserMessages,
+    finalMessages,
+  );
+
   return {
     messages: finalMessages,
     pendingAt: [],
@@ -195,15 +241,27 @@ export async function runChat(
       result: toolCall.result,
     })),
     emojiPath,
+    protocolMessages: response.turnMessages,
   };
 }
 
 function buildCurrentMessages(
   prompt: string,
   targetMessage: TargetMessage,
+  cachedHistory: any[] = [],
+  currentUserMessages: any[] = [],
   pendingImageUrls?: string[],
 ): any[] {
   const messages: any[] = [{ role: "system", content: prompt }];
+  messages.push(...cachedHistory);
+
+  if (currentUserMessages.length > 0) {
+    messages.push(
+      ...attachImagesToCurrentUserMessages(currentUserMessages, pendingImageUrls),
+    );
+    return messages;
+  }
+
   const hasImages = Boolean(pendingImageUrls && pendingImageUrls.length > 0);
 
   if (!hasImages) {
@@ -260,6 +318,46 @@ function shouldEndSession(
     const result = toolCall.result;
     return Boolean(result && typeof result === "object" && result.ended);
   });
+}
+
+function persistStructuredHistory(
+  structuredHistory: StructuredHistoryRunContext | undefined,
+  sessionId: string,
+  protocolMessages: any[] | undefined,
+  currentUserMessages: any[],
+  finalMessages: string[],
+): void {
+  if (!structuredHistory || currentUserMessages.length === 0) {
+    return;
+  }
+
+  const messages = [...currentUserMessages];
+  const protocol = [...(protocolMessages || [])];
+
+  if (protocol.length > 0) {
+    const last = protocol[protocol.length - 1];
+    if (isPlainAssistantMessage(last)) {
+      protocol.pop();
+    }
+  }
+
+  messages.push(...protocol);
+  for (const msg of finalMessages) {
+    messages.push({
+      role: "assistant",
+      content: msg,
+    });
+  }
+
+  structuredHistory.manager.append(sessionId, messages, structuredHistory.ttlMs);
+}
+
+function isPlainAssistantMessage(message: any): boolean {
+  if (!message || message.role !== "assistant") {
+    return false;
+  }
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  return toolCalls.length === 0;
 }
 
 /**

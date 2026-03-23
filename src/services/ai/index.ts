@@ -52,8 +52,6 @@ export interface CompleteOptions {
   messages: ChatCompletionMessageParam[];
   tools?: ChatCompletionTool[];
   executableTools?: SessionToolDefinition[];
-  sessionId?: string;
-  toolContextTtlMs?: number;
   temperature?: number;
   max_tokens?: number;
   maxIterations?: number;
@@ -75,6 +73,7 @@ export interface CompleteResponse {
   raw: ChatCompletionMessageParam;
   iterations?: number;
   allToolCalls?: ToolCallRecord[];
+  turnMessages?: ChatCompletionMessageParam[];
 }
 
 export interface SessionToolDefinition {
@@ -115,12 +114,10 @@ export interface AIInstance {
   }>;
 
   /**
-   * 原始补全调用，提供对 OpenAI API 的直接访问
-   * 当传入 executableTools 时，会走标准 tool loop，并可按 sessionId 保留 tool 上下文
+   * 原始补全调用，提供对 OpenAI API 的直接访问。
+   * 当传入 executableTools 时，会在当前请求内执行标准 tool loop。
    */
   complete(options: CompleteOptions): Promise<CompleteResponse>;
-
-  clearToolContext(sessionId?: string): boolean;
 
   registerPrompt(name: string, prompt: string): boolean;
   getPrompt(name: string): string | undefined;
@@ -156,12 +153,6 @@ export interface AIService {
   // 工具查询（扁平化访问）
   getTool(toolName: string): AITool | undefined;
   getAllTools(): Map<string, AITool>;
-  clearToolContext(sessionId: string): boolean;
-}
-
-interface StoredToolContext {
-  messages: ChatCompletionMessageParam[];
-  expiresAt: number;
 }
 
 interface AssistantMessageResult {
@@ -182,7 +173,6 @@ class AIInstanceImpl implements AIInstance {
   private client: OpenAI;
   private prompts: Map<string, string> = new Map();
   private readonly globalSkills: Map<string, AISkill>;
-  private readonly toolContexts: Map<string, StoredToolContext> = new Map();
 
   constructor(
     apiUrl: string,
@@ -287,6 +277,7 @@ class AIInstanceImpl implements AIInstance {
       reasoning: assistant.reasoning,
       toolCalls: assistant.toolCalls,
       raw: assistant.raw,
+      turnMessages: [assistant.raw],
     };
   }
 
@@ -296,13 +287,8 @@ class AIInstanceImpl implements AIInstance {
     const maxIterations = options.maxIterations ?? 40;
     const allToolCalls: ToolCallRecord[] = [];
     const failedToolCallKeys = new Set<string>();
-    const retained = this.getToolContext(options.sessionId);
-    const retainedMessages = retained ? [...retained.messages] : [];
-    const sessionMessages = mergeSessionMessages(
-      options.messages,
-      retainedMessages,
-    );
-    const retainedToolMessages: ChatCompletionMessageParam[] = [];
+    const sessionMessages = [...options.messages];
+    const turnMessages: ChatCompletionMessageParam[] = [];
     const toolMap = new Map<string, AITool>();
     const tools: ChatCompletionTool[] = [];
     let iterations = 0;
@@ -339,16 +325,9 @@ class AIInstanceImpl implements AIInstance {
       reasoning = assistant.reasoning;
       raw = assistant.raw;
       sessionMessages.push(assistant.raw);
+      turnMessages.push(assistant.raw);
 
       if (assistant.toolCalls.length === 0) {
-        this.persistToolContext(
-          options.sessionId,
-          retainedMessages,
-          retainedToolMessages,
-          retainedMessages.length > 0 || retainedToolMessages.length > 0,
-          options.toolContextTtlMs,
-        );
-
         return {
           content,
           reasoning,
@@ -356,11 +335,11 @@ class AIInstanceImpl implements AIInstance {
           raw,
           iterations,
           allToolCalls,
+          turnMessages,
         };
       }
 
-      const toolMessages: ChatCompletionMessageParam[] = [];
-      let shouldRetainTurn = false;
+      let shouldContinueLoop = false;
 
       for (const toolCall of assistant.toolCalls) {
         const toolName = toolCall.name;
@@ -395,7 +374,7 @@ class AIInstanceImpl implements AIInstance {
         }
 
         if (returnedToAI) {
-          shouldRetainTurn = true;
+          shouldContinueLoop = true;
         }
 
         allToolCalls.push({
@@ -412,29 +391,12 @@ class AIInstanceImpl implements AIInstance {
         } as ChatCompletionMessageParam;
 
         sessionMessages.push(toolMessage);
-        toolMessages.push(toolMessage);
+        turnMessages.push(toolMessage);
       }
 
-      if (shouldRetainTurn) {
-        retainedToolMessages.push(assistant.raw);
-        retainedToolMessages.push(...toolMessages);
-        this.persistToolContext(
-          options.sessionId,
-          retainedMessages,
-          retainedToolMessages,
-          true,
-          options.toolContextTtlMs,
-        );
+      if (shouldContinueLoop) {
         continue;
       }
-
-      this.persistToolContext(
-        options.sessionId,
-        retainedMessages,
-        retainedToolMessages,
-        retainedMessages.length > 0 || retainedToolMessages.length > 0,
-        options.toolContextTtlMs,
-      );
 
       return {
         content,
@@ -443,18 +405,12 @@ class AIInstanceImpl implements AIInstance {
         raw,
         iterations,
         allToolCalls,
+        turnMessages,
       };
     }
 
     logger.warn(
       `Reached maximum iterations (${maxIterations}) for complete with executable tools`,
-    );
-    this.persistToolContext(
-      options.sessionId,
-      retainedMessages,
-      retainedToolMessages,
-      retainedMessages.length > 0 || retainedToolMessages.length > 0,
-      options.toolContextTtlMs,
     );
     return {
       content: "达到最大迭代次数限制",
@@ -463,6 +419,7 @@ class AIInstanceImpl implements AIInstance {
       raw,
       iterations,
       allToolCalls,
+      turnMessages,
     };
   }
 
@@ -696,18 +653,6 @@ class AIInstanceImpl implements AIInstance {
     }
   }
 
-  clearToolContext(sessionId?: string): boolean {
-    this.clearExpiredToolContexts();
-
-    if (sessionId) {
-      return this.toolContexts.delete(sessionId);
-    }
-
-    const hadContexts = this.toolContexts.size > 0;
-    this.toolContexts.clear();
-    return hadContexts;
-  }
-
   registerPrompt(name: string, prompt: string): boolean {
     if (this.prompts.has(name)) {
       logger.warn(`Prompt ${name} already exists, overwriting`);
@@ -735,51 +680,6 @@ class AIInstanceImpl implements AIInstance {
       logger.info(`Prompt ${name} removed`);
     }
     return deleted;
-  }
-
-  private getToolContext(sessionId?: string): StoredToolContext | undefined {
-    if (!sessionId) {
-      return undefined;
-    }
-    this.clearExpiredToolContexts();
-    return this.toolContexts.get(sessionId);
-  }
-
-  private persistToolContext(
-    sessionId: string | undefined,
-    retainedMessages: ChatCompletionMessageParam[],
-    newMessages: ChatCompletionMessageParam[],
-    shouldPersist: boolean,
-    ttlMs?: number,
-  ): void {
-    if (!sessionId) {
-      return;
-    }
-
-    if (!shouldPersist) {
-      this.toolContexts.delete(sessionId);
-      return;
-    }
-
-    const messages = [...retainedMessages, ...newMessages];
-    if (messages.length === 0) {
-      this.toolContexts.delete(sessionId);
-      return;
-    }
-
-    this.toolContexts.set(sessionId, {
-      messages,
-      expiresAt: Date.now() + normalizeToolContextTtl(ttlMs),
-    });
-  }
-
-  private clearExpiredToolContexts(): void {
-    const now = Date.now();
-    for (const [sessionId, context] of this.toolContexts) {
-      if (context.expiresAt <= now) {
-        this.toolContexts.delete(sessionId);
-      }
-    }
   }
 }
 
@@ -905,25 +805,6 @@ class AIServiceImpl implements AIService {
     }
     return allTools;
   }
-
-  clearToolContext(sessionId: string): boolean {
-    let cleared = false;
-
-    for (const instance of this.instances.values()) {
-      if (instance.clearToolContext(sessionId)) {
-        cleared = true;
-      }
-    }
-
-    return cleared;
-  }
-}
-
-function normalizeToolContextTtl(ttlMs?: number): number {
-  if (typeof ttlMs !== "number" || !Number.isFinite(ttlMs) || ttlMs <= 0) {
-    return 30 * 60 * 1000;
-  }
-  return Math.floor(ttlMs);
 }
 
 function parseToolArguments(raw: string): any {
@@ -957,27 +838,6 @@ function stableStringify(value: any): string {
     (key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`,
   );
   return `{${pairs.join(",")}}`;
-}
-
-function mergeSessionMessages(
-  messages: ChatCompletionMessageParam[],
-  retainedMessages: ChatCompletionMessageParam[],
-): ChatCompletionMessageParam[] {
-  if (retainedMessages.length === 0) {
-    return [...messages];
-  }
-
-  const merged: ChatCompletionMessageParam[] = [];
-  let index = 0;
-
-  while (index < messages.length && messages[index]?.role === "system") {
-    merged.push(messages[index]);
-    index++;
-  }
-
-  merged.push(...retainedMessages);
-  merged.push(...messages.slice(index));
-  return merged;
 }
 
 function extractTextContent(

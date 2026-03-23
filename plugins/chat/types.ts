@@ -1,3 +1,4 @@
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import type { MiokiContext } from "mioki";
 import type { AITool } from "../../src";
 import type { ChatDatabase } from "./db";
@@ -140,7 +141,7 @@ export interface ChatConfig {
   debug: boolean;
   outputLengthConstraintStrength: "low" | "medium" | "high";
   toolCallConstraintStrength: "low" | "medium" | "high";
-  toolContextTtlMs: number;
+  groupStructuredHistoryTtlMs: number;
   cooldownAfterReplyMs: number;
   dynamicDelay: DynamicDelayConfig;
   personality: PersonalityConfig;
@@ -253,6 +254,7 @@ export interface ChatResult {
   pendingQuote?: number;
   toolCalls: { name: string; args: any; result: any }[];
   emojiPath?: string | null;
+  protocolMessages?: ChatCompletionMessageParam[];
 }
 
 // ==================== 真人化系统数据类型 ====================
