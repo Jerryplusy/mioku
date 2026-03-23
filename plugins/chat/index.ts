@@ -1,6 +1,5 @@
 import type { MiokuPlugin } from "../../src";
 import type { AIService } from "../../src/services/ai";
-import type { HelpService } from "../../src/services/help";
 import type { ConfigService } from "../../src/services/config";
 import { logger, MiokiContext } from "mioki";
 import type {
@@ -97,24 +96,12 @@ const chatPlugin: MiokuPlugin = {
   description: "AI 智能聊天插件",
   services: ["ai", "config", "help"],
 
-  help: {
-    title: "AI 聊天",
-    description: "智能 AI 聊天插件",
-    commands: [{ cmd: "/重置会话", desc: "清除 AI 在当前会话中发送的消息" }],
-  },
-
   async setup(ctx: MiokiContext) {
     ctx.logger.info("聊天插件正在初始化...");
 
     // 获取服务
     const aiService = ctx.services?.ai as AIService | undefined;
     const configService = ctx.services?.config as ConfigService | undefined;
-    const helpService = ctx.services?.help as HelpService | undefined;
-
-    // 注册帮助
-    if (helpService && chatPlugin.help) {
-      helpService.registerHelp(chatPlugin.name, chatPlugin.help);
-    }
 
     // 注册配置
     if (configService) {
