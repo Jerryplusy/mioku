@@ -63,7 +63,8 @@ export async function generateHelpImage(options: {
   miokiVersion?: string;
   miokuVersion?: string;
 }): Promise<string | null> {
-  const { helpService, screenshotService, miokiVersion, miokuVersion } = options;
+  const { helpService, screenshotService, miokiVersion, miokuVersion } =
+    options;
   if (!helpService || !screenshotService) {
     return null;
   }
@@ -125,44 +126,46 @@ export function generateHelpHtml(
 
   const styles = isNightMode
     ? {
-        bgOverlay: "rgba(0,0,0,0.3)",
-        cardBg: "bg-gray-800/40",
-        cardBorder: "border-gray-600/40",
-        commandBg: "bg-gray-700/50",
-        commandBorder: "border-gray-600/40",
-        commandTitleColor: "text-teal-300",
-        commandDescColor: "text-gray-300",
-        pluginTitleColor: "text-gray-100",
-        pluginDescColor: "text-gray-400",
-        noCommandColor: "text-gray-500",
-        headerGradient: "from-indigo-500/60 via-purple-500/60 to-pink-500/60",
-        headerBg: "bg-gray-800/30",
-        headerBorder: "border-gray-600/40",
-        footerBg: "bg-gray-800/40",
-        footerBorder: "border-gray-600/40",
-        footerDivider: "bg-gray-500/40",
-        footerLabelColor: "text-gray-300",
-        footerTextColor: "text-white",
+        bgOverlay: "rgba(13, 23, 28, 0.65)",
+        cardBg: "rgba(22, 40, 48, 0.75)",
+        cardBorder: "rgba(35, 66, 78, 0.6)",
+        commandBg: "rgba(28, 48, 56, 0.8)",
+        commandBorder: "rgba(35, 66, 78, 0.5)",
+        commandTitleColor: "#5dd4c4",
+        commandDescColor: "#c8e5e1",
+        pluginTitleColor: "#d9f0ed",
+        pluginDescColor: "#a3ccc6",
+        noCommandColor: "#6b8a85",
+        headerGradient:
+          "linear-gradient(135deg, rgba(45, 212, 191, 0.6) 0%, rgba(52, 171, 192, 0.6) 50%, rgba(45, 212, 191, 0.6) 100%)",
+        headerBg: "rgba(15, 28, 34, 0.3)",
+        headerBorder: "rgba(45, 212, 191, 0.4)",
+        footerBg: "rgba(22, 40, 48, 0.7)",
+        footerBorder: "rgba(35, 66, 78, 0.6)",
+        footerDivider: "rgba(45, 212, 191, 0.3)",
+        footerLabelColor: "#a3ccc6",
+        footerTextColor: "#5dd4c4",
       }
     : {
-        bgOverlay: "rgba(255,255,255,0.15)",
-        cardBg: "bg-white/40",
-        cardBorder: "border-white/50",
-        commandBg: "bg-teal-50/80",
-        commandBorder: "border-teal-100/50",
-        commandTitleColor: "text-teal-600",
-        commandDescColor: "text-gray-500",
-        pluginTitleColor: "text-gray-700",
-        pluginDescColor: "text-gray-500",
-        noCommandColor: "text-gray-400",
-        headerGradient: "from-teal-400/60 via-cyan-400/60 to-blue-400/60",
-        headerBg: "bg-white/20",
-        headerBorder: "border-white/30",
-        footerBg: "bg-white/30",
-        footerBorder: "border-white/40",
-        footerDivider: "bg-white/40",
-        footerLabelColor: "text-black-300",
-        footerTextColor: "text-teal-400",
+        bgOverlay: "rgba(240, 252, 252, 0)",
+        cardBg: "rgba(255, 255, 255, 0.85)",
+        cardBorder: "rgba(178, 219, 226, 0.5)",
+        commandBg: "rgba(225, 247, 248, 0.9)",
+        commandBorder: "rgba(178, 219, 226, 0.4)",
+        commandTitleColor: "#0d7d7d",
+        commandDescColor: "#0f3d47",
+        pluginTitleColor: "#0f3d47",
+        pluginDescColor: "#2d5f68",
+        noCommandColor: "#6b8a85",
+        headerGradient:
+          "linear-gradient(135deg, rgba(45, 212, 191, 0.6) 0%, rgba(52, 171, 192, 0.6) 50%, rgba(45, 212, 191, 0.6) 100%)",
+        headerBg: "rgba(255, 255, 255, 0.2)",
+        headerBorder: "rgba(45, 212, 191, 0.3)",
+        footerBg: "rgba(255, 255, 255, 0.75)",
+        footerBorder: "rgba(178, 219, 226, 0.5)",
+        footerDivider: "rgba(45, 212, 191, 0.4)",
+        footerLabelColor: "#2d5f68",
+        footerTextColor: "#0d7d7d",
       };
 
   for (const [pluginName, help] of helpMap) {
@@ -172,37 +175,37 @@ export function generateHelpHtml(
         const role = cmd.role as CommandRole | undefined;
         const roleConfig = role && ROLE_CONFIG[role] ? ROLE_CONFIG[role] : null;
         return `
-        <div class="${styles.commandBg} backdrop-blur-sm rounded-lg px-3 py-2 mb-2 border ${styles.commandBorder}">
+        <div style="background: ${styles.commandBg}; border: 1px solid ${styles.commandBorder};" class="rounded-lg px-3 py-2 mb-2">
           <div class="flex items-center justify-between mb-1">
-            <div class="${styles.commandTitleColor} font-mono text-xs font-bold">${escapeHtml(cmd.cmd)}</div>
+            <div style="color: ${styles.commandTitleColor};" class="font-mono text-xs font-bold">${escapeHtml(cmd.cmd)}</div>
             ${roleConfig ? `<span class="text-[10px] px-1.5 py-0.5 rounded ${roleConfig.bgColor} ${roleConfig.color} font-medium">${roleConfig.label}</span>` : ""}
           </div>
-          <div class="${styles.commandDescColor} text-xs leading-snug">${escapeHtml(cmd.desc)}</div>
+          <div style="color: ${styles.commandDescColor};" class="text-xs leading-snug">${escapeHtml(cmd.desc)}</div>
         </div>
       `;
       })
       .join("");
 
     plugins.push(`
-      <div class="${styles.cardBg} backdrop-blur-md rounded-2xl shadow-md p-4 border ${styles.cardBorder}">
-        <div class="mb-3 pb-2 border-b ${isNightMode ? "border-gray-700" : "border-teal-50"}">
-          <h3 class="text-base font-bold ${styles.pluginTitleColor}">${escapeHtml(help.title || pluginName)}</h3>
-          ${help.description ? `<p class="text-xs ${styles.pluginDescColor} mt-1">${escapeHtml(help.description)}</p>` : ""}
+      <div style="background: ${styles.cardBg}; border: 1px solid ${styles.cardBorder};" class="rounded-2xl shadow-lg p-4">
+        <div class="mb-3 pb-2" style="border-bottom: 1px solid ${styles.cardBorder};">
+          <h3 style="color: ${styles.pluginTitleColor};" class="text-base font-bold">${escapeHtml(help.title || pluginName)}</h3>
+          ${help.description ? `<p style="color: ${styles.pluginDescColor};" class="text-xs mt-1">${escapeHtml(help.description)}</p>` : ""}
         </div>
-        ${commands.length > 0 ? `<div class="space-y-1">${commandsHtml}</div>` : `<p class="${styles.noCommandColor} text-xs text-center py-2">暂无命令</p>`}
+        ${commands.length > 0 ? `<div class="space-y-1">${commandsHtml}</div>` : `<p style="color: ${styles.noCommandColor};" class="text-xs text-center py-2">暂无命令</p>`}
       </div>
     `);
   }
 
   return `
     <div class="min-h-screen p-6 pb-16 relative" style="background-image: url('https://uapis.cn/api/v1/random/image?category=acg&type=mb'); background-size: cover; background-position: center; background-attachment: fixed;">
-      <div class="absolute inset-0 backdrop-blur-sm" style="background: ${styles.bgOverlay};"></div>
+      <div class="absolute inset-0" style="background: ${styles.bgOverlay}; backdrop-filter: blur(2px);"></div>
 
-      <div class="relative rounded-3xl shadow-xl p-8 mb-6 overflow-hidden backdrop-blur-md ${styles.headerBg} border ${styles.headerBorder}">
-        <div class="absolute inset-0 bg-gradient-to-r ${styles.headerGradient}"></div>
+      <div class="relative rounded-3xl shadow-xl p-8 mb-6 overflow-hidden" style="background: ${styles.headerBg}; border: 1px solid ${styles.headerBorder}; backdrop-filter: blur(12px);">
+        <div class="absolute inset-0" style="background: ${styles.headerGradient};"></div>
 
-        <div class="absolute top-0 right-0 w-64 h-64 ${isNightMode ? "bg-white/10" : "bg-white/20"} rounded-full -mr-32 -mt-32 backdrop-blur-sm"></div>
-        <div class="absolute bottom-0 left-0 w-48 h-48 ${isNightMode ? "bg-white/10" : "bg-white/20"} rounded-full -ml-24 -mb-24 backdrop-blur-sm"></div>
+        <div class="absolute top-0 right-0 w-64 h-64 rounded-full -mr-32 -mt-32" style="background: ${isNightMode ? "rgba(45, 212, 191, 0.08)" : "rgba(45, 212, 191, 0.15)"};"></div>
+        <div class="absolute bottom-0 left-0 w-48 h-48 rounded-full -ml-24 -mb-24" style="background: ${isNightMode ? "rgba(52, 171, 192, 0.08)" : "rgba(52, 171, 192, 0.15)"};"></div>
 
         <div class="relative z-10 flex items-center gap-5">
           <div class="w-28 h-28 flex items-center justify-center flex-shrink-0">
@@ -210,32 +213,32 @@ export function generateHelpHtml(
           </div>
 
           <div class="flex-1">
-            <h1 class="text-4xl font-black text-white mb-1 tracking-tight drop-shadow-md">Mioku Bot</h1>
-            <p class="text-white/90 text-base font-medium drop-shadow-sm">帮助文档 · Help Documentation</p>
+            <h1 class="text-4xl font-black text-white mb-1 tracking-tight" style="text-shadow: 2px 2px 8px rgba(0,0,0,0.4), 0 0 20px rgba(45, 212, 191, 0.3);">Mioku Bot</h1>
+            <p class="text-white text-base font-medium" style="text-shadow: 1px 1px 4px rgba(0,0,0,0.3);">帮助文档 · Help Documentation</p>
           </div>
         </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-4 mb-6">
+      <div class="grid grid-cols-2 gap-4 mb-6 relative z-10">
         ${plugins.join("")}
       </div>
 
       <div class="absolute bottom-0 left-0 right-0 py-4 px-6">
-        <div class="backdrop-blur-md ${styles.footerBg} rounded-2xl border ${styles.footerBorder} py-4 px-6 shadow-lg">
+        <div class="rounded-2xl py-4 px-6 shadow-lg" style="background: ${styles.footerBg}; border: 1px solid ${styles.footerBorder}; backdrop-filter: blur(8px);">
           <div class="flex items-center justify-center gap-10 text-base">
             <div class="flex items-center gap-3">
               <span class="text-2xl drop-shadow-sm">⚡</span>
               <div class="text-left">
-                <div class="text-xs ${styles.footerLabelColor} font-medium drop-shadow-sm">Framework</div>
-                <div class="font-mono font-bold ${styles.footerTextColor} drop-shadow-md">Mioki ${miokiVersion}</div>
+                <div class="text-xs font-medium drop-shadow-sm" style="color: ${styles.footerLabelColor};">Framework</div>
+                <div class="font-mono font-bold drop-shadow-md" style="color: ${styles.footerTextColor};">Mioki ${miokiVersion}</div>
               </div>
             </div>
-            <div class="w-px h-12 ${styles.footerDivider}"></div>
+            <div class="w-px h-12" style="background: ${styles.footerDivider};"></div>
             <div class="flex items-center gap-3">
               <span class="text-2xl drop-shadow-sm">🚀</span>
               <div class="text-left">
-                <div class="text-xs ${styles.footerLabelColor} font-medium drop-shadow-sm">Platform</div>
-                <div class="font-mono font-bold ${styles.footerTextColor} drop-shadow-md">Mioku ${miokuVersion}</div>
+                <div class="text-xs font-medium drop-shadow-sm" style="color: ${styles.footerLabelColor};">Platform</div>
+                <div class="font-mono font-bold drop-shadow-md" style="color: ${styles.footerTextColor};">Mioku ${miokuVersion}</div>
               </div>
             </div>
           </div>
