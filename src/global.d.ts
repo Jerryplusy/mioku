@@ -71,8 +71,6 @@ declare global {
                 name: string;
                 tool: import("./core/types").AITool;
             }>;
-            sessionId?: string;
-            toolContextTtlMs?: number;
             temperature?: number;
             max_tokens?: number;
             maxIterations?: number;
@@ -95,8 +93,6 @@ declare global {
                 returnedToAI: boolean;
             }>;
         }>;
-
-        clearToolContext(sessionId?: string): boolean;
 
         // 注册提示词
         registerPrompt(name: string, prompt: string): boolean;
@@ -143,7 +139,6 @@ declare global {
         // 工具查询（扁平化访问）
         getTool(toolName: string): import("./core/types").AITool | undefined;
         getAllTools(): Map<string, import("./core/types").AITool>;
-        clearToolContext(sessionId: string): boolean;
     }
 }
 

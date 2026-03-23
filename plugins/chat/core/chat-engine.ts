@@ -17,7 +17,7 @@ import { createTools } from "./tools";
 import { buildSystemPrompt } from "./prompt";
 
 /**
- * Run a single chat turn using standard assistant/tool messages retained by AI service.
+ * Run a single chat turn using a fresh tool loop inside the current request.
  */
 export async function runChat(
   ai: AIInstance,
@@ -91,7 +91,6 @@ export async function runChat(
   };
 
   const response = await ai.complete({
-    sessionId: toolCtx.sessionId,
     model: toolCtx.config.model,
     messages: buildCurrentMessages(
       prompt,
@@ -99,7 +98,6 @@ export async function runChat(
       toolCtx.pendingImageUrls,
     ),
     executableTools: buildSessionTools(chatTools, skillTools),
-    toolContextTtlMs: toolCtx.config.toolContextTtlMs,
     temperature: toolCtx.config.temperature,
     maxIterations: toolCtx.config.maxIterations,
     stream: streamEnabled,
@@ -130,7 +128,6 @@ export async function runChat(
   }
 
   if (shouldEndSession(allToolCalls)) {
-    ai.clearToolContext(toolCtx.sessionId);
     logger.info(`[chat-engine] Session ${toolCtx.sessionId} ended by tool`);
     return {
       messages: [],

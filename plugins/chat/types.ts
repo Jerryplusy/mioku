@@ -140,7 +140,6 @@ export interface ChatConfig {
   debug: boolean;
   outputLengthConstraintStrength: "low" | "medium" | "high";
   toolCallConstraintStrength: "low" | "medium" | "high";
-  toolContextTtlMs: number;
   cooldownAfterReplyMs: number;
   dynamicDelay: DynamicDelayConfig;
   personality: PersonalityConfig;

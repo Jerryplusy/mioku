@@ -1698,13 +1698,11 @@ Suggestion:
         if (groupId) {
           const groupSessionId = `group:${groupId}`;
           sessionManager.resetBotMessages(groupSessionId);
-          aiService?.clearToolContext(groupSessionId);
           await e.reply("已清除本群会话中 AI 发送的消息~");
           return;
         }
         const personalSessionId = `personal:${userId}`;
         sessionManager.resetBotMessages(personalSessionId);
-        aiService?.clearToolContext(personalSessionId);
         await e.reply("已清除你的个人会话中 AI 发送的消息~");
         return;
       }
