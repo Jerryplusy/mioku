@@ -1,5 +1,6 @@
 import { logger, MiokiContext } from "mioki";
 import { definePlugin } from "mioki";
+import { registerPluginArtifacts } from "../../src/core/plugin-artifact-registry";
 import serviceManager from "../../src/core/service-manager";
 
 /**
@@ -15,6 +16,7 @@ export default definePlugin({
 
     // 加载所有服务
     await serviceManager.loadAllServices(ctx);
+    await registerPluginArtifacts(ctx);
 
     logger.info("========================================");
     logger.info("          Mioku 服务初始化完成");

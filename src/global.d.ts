@@ -58,7 +58,6 @@ declare global {
                 name: string;
                 arguments: any;
                 result: any;
-                returnedToAI: boolean;
             }>;
         }>;
 
@@ -91,7 +90,6 @@ declare global {
                 name: string;
                 arguments: any;
                 result: any;
-                returnedToAI: boolean;
             }>;
         }>;
 

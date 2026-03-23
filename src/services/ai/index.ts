@@ -41,7 +41,6 @@ export interface ToolCallRecord {
   name: string;
   arguments: any;
   result: any;
-  returnedToAI: boolean;
 }
 
 /**
@@ -339,27 +338,22 @@ class AIInstanceImpl implements AIInstance {
         };
       }
 
-      let shouldContinueLoop = false;
-
       for (const toolCall of assistant.toolCalls) {
         const toolName = toolCall.name;
         const tool = toolMap.get(toolName);
         const args = parseToolArguments(toolCall.arguments);
         const callKey = buildToolCallKey(toolName, args);
         let result: any;
-        let returnedToAI = tool?.returnToAI ?? false;
 
         if (!tool) {
           logger.warn(`Tool ${toolName} not found`);
           result = { error: `Tool ${toolName} not found` };
-          returnedToAI = false;
         } else if (failedToolCallKeys.has(callKey)) {
           result = {
             success: false,
             error:
               "Tool call skipped: the same tool call with identical arguments already failed in this turn.",
           };
-          returnedToAI = tool.returnToAI ?? false;
         } else {
           try {
             result = await tool.handler(args);
@@ -373,15 +367,10 @@ class AIInstanceImpl implements AIInstance {
           failedToolCallKeys.add(callKey);
         }
 
-        if (returnedToAI) {
-          shouldContinueLoop = true;
-        }
-
         allToolCalls.push({
           name: toolName,
           arguments: args,
           result,
-          returnedToAI,
         });
 
         const toolMessage = {
@@ -394,19 +383,7 @@ class AIInstanceImpl implements AIInstance {
         turnMessages.push(toolMessage);
       }
 
-      if (shouldContinueLoop) {
-        continue;
-      }
-
-      return {
-        content,
-        reasoning,
-        toolCalls: assistant.toolCalls,
-        raw,
-        iterations,
-        allToolCalls,
-        turnMessages,
-      };
+      continue;
     }
 
     logger.warn(
