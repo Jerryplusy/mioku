@@ -28,7 +28,6 @@ const helpSkills: AISkill[] = [
 
           return buildHelpInfoText(helpService.getAllHelp());
         },
-        returnToAI: true,
       } as AITool,
       {
         name: "send_help_image",
@@ -74,7 +73,6 @@ const helpSkills: AISkill[] = [
             return `生成帮助图片失败: ${error}`;
           }
         },
-        returnToAI: false,
       } as AITool,
     ],
   },

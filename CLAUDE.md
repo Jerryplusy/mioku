@@ -231,8 +231,7 @@ const mySkills: AISkill[] = [
         },
         handler: async (args, event) => {
           return { city: args.city, forecast: "sunny" };
-        },
-        returnToAI: true
+        }
       }
     ]
   }
@@ -250,10 +249,8 @@ Tool conventions:
   JSON-schema-like input definition
 - `handler(args, event?)`
   actual implementation
-- `returnToAI`
-  whether the tool result should be sent back into the model loop
 
-Use `returnToAI: false` if the tool itself sends the message or performs the visible action directly.
+Tool results are always sent back into the model loop when the model makes a tool call. The model then decides whether to call another tool or produce the final assistant response. Do not add a custom `returnToAI` field.
 
 ## Why `runtime.ts` Exists
 
@@ -424,8 +421,7 @@ const exampleSkills: AISkill[] = [
         handler: async () => {
           const { ctx } = getExampleRuntimeState();
           return "ok";
-        },
-        returnToAI: true
+        }
       }
     ]
   }

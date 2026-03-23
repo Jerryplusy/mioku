@@ -12,7 +12,6 @@ export interface AITool {
     required?: string[];
   };
   handler: (args: any, event?: any) => Promise<any> | any;
-  returnToAI?: boolean;
 }
 
 /**

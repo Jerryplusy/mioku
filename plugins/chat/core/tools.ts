@@ -75,7 +75,6 @@ function createMessageTools(): AITool[] {
       handler: async (args) => {
         return { success: true, ended: true, reason: args.reason };
       },
-      returnToAI: false, // 不需要返回给 AI，直接结束
     },
   ];
 }
@@ -119,7 +118,6 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
           return { error: `Failed to get member info: ${err}` };
         }
       },
-      returnToAI: true,
     });
 
     tools.push({
@@ -144,7 +142,6 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
           return { error: `Failed to get member list: ${err}` };
         }
       },
-      returnToAI: true,
     });
   }
 
@@ -194,7 +191,6 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
       handler: async (args) => {
         return searchWebWithSearxng(toolCtx.config.searxng, args || {});
       },
-      returnToAI: true,
     });
   }
 
@@ -242,7 +238,6 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
           return { success: false, error: `Failed to read webpage: ${err}` };
         }
       },
-      returnToAI: true,
     });
   }
 
@@ -304,7 +299,6 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
           return { error: `Failed to analyze image: ${err}` };
         }
       },
-      returnToAI: true,
     });
 
     tools.push({
@@ -355,7 +349,6 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
           return { error: `Failed to analyze avatar: ${err}` };
         }
       },
-      returnToAI: true,
     });
   }
 
@@ -400,7 +393,6 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
           return { error: `Failed: ${err}` };
         }
       },
-      returnToAI: true,
     },
     {
       name: "kick_member",
@@ -432,7 +424,6 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
           return { error: `Failed: ${err}` };
         }
       },
-      returnToAI: true,
     },
     {
       name: "set_member_card",
@@ -461,7 +452,6 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
           return { error: `Failed: ${err}` };
         }
       },
-      returnToAI: true,
     },
     {
       name: "set_member_title",
@@ -490,7 +480,6 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
           return { error: `Failed: ${err}` };
         }
       },
-      returnToAI: true,
     },
     {
       name: "toggle_mute_all",
@@ -522,7 +511,6 @@ function createAdminTools(toolCtx: ToolContext): AITool[] {
           return { error: `Failed: ${err}` };
         }
       },
-      returnToAI: true,
     },
   ];
 }
@@ -572,7 +560,6 @@ function createLoadSkillTool(
         tools: loadedTools,
       };
     },
-    returnToAI: true,
   };
 }
 
@@ -604,6 +591,5 @@ function createUnloadSkillTool(
       }
       return { success: true, skill_name: args.skill_name };
     },
-    returnToAI: false,
   };
 }
