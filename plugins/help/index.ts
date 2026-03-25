@@ -1,8 +1,10 @@
 import type { MiokuPlugin } from "../../src";
+import type { ConfigService } from "../../src/services/config";
 import type { HelpService } from "../../src/services/help";
 import type { ScreenshotService } from "../../src/services/screenshot";
 import type { MiokiContext } from "mioki";
 import * as path from "path";
+import { HELP_DEMO_CONFIG } from "./demo-config";
 import {
   generateHelpImage,
   getPackageVersion,
@@ -17,9 +19,10 @@ const helpPlugin: MiokuPlugin = {
   name: "help",
   version: "1.0.0",
   description: "帮助插件，生成帮助图片",
-  services: ["help", "screenshot"],
+  services: ["help", "screenshot", "config"],
 
   async setup(ctx: MiokiContext) {
+    const configService = ctx.services?.config as ConfigService | undefined;
     const helpService = ctx.services?.help as HelpService | undefined;
     const screenshotService = ctx.services?.screenshot as
       | ScreenshotService
@@ -32,6 +35,10 @@ const helpPlugin: MiokuPlugin = {
 
     if (!screenshotService) {
       ctx.logger.warn("screenshot 服务未加载，帮助插件功能受限");
+    }
+
+    if (configService) {
+      await configService.registerConfig("help", "demo", HELP_DEMO_CONFIG.demo);
     }
 
     const miokiVersion = await getPackageVersion(
