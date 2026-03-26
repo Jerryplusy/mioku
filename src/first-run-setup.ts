@@ -136,7 +136,7 @@ async function askWithDefault(
   defaultValue = "",
 ): Promise<string> {
   const suffix = defaultValue ? ` (${defaultValue})` : "";
-  const answer = (await ask(`${label}${suffix}: `)).trim();
+  const answer = (await ask(`\n${label}${suffix}\n> `)).trim();
   if (!answer && defaultValue) {
     return defaultValue;
   }
@@ -149,7 +149,7 @@ async function askYesNo(
   defaultYes = true,
 ): Promise<boolean> {
   const hint = defaultYes ? "Y/n" : "y/N";
-  const answer = (await ask(`${label} (${hint}): `)).trim().toLowerCase();
+  const answer = (await ask(`\n${label} (${hint})\n> `)).trim().toLowerCase();
   if (!answer) {
     return defaultYes;
   }
@@ -288,7 +288,7 @@ export async function runFirstRunSetup(
         `[mioku-setup] Docker 首次启动需要交互终端来完成初始化：${missingItems.join("、")}`,
       );
       console.error(
-        "[mioku-setup] 请先使用交互模式运行一次，例如 `docker run -it ...` 或 `docker compose up`。",
+        "[mioku-setup] 请先使用交互模式运行一次，例如 `docker run -it ...` 或 `docker compose run --rm --service-ports mioku`。",
       );
       throw new Error("Docker 初始配置未完成");
     }
@@ -310,13 +310,16 @@ export async function runFirstRunSetup(
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
+    terminal: true,
   });
+
+  const ask = (question: string) => rl.question(question);
 
   try {
     console.log("------ 欢迎使用Mioku ------");
     if (needWebUIInstallPrompt) {
       const shouldInstallWebUI = await askYesNo(
-        (q) => rl.question(q),
+        ask,
         "是否现在安装 WebUI 管理界面",
         true,
       );
@@ -338,7 +341,7 @@ export async function runFirstRunSetup(
     }
 
     if (needNapcatPrompt) {
-      await promptForNapcat((q) => rl.question(q), napcat);
+      await promptForNapcat(ask, napcat);
       writeFileSync(
         localConfigPath,
         `${JSON.stringify(ensured.config, null, 2)}\n`,
@@ -348,7 +351,7 @@ export async function runFirstRunSetup(
     }
 
     if (needWebUIAuthPrompt) {
-      await promptForWebUIAuth(cwd, (q) => rl.question(q));
+      await promptForWebUIAuth(cwd, ask);
       console.log(
         "[mioku-setup] 已更新 WebUI 登录密钥: config/webui/auth.json",
       );

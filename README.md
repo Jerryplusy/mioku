@@ -47,7 +47,7 @@ bun run start
 # 更多脚本功能请运行./install-mioku.sh查看
 ```
 
-安装完成后，再次执行 `bun run app`，首次会提示设置 WebUI 登录密钥。
+安装完成后，再次执行 `bun run start`，首次会提示设置 WebUI 登录密钥。
 
 ## 插件/服务安装和管理
 
@@ -63,10 +63,11 @@ bun run start
 ### Docker Compose(推荐)
 
 ```bash
-docker compose up --build
+docker compose build
+docker compose run --rm --service-ports mioku
 ```
 
-第一次初始化完成后，后续可以使用后台启动。
+首次启动初始化完成后，后续可以使用后台启动：
 
 ```bash
 docker compose up -d
