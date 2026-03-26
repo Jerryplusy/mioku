@@ -9,6 +9,7 @@ import {
   generateHelpImage,
   getPackageVersion,
   replyWithImage,
+  resolveHelpBotProfile,
 } from "./shared";
 import {
   resetHelpRuntimeState,
@@ -49,9 +50,6 @@ const helpPlugin: MiokuPlugin = {
     );
 
     setHelpRuntimeState({
-      ctx,
-      helpService,
-      screenshotService,
       miokiVersion,
       miokuVersion,
     });
@@ -74,11 +72,14 @@ const helpPlugin: MiokuPlugin = {
       }
 
       try {
+        const { botNickname, botAvatarUrl } = resolveHelpBotProfile(ctx, event);
         const imagePath = await generateHelpImage({
           helpService,
           screenshotService,
           miokiVersion,
           miokuVersion,
+          botNickname,
+          botAvatarUrl,
         });
 
         if (!imagePath) {

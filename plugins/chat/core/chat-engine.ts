@@ -130,7 +130,8 @@ export async function runChat(
       currentUserMessages,
       toolCtx.pendingImageUrls,
     ),
-    executableTools: buildSessionTools(chatTools, skillTools),
+    executableToolsProvider: () =>
+      buildSessionTools(chatTools, skillManager.getTools(toolCtx.sessionId), toolCtx),
     temperature: toolCtx.config.temperature,
     maxIterations: toolCtx.config.maxIterations,
     stream: streamEnabled,
@@ -154,8 +155,12 @@ export async function runChat(
 
   if (allToolCalls.length > 0) {
     for (const toolCall of allToolCalls) {
+      const resultPreview = JSON.stringify(toolCall.result);
       logger.info(
         `[chat-engine] Tool call: ${toolCall.name}(${JSON.stringify(toolCall.arguments).substring(0, 100)})`,
+      );
+      logger.info(
+        `[chat-engine] Tool result: ${toolCall.name} -> ${resultPreview ? resultPreview.substring(0, 300) : "undefined"}`,
       );
     }
   }
@@ -287,24 +292,42 @@ function buildCurrentMessages(
 function buildSessionTools(
   chatTools: AITool[],
   skillTools: Map<string, AITool>,
+  toolCtx: ToolContext,
 ): SessionToolDefinition[] {
   const tools: SessionToolDefinition[] = [];
+  const runtimeContext = createExternalSkillRuntimeContext(toolCtx);
 
   for (const tool of chatTools) {
     tools.push({
       name: tool.name,
-      tool,
+      tool: {
+        ...tool,
+        handler: (args: any) => tool.handler(args, runtimeContext),
+      },
     });
   }
 
   for (const [name, tool] of skillTools) {
     tools.push({
       name,
-      tool,
+      tool: {
+        ...tool,
+        handler: (args: any) => tool.handler(args, runtimeContext),
+      },
     });
   }
 
   return tools;
+}
+
+function createExternalSkillRuntimeContext(toolCtx: ToolContext): any {
+  const rawEvent = toolCtx.event || {};
+  return {
+    ctx: toolCtx.ctx,
+    event: rawEvent,
+    rawEvent,
+    session_id: toolCtx.sessionId,
+  };
 }
 
 function shouldEndSession(

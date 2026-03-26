@@ -51,6 +51,7 @@ export interface CompleteOptions {
   messages: ChatCompletionMessageParam[];
   tools?: ChatCompletionTool[];
   executableTools?: SessionToolDefinition[];
+  executableToolsProvider?: () => SessionToolDefinition[];
   temperature?: number;
   max_tokens?: number;
   maxIterations?: number;
@@ -257,7 +258,10 @@ class AIInstanceImpl implements AIInstance {
   }
 
   async complete(options: CompleteOptions): Promise<CompleteResponse> {
-    if (options.executableTools && options.executableTools.length > 0) {
+    if (
+      (options.executableTools && options.executableTools.length > 0) ||
+      options.executableToolsProvider
+    ) {
       return this.completeWithExecutableTools(options);
     }
 
@@ -288,27 +292,30 @@ class AIInstanceImpl implements AIInstance {
     const failedToolCallKeys = new Set<string>();
     const sessionMessages = [...options.messages];
     const turnMessages: ChatCompletionMessageParam[] = [];
-    const toolMap = new Map<string, AITool>();
-    const tools: ChatCompletionTool[] = [];
     let iterations = 0;
     let content = "";
     let reasoning: string | null = null;
     let raw: ChatCompletionMessageParam = { role: "assistant", content: "" };
 
-    for (const definition of options.executableTools || []) {
-      toolMap.set(definition.name, definition.tool);
-      tools.push({
-        type: "function",
-        function: {
-          name: definition.name,
-          description: definition.tool.description,
-          parameters: definition.tool.parameters,
-        },
-      });
-    }
-
     while (iterations < maxIterations) {
       iterations++;
+      const currentDefinitions = options.executableToolsProvider
+        ? options.executableToolsProvider()
+        : (options.executableTools ?? []);
+      const toolMap = new Map<string, AITool>();
+      const tools: ChatCompletionTool[] = [];
+
+      for (const definition of currentDefinitions) {
+        toolMap.set(definition.name, definition.tool);
+        tools.push({
+          type: "function",
+          function: {
+            name: definition.name,
+            description: definition.tool.description,
+            parameters: definition.tool.parameters,
+          },
+        });
+      }
 
       const assistant = await this.requestAssistantMessage({
         model: options.model,
@@ -346,7 +353,9 @@ class AIInstanceImpl implements AIInstance {
         let result: any;
 
         if (!tool) {
-          logger.warn(`Tool ${toolName} not found`);
+          logger.warn(
+            `[ai] Tool ${toolName} not found (raw: "${toolName}"). Executable tools: ${[...toolMap.keys()].join(", ") || "(none)"}. Global skills: ${[...this.globalSkills.keys()].join(", ") || "(none)"}`,
+          );
           result = { error: `Tool ${toolName} not found` };
         } else if (failedToolCallKeys.has(callKey)) {
           result = {
@@ -830,7 +839,9 @@ function extractTextContent(
 
   return content
     .filter((part): part is { type: "text"; text: string } => {
-      return Boolean(part && part.type === "text" && typeof part.text === "string");
+      return Boolean(
+        part && part.type === "text" && typeof part.text === "string",
+      );
     })
     .map((part) => part.text)
     .join("\n")

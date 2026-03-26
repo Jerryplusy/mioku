@@ -94,9 +94,17 @@ export async function generateHelpImage(options: {
   screenshotService?: ScreenshotService;
   miokiVersion?: string;
   miokuVersion?: string;
+  botNickname?: string;
+  botAvatarUrl?: string;
 }): Promise<string | null> {
-  const { helpService, screenshotService, miokiVersion, miokuVersion } =
-    options;
+  const {
+    helpService,
+    screenshotService,
+    miokiVersion,
+    miokuVersion,
+    botNickname,
+    botAvatarUrl,
+  } = options;
   if (!helpService || !screenshotService) {
     return null;
   }
@@ -109,6 +117,8 @@ export async function generateHelpImage(options: {
     checkNightMode(),
     miokiVersion,
     miokuVersion,
+    botNickname,
+    botAvatarUrl,
   );
   const estimatedHeight = isCompact
     ? Math.max(1280, Math.ceil(pluginCount / 2) * 180)
@@ -149,23 +159,95 @@ export async function replyWithImage(
   }
 }
 
+export async function sendImageFromSkillContext(options: {
+  ctx: any;
+  event: any;
+  imagePath: string;
+  quoteReply?: boolean;
+}): Promise<void> {
+  const { ctx, event, imagePath, quoteReply = false } = options;
+  const selfId =
+    event?.self_id != null ? Number(event.self_id) : undefined;
+  const bot =
+    selfId != null && typeof ctx?.pickBot === "function"
+      ? ctx.pickBot(selfId)
+      : undefined;
+
+  if (!bot) {
+    throw new Error("当前上下文不支持发送图片");
+  }
+
+  const buildImageSegment = (file: string) => {
+    const normalizedFile = normalizeImageSource(file);
+    if (ctx?.segment?.image) {
+      return ctx.segment.image(normalizedFile);
+    }
+    return { type: "image", file: normalizedFile };
+  };
+
+  const sendPayload = async (file: string) => {
+    const payload: any[] = [];
+    if (quoteReply && event?.message_id != null) {
+      payload.push({ type: "reply", id: String(event.message_id) });
+    }
+    payload.push(buildImageSegment(file));
+
+    if (event?.message_type === "group" && event?.group_id != null) {
+      await bot.sendGroupMsg(event.group_id, payload);
+      return;
+    }
+
+    if (event?.user_id != null) {
+      await bot.sendPrivateMsg(event.user_id, payload);
+      return;
+    }
+
+    throw new Error("当前上下文不支持发送图片");
+  };
+
+  try {
+    await sendPayload(imagePath);
+  } catch (error) {
+    if (!isLocalFilePath(imagePath)) {
+      throw error;
+    }
+
+    const imageBuffer = await fs.promises.readFile(imagePath);
+    const base64Image = `base64://${imageBuffer.toString("base64")}`;
+    await sendPayload(base64Image);
+  }
+}
+
 export function generateHelpHtml(
   helpMap: Map<string, PluginHelp>,
   isNightMode: boolean,
   miokiVersion: string = "unknown",
   miokuVersion: string = "unknown",
+  botNickname: string = "Mioku Bot",
+  botAvatarUrl?: string,
 ): string {
   const pluginCount = helpMap.size;
   const isCompact = resolveCompactMode(pluginCount);
   const logoPath = "../../plugins/help/source/miku.png";
+  const avatarSrc = botAvatarUrl || logoPath;
+  const backgroundImageUrl =
+    "https://uapis.cn/api/v1/random/image?category=acg&type=mb";
   const theme = isNightMode
     ? {
         pageBg:
           "linear-gradient(180deg, #07141c 0%, #0b1c25 52%, #102730 100%)",
+        shellBg: "rgba(6, 19, 25, 0.34)",
         pageAccent:
           "radial-gradient(circle at 18% 14%, rgba(76, 201, 191, 0.18), transparent 34%), radial-gradient(circle at 82% 10%, rgba(34, 211, 238, 0.12), transparent 28%), radial-gradient(circle at 50% 100%, rgba(45, 212, 191, 0.1), transparent 42%)",
         pageGrid:
           "linear-gradient(rgba(151, 214, 210, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(151, 214, 210, 0.04) 1px, transparent 1px)",
+        sceneOpacity: "0.48",
+        sceneFilter:
+          "blur(1.5px) saturate(0.96) contrast(1.05) brightness(0.72)",
+        sceneMask:
+          "linear-gradient(180deg, rgba(3, 11, 15, 0.34), rgba(4, 16, 22, 0.2) 26%, rgba(4, 14, 20, 0.06) 52%, rgba(3, 10, 14, 0.4) 100%)",
+        sceneGlow:
+          "radial-gradient(circle at 24% 16%, rgba(126, 231, 221, 0.16), transparent 28%), radial-gradient(circle at 78% 10%, rgba(34, 211, 238, 0.14), transparent 26%)",
         shellBorder: "rgba(116, 202, 200, 0.18)",
         shellShadow: "0 32px 70px rgba(1, 11, 16, 0.45)",
         heroBg:
@@ -199,10 +281,18 @@ export function generateHelpHtml(
     : {
         pageBg:
           "linear-gradient(180deg, #eef6f7 0%, #f6fbfb 48%, #edf5f7 100%)",
+        shellBg: "rgba(255, 255, 255, 0.42)",
         pageAccent:
           "radial-gradient(circle at 12% 10%, rgba(45, 212, 191, 0.18), transparent 28%), radial-gradient(circle at 88% 0%, rgba(56, 189, 248, 0.14), transparent 24%), radial-gradient(circle at 50% 100%, rgba(13, 148, 136, 0.08), transparent 44%)",
         pageGrid:
           "linear-gradient(rgba(17, 94, 89, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(17, 94, 89, 0.05) 1px, transparent 1px)",
+        sceneOpacity: "0.42",
+        sceneFilter:
+          "blur(1.5px) saturate(0.98) contrast(1.02) brightness(1.03)",
+        sceneMask:
+          "linear-gradient(180deg, rgba(244, 250, 251, 0.4), rgba(244, 250, 251, 0.22) 30%, rgba(244, 250, 251, 0.04) 58%, rgba(237, 245, 247, 0.46) 100%)",
+        sceneGlow:
+          "radial-gradient(circle at 18% 14%, rgba(45, 212, 191, 0.14), transparent 28%), radial-gradient(circle at 82% 8%, rgba(56, 189, 248, 0.12), transparent 24%)",
         shellBorder: "rgba(148, 196, 204, 0.62)",
         shellShadow: "0 26px 60px rgba(12, 50, 59, 0.12)",
         heroBg:
@@ -260,16 +350,15 @@ export function generateHelpHtml(
       return `
         <section class="help-plugin ${isCompact ? "help-plugin--compact" : ""}">
           <div class="help-plugin__head">
-            <div class="help-plugin__title-row">
-              <h3 class="help-plugin__title">${escapeHtml(help.title || pluginName)}</h3>
-              ${
-                help.description
-                  ? isCompact
-                    ? `<span class="help-plugin__desc help-plugin__desc--inline">${escapeHtml(help.description)}</span>`
-                    : `<p class="help-plugin__desc">${escapeHtml(help.description)}</p>`
-                  : ""
-              }
-            </div>
+            ${
+              isCompact
+                ? `<div class="help-plugin__title-row">
+                    <h3 class="help-plugin__title">${escapeHtml(help.title || pluginName)}</h3>
+                    ${help.description ? `<span class="help-plugin__desc help-plugin__desc--inline">${escapeHtml(help.description)}</span>` : ""}
+                  </div>`
+                : `<h3 class="help-plugin__title">${escapeHtml(help.title || pluginName)}</h3>
+                  ${help.description ? `<p class="help-plugin__desc">${escapeHtml(help.description)}</p>` : ""}`
+            }
           </div>
           ${
             commands.length > 0
@@ -314,6 +403,32 @@ export function generateHelpHtml(
         opacity: ${isNightMode ? "0.55" : "0.35"};
       }
 
+      .help-sheet__scene,
+      .help-sheet__scene-image,
+      .help-sheet__scene-overlay {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .help-sheet__scene {
+        z-index: 0;
+        overflow: hidden;
+      }
+
+      .help-sheet__scene-image {
+        background-image: url("${backgroundImageUrl}");
+        background-size: cover;
+        background-position: center center;
+        opacity: ${theme.sceneOpacity};
+        filter: ${theme.sceneFilter};
+        transform: scale(1.06);
+      }
+
+      .help-sheet__scene-overlay {
+        background: ${theme.sceneGlow}, ${theme.sceneMask};
+      }
+
       .help-shell {
         position: relative;
         z-index: 1;
@@ -326,7 +441,8 @@ export function generateHelpHtml(
         border: 1px solid ${theme.shellBorder};
         box-shadow: ${theme.shellShadow};
         padding: ${isCompact ? "14px" : "18px"};
-        background: ${isNightMode ? "rgba(6, 19, 25, 0.18)" : "rgba(255, 255, 255, 0.36)"};
+        background: ${theme.shellBg};
+        backdrop-filter: blur(10px) saturate(1.06);
       }
 
       .help-hero {
@@ -371,37 +487,22 @@ export function generateHelpHtml(
         flex-shrink: 0;
         display: grid;
         place-items: center;
-        border-radius: 32px;
-        background: ${theme.logoPlate};
-        border: 1px solid ${theme.logoBorder};
-        box-shadow: ${theme.logoShadow};
-        overflow: hidden;
-      }
-
-      .help-hero__logo::before {
-        content: "";
-        position: absolute;
-        inset: 12%;
         border-radius: 999px;
-        background: ${theme.logoHalo};
-        filter: blur(10px);
-      }
-
-      .help-hero__logo::after {
-        content: "";
-        position: absolute;
-        inset: 8px;
-        border-radius: 26px;
-        border: 1px solid ${isNightMode ? "rgba(236, 254, 255, 0.06)" : "rgba(255, 255, 255, 0.92)"};
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        overflow: hidden;
       }
 
       .help-hero__logo img {
         position: relative;
         z-index: 1;
-        width: 88%;
-        height: 88%;
-        object-fit: contain;
-        filter: drop-shadow(0 8px 18px ${isNightMode ? "rgba(0, 0, 0, 0.35)" : "rgba(15, 61, 71, 0.14)"}) saturate(1.06) contrast(1.05);
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 999px;
+        box-shadow: 0 10px 24px ${isNightMode ? "rgba(0, 0, 0, 0.32)" : "rgba(15, 61, 71, 0.14)"};
+        filter: saturate(1.04) contrast(1.03);
       }
 
       .help-hero__content {
@@ -637,16 +738,20 @@ export function generateHelpHtml(
       }
     </style>
     <div class="help-sheet">
+      <div class="help-sheet__scene">
+        <div class="help-sheet__scene-image"></div>
+        <div class="help-sheet__scene-overlay"></div>
+      </div>
       <div class="help-shell">
         <header class="help-hero">
           <div class="help-hero__logo">
-            <img src="${logoPath}" alt="logo" />
+            <img src="${escapeHtml(avatarSrc)}" alt="logo" />
           </div>
           <div class="help-hero__content">
             <div class="help-hero__eyebrow">Mioku Assistant</div>
-            <h1 class="help-hero__title">Mioku Bot</h1>
+            <h1 class="help-hero__title">${escapeHtml(botNickname)}</h1>
             <p class="help-hero__subtitle">
-              帮助文档集中展示当前插件命令。优先保证可读性、扫描速度和截图稳定性。
+              有什么不懂的尽管问我 O.o
             </p>
           </div>
         </header>
@@ -693,6 +798,24 @@ function resolveCompactMode(pluginCount: number): boolean {
   return pluginCount > 8;
 }
 
+export function resolveHelpBotProfile(
+  ctx: any,
+  event?: any,
+): { botNickname: string; botAvatarUrl?: string } {
+  const fallbackNickname = "Mioku Bot";
+  const selfId = event?.self_id;
+  const bot =
+    (selfId && typeof ctx?.pickBot === "function" ? ctx.pickBot(selfId) : null) ||
+    (ctx?.bots instanceof Map ? Array.from(ctx.bots.values())[0] : null);
+  const botId = selfId || bot?.uin || bot?.user_id || bot?.self_id;
+  const botNickname = bot?.nickname || bot?.name || fallbackNickname;
+  const botAvatarUrl = botId
+    ? `https://q1.qlogo.cn/g?b=qq&nk=${botId}&s=640`
+    : undefined;
+
+  return { botNickname, botAvatarUrl };
+}
+
 function escapeHtml(text: string): string {
   const map: Record<string, string> = {
     "&": "&amp;",
@@ -702,4 +825,30 @@ function escapeHtml(text: string): string {
     "'": "&#039;",
   };
   return text.replace(/[&<>"']/g, (match) => map[match]);
+}
+
+function normalizeImageSource(file: string): string {
+  const value = String(file || "").trim();
+  if (!value) {
+    return value;
+  }
+
+  if (
+    value.startsWith("file://") ||
+    value.startsWith("base64://") ||
+    value.startsWith("http://") ||
+    value.startsWith("https://")
+  ) {
+    return value;
+  }
+
+  if (isLocalFilePath(value)) {
+    return `file://${value}`;
+  }
+
+  return value;
+}
+
+function isLocalFilePath(value: string): boolean {
+  return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value);
 }
