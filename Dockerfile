@@ -5,7 +5,8 @@ FROM oven/bun:1 AS builder
 WORKDIR /app
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
+  && apt-get install -y --no-install-recommends python3 make g++ npm \
+  && npm install -g node-gyp \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json tsconfig.json app.ts ./
