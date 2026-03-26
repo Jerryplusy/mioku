@@ -63,6 +63,8 @@ bun run start
 ### Docker Compose(推荐)
 
 ```bash
+git clone https://github.com/Jerryplusy/mioku.git
+cd mioku
 docker compose build
 docker compose run --rm --service-ports mioku
 ```
@@ -90,15 +92,28 @@ docker compose up -d
 ## Docker
 
 ```bash
+git clone https://github.com/Jerryplusy/mioku.git
+
+cd mioku
+
 docker build -t mioku .
 
 docker run --rm -it \
   --name mioku-init \
   --add-host=host.docker.internal:host-gateway \
   -p 3339:3339 \
+  -v "$(pwd)/app.ts:/app/app.ts" \
+  -v "$(pwd)/package.json:/app/package.json" \
+  -v "$(pwd)/tsconfig.json:/app/tsconfig.json" \
+  -v "$(pwd)/install-mioku.sh:/app/install-mioku.sh" \
+  -v "$(pwd)/src:/app/src" \
+  -v "$(pwd)/plugins:/app/plugins" \
   -v "$(pwd)/config:/app/config" \
   -v "$(pwd)/data:/app/data" \
   -v "$(pwd)/logs:/app/logs" \
+  -v "$(pwd)/temp:/app/temp" \
+  -v mioku_node_modules:/app/node_modules \
+  -v mioku_bun_cache:/root/.bun/install/cache \
   mioku
 ```
 
@@ -112,39 +127,38 @@ docker run -d \
   --restart unless-stopped \
   --add-host=host.docker.internal:host-gateway \
   -p 3339:3339 \
+  -v "$(pwd)/app.ts:/app/app.ts" \
+  -v "$(pwd)/package.json:/app/package.json" \
+  -v "$(pwd)/tsconfig.json:/app/tsconfig.json" \
+  -v "$(pwd)/install-mioku.sh:/app/install-mioku.sh" \
+  -v "$(pwd)/src:/app/src" \
+  -v "$(pwd)/plugins:/app/plugins" \
   -v "$(pwd)/config:/app/config" \
   -v "$(pwd)/data:/app/data" \
   -v "$(pwd)/logs:/app/logs" \
+  -v "$(pwd)/temp:/app/temp" \
+  -v mioku_node_modules:/app/node_modules \
+  -v mioku_bun_cache:/root/.bun/install/cache \
   mioku
 ```
 
 ### Docker 更新
 
-> 推荐的 Docker Compose 方案不需要每次更新都重新构建
+> 使用Docker安装的方案都不需要每次更新都重新构建
 
 ```bash
 git pull
 docker compose restart mioku
 ```
 
-如果 `package.json`、插件或服务依赖发生变化，容器启动时会自动执行一次 `bun install`。
-
-如果你用的是 `docker run` 镜像模式，每次更新仍然需要重新构建。对应流程为：
+如果你使用的是 `docker run` 的模式，对应更新流程为：
 
 ```bash
 git pull
-docker build -t mioku .
-docker rm -f mioku
-docker run -d \
-  --name mioku \
-  --restart unless-stopped \
-  --add-host=host.docker.internal:host-gateway \
-  -p 3339:3339 \
-  -v "$(pwd)/config:/app/config" \
-  -v "$(pwd)/data:/app/data" \
-  -v "$(pwd)/logs:/app/logs" \
-  mioku
+docker restart mioku
 ```
+
+如果 `package.json`、插件或服务依赖发生变化，容器启动时会自动执行一次 `bun install`。
 
 ## 核心概念
 
