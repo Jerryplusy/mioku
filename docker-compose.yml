@@ -10,6 +10,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
+      - ./.git:/app/.git
       - ./app.ts:/app/app.ts
       - ./package.json:/app/package.json
       - ./tsconfig.json:/app/tsconfig.json

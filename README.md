@@ -81,6 +81,7 @@ docker compose up -d
 
 仓库已经提供 [`docker-compose.yml`](./docker-compose.yml)，默认会挂载：
 
+- `./.git -> /app/.git`
 - `./config -> /app/config`
 - `./data -> /app/data`
 - `./logs -> /app/logs`
@@ -102,6 +103,7 @@ docker run --rm -it \
   --name mioku-init \
   --add-host=host.docker.internal:host-gateway \
   -p 3339:3339 \
+  -v "$(pwd)/.git:/app/.git" \
   -v "$(pwd)/app.ts:/app/app.ts" \
   -v "$(pwd)/package.json:/app/package.json" \
   -v "$(pwd)/tsconfig.json:/app/tsconfig.json" \
@@ -127,6 +129,7 @@ docker run -d \
   --restart unless-stopped \
   --add-host=host.docker.internal:host-gateway \
   -p 3339:3339 \
+  -v "$(pwd)/.git:/app/.git" \
   -v "$(pwd)/app.ts:/app/app.ts" \
   -v "$(pwd)/package.json:/app/package.json" \
   -v "$(pwd)/tsconfig.json:/app/tsconfig.json" \
@@ -159,6 +162,8 @@ docker restart mioku
 ```
 
 如果 `package.json`、插件或服务依赖发生变化，容器启动时会自动执行一次 `bun install`。
+
+如果你希望 WebUI 里的“检查 Mioku 更新 / 更新 Mioku”可用，必须像上面这样把 `./.git` 挂载到 `/app/.git`。
 
 ## 核心概念
 
