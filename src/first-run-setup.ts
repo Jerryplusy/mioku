@@ -286,7 +286,7 @@ async function installWebUI(cwd: string): Promise<boolean> {
   }
 
   return await new Promise<boolean>((resolve) => {
-    const child = spawn("bash", [scriptPath, "webui", "--skip-service"], {
+    const child = spawn("bash", [scriptPath, "webui"], {
       cwd,
       stdio: ["ignore", "inherit", "inherit"],
     });
