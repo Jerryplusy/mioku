@@ -3,7 +3,7 @@ FROM oven/bun:1
 WORKDIR /app
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git curl unzip ca-certificates python3 make g++ \
+  && apt-get install -y --no-install-recommends git unzip curl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json tsconfig.json app.ts ./
