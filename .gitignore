@@ -149,6 +149,12 @@ vite.config.ts.timestamp-*
 /temp/
 /src/services/
 /plugins
+!/plugins/
+!/plugins/*/
+!/plugins/*/skills.ts
+!/plugins/*/skills.js
+!/plugins/*/runtime.ts
+!/plugins/*/shared.ts
 /data/
 /webui/
 /mioku-webui/

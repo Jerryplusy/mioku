@@ -1,0 +1,12 @@
+.git
+.idea
+.DS_Store
+node_modules
+**/node_modules
+dist
+mioku-webui
+coverage
+logs
+data
+temp
+example

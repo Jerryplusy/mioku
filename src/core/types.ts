@@ -12,7 +12,6 @@ export interface AITool {
     required?: string[];
   };
   handler: (args: any, event?: any) => Promise<any> | any;
-  returnToAI?: boolean;
 }
 
 /**
@@ -48,40 +47,20 @@ export interface PluginHelp {
  */
 export interface PluginPackageConfig {
   services?: string[]; // 依赖的服务
-  skill?: {
-    // skill 配置
-    name?: string; // skill 名称，默认为插件名
-    description?: string; // skill 描述
-  };
   commands?: string[]; // 注册的命令
-  help?: PluginHelp; // 帮助信息
-}
-
-/**
- * Mioku 插件扩展属性
- * 这些属性会被添加到 mioki 的 MiokiPlugin 上
- */
-export interface MiokuPluginExtension {
-  // 依赖的服务
-  services?: string[];
-
-  // 提供的 AI Skill (包含多个工具)
-  skill?: AISkill;
-
-  // 帮助信息
-  help?: PluginHelp;
+  help?: PluginHelp; // 帮助信息（运行时来源）
 }
 
 /**
  * Mioku 插件定义
- * 扩展 mioki 的 MiokiPlugin，添加我们的自定义字段
  */
-export interface MiokuPlugin extends MiokuPluginExtension {
+export interface MiokuPlugin {
   name: string;
   version?: string;
   description?: string;
   priority?: number;
   dependencies?: string[];
+  services?: string[];
   setup?: (ctx: MiokiContext) => any;
 }
 

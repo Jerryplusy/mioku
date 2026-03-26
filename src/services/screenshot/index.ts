@@ -46,11 +46,17 @@ class ScreenshotServiceImpl implements ScreenshotService {
 
   async init(): Promise<void> {
     const isWindows = process.platform === "win32";
+    const isLinux = process.platform === "linux";
 
     let executablePath: string | undefined;
     let channel: "chrome" | undefined;
 
-    if (isWindows) {
+    const envExecutablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    if (envExecutablePath && fs.existsSync(envExecutablePath)) {
+      executablePath = envExecutablePath;
+    }
+
+    if (!executablePath && isWindows) {
       // Try Edge first on Windows
       const edgePaths = [
         "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
@@ -67,6 +73,22 @@ class ScreenshotServiceImpl implements ScreenshotService {
       if (!executablePath) {
         // Fallback to Chrome
         channel = "chrome";
+      }
+    }
+
+    if (!executablePath && isLinux) {
+      const linuxPaths = [
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+      ];
+
+      for (const p of linuxPaths) {
+        if (fs.existsSync(p)) {
+          executablePath = p;
+          break;
+        }
       }
     }
 

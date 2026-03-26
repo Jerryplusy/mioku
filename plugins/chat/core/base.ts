@@ -81,9 +81,17 @@ export async function sendAIResponse(
       }
 
       const hasContent = cleanText && cleanText.trim().length > 0;
+      const hasSendablePayload = Boolean(
+        hasContent || atUsers.length > 0 || pokeUsers.length > 0,
+      );
       const isLastLine = j === expandedLines.length - 1;
 
-      if (!hasContent && !isLastLine) {
+      if (!hasSendablePayload && !isLastLine) {
+        continue;
+      }
+
+      if (!hasSendablePayload) {
+        pendingReply = undefined;
         continue;
       }
 
@@ -179,9 +187,17 @@ export async function sendMessage(
       }
 
       const hasContent = cleanText && cleanText.trim().length > 0;
+      const hasSendablePayload = Boolean(
+        hasContent || atUsers.length > 0 || pokeUsers.length > 0,
+      );
       const isLastLine = j === expandedLines.length - 1;
 
-      if (!hasContent && !isLastLine) {
+      if (!hasSendablePayload && !isLastLine) {
+        continue;
+      }
+
+      if (!hasSendablePayload) {
+        pendingReply = undefined;
         continue;
       }
 

@@ -13,7 +13,7 @@
 - ⚙️ **配置管理** - 插件独立配置，支持热更新
 - 📦 **Workspace 管理** - 插件和服务独立依赖管理
 
-## 快速开始
+## 快速开始(推荐)
 
 > 推荐使用bun管理依赖，也可使用npm/pnpm :)
 
@@ -26,7 +26,19 @@ cd mioku
 bun install
 ```
 
-## 安装webui(推荐)
+## 本地启动
+
+```bash
+bun run start
+```
+
+第一次启动时会自动创建 `config/mioku.json`，并引导你填写 NapCat 正向 WS 配置。
+
+如果当前目录还没有安装 WebUI，首次启动还会额外询问是否现在安装 WebUI。
+
+> 除了 NapCat，还可以使用其他任何符合 OneBot v11 协议的实现端如 LLTwoBot/Lagrange 等。可能会出现少许兼容性问题。
+
+## 安装 WebUI（手动）
 
 ```bash
 # 使用脚本安装webui
@@ -34,6 +46,8 @@ bun install
 
 # 更多脚本功能请运行./install-mioku.sh查看
 ```
+
+安装完成后，再次执行 `bun run start`，首次会提示设置 WebUI 登录密钥。
 
 ## 插件/服务安装和管理
 
@@ -46,15 +60,105 @@ bun install
 
 ```
 
-## 启动及配置
+### Docker Compose(推荐)
 
 ```bash
-bun run start
+git clone https://github.com/Jerryplusy/mioku.git
+cd mioku
+docker compose build
+docker compose run --rm --service-ports mioku
 ```
 
-初次启动时将自动运行引导程序，填入NapCat**正向**WS地址、端口、密钥和自定义webui密钥（若安装）即可。
+Compose 方案会把当前仓库源码挂载进容器，容器只负责运行环境和依赖。因此运行时管理依赖、安装插件/服务和手动安装操作一致，都在宿主机目录。
 
-> 除了NapCat，还可以使用其他任何符合OneBotv11协议的实现端如LLTwoBot/Lgr等。可能会出现少许问题。
+> 换句话说，你的本地源码很重要。
+
+首次启动初始化完成后，后续可以使用后台启动：
+
+```bash
+docker compose up -d
+```
+
+仓库已经提供 [`docker-compose.yml`](./docker-compose.yml)，默认会挂载：
+
+- `./config -> /app/config`
+- `./data -> /app/data`
+- `./logs -> /app/logs`
+- `./src -> /app/src`
+- `./plugins -> /app/plugins`
+
+这意味着你可以直接修改宿主机上的配置与源码，重启容器后立即生效。
+
+## Docker
+
+```bash
+git clone https://github.com/Jerryplusy/mioku.git
+
+cd mioku
+
+docker build -t mioku .
+
+docker run --rm -it \
+  --name mioku-init \
+  --add-host=host.docker.internal:host-gateway \
+  -p 3339:3339 \
+  -v "$(pwd)/app.ts:/app/app.ts" \
+  -v "$(pwd)/package.json:/app/package.json" \
+  -v "$(pwd)/tsconfig.json:/app/tsconfig.json" \
+  -v "$(pwd)/install-mioku.sh:/app/install-mioku.sh" \
+  -v "$(pwd)/src:/app/src" \
+  -v "$(pwd)/plugins:/app/plugins" \
+  -v "$(pwd)/config:/app/config" \
+  -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/logs:/app/logs" \
+  -v "$(pwd)/temp:/app/temp" \
+  -v mioku_node_modules:/app/node_modules \
+  -v mioku_bun_cache:/root/.bun/install/cache \
+  mioku
+```
+
+第一次运行会在终端里询问初始配置
+
+配置会写入挂载出来的 `./config`。初始化完成后，可以选用后台模式启动：
+
+```bash
+docker run -d \
+  --name mioku \
+  --restart unless-stopped \
+  --add-host=host.docker.internal:host-gateway \
+  -p 3339:3339 \
+  -v "$(pwd)/app.ts:/app/app.ts" \
+  -v "$(pwd)/package.json:/app/package.json" \
+  -v "$(pwd)/tsconfig.json:/app/tsconfig.json" \
+  -v "$(pwd)/install-mioku.sh:/app/install-mioku.sh" \
+  -v "$(pwd)/src:/app/src" \
+  -v "$(pwd)/plugins:/app/plugins" \
+  -v "$(pwd)/config:/app/config" \
+  -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/logs:/app/logs" \
+  -v "$(pwd)/temp:/app/temp" \
+  -v mioku_node_modules:/app/node_modules \
+  -v mioku_bun_cache:/root/.bun/install/cache \
+  mioku
+```
+
+### Docker 更新
+
+> 使用Docker安装的方案都不需要每次更新都重新构建
+
+```bash
+git pull
+docker compose restart mioku
+```
+
+如果你使用的是 `docker run` 的模式，对应更新流程为：
+
+```bash
+git pull
+docker restart mioku
+```
+
+如果 `package.json`、插件或服务依赖发生变化，容器启动时会自动执行一次 `bun install`。
 
 ## 核心概念
 

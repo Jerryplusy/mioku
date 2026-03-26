@@ -4,6 +4,6 @@
   "description": "帮助插件，使用截图服务生成美观的帮助图片",
   "main": "index.ts",
   "mioku": {
-    "services": ["help", "screenshot"]
+    "services": ["help", "screenshot", "config"]
   }
 }
