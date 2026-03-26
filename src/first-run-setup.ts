@@ -98,6 +98,22 @@ function getPrimaryNapcat(config: MiokuConfig): MiokiNapcat {
   return config.mioki.napcat[0];
 }
 
+function ensureMiokiRoot(config: MiokuConfig): NonNullable<MiokuConfig["mioki"]> {
+  if (!config.mioki || typeof config.mioki !== "object") {
+    config.mioki = {};
+  }
+  if (!Array.isArray(config.mioki.owners)) {
+    config.mioki.owners = [];
+  }
+  if (!Array.isArray(config.mioki.admins)) {
+    config.mioki.admins = [];
+  }
+  if (!Array.isArray(config.mioki.plugins)) {
+    config.mioki.plugins = ["boot", "help", "chat"];
+  }
+  return config.mioki;
+}
+
 function isValidPort(input: number): boolean {
   return Number.isInteger(input) && input > 0 && input <= 65535;
 }
@@ -107,6 +123,22 @@ function hasNapcatRequiredFields(napcat: MiokiNapcat): boolean {
   const token = String(napcat.token || "").trim();
   const port = Number(napcat.port);
   return Boolean(host) && Boolean(token) && isValidPort(port);
+}
+
+function isValidQQ(input: string): boolean {
+  if (!/^\d{5,15}$/.test(input)) {
+    return false;
+  }
+  const value = Number(input);
+  return Number.isSafeInteger(value) && value > 10000;
+}
+
+function hasOwnerConfigured(config: MiokuConfig): boolean {
+  const owners = config.mioki?.owners;
+  if (!Array.isArray(owners) || owners.length === 0) {
+    return false;
+  }
+  return owners.some((item) => Number.isSafeInteger(Number(item)) && Number(item) > 10000);
 }
 
 function isWebUIInstalled(cwd: string): boolean {
@@ -193,6 +225,24 @@ async function promptForNapcat(
   napcat.protocol = String(napcat.protocol || "ws");
 }
 
+async function promptForOwnerQQ(
+  ask: (question: string) => Promise<string>,
+  config: MiokuConfig,
+): Promise<void> {
+  const mioki = ensureMiokiRoot(config);
+  const currentOwner =
+    Array.isArray(mioki.owners) && mioki.owners.length > 0
+      ? String(mioki.owners[0])
+      : "";
+
+  let ownerQQ = await askWithDefault(ask, "请输入主人QQ", currentOwner);
+  while (!isValidQQ(ownerQQ)) {
+    ownerQQ = (await ask("\n主人QQ无效，请输入纯数字QQ号（至少5位）\n> ")).trim();
+  }
+
+  mioki.owners = [Number(ownerQQ)];
+}
+
 async function promptForWebUIAuth(
   cwd: string,
   ask: (question: string) => Promise<string>,
@@ -259,16 +309,17 @@ export async function runFirstRunSetup(
 
   const localConfigPath = join(cwd, "config", "mioku.json");
   const ensured = ensureLocalConfig(cwd);
+  ensureMiokiRoot(ensured.config);
   const napcat = getPrimaryNapcat(ensured.config);
   const needNapcatPrompt = ensured.created || !hasNapcatRequiredFields(napcat);
+  const needOwnerPrompt = ensured.created || !hasOwnerConfigured(ensured.config);
   const dockerRuntime = isDockerRuntime();
   let webuiInstalled = isWebUIInstalled(cwd);
-  const needWebUIInstallPrompt =
-    ensured.created && !dockerRuntime && !webuiInstalled;
+  const needWebUIInstallPrompt = ensured.created && !webuiInstalled;
   let needWebUIAuthPrompt =
     webuiInstalled && (ensured.created || !hasUsableWebUIAuth(cwd));
   const needAnyPrompt =
-    needNapcatPrompt || needWebUIInstallPrompt || needWebUIAuthPrompt;
+    needNapcatPrompt || needOwnerPrompt || needWebUIInstallPrompt || needWebUIAuthPrompt;
 
   if (!needAnyPrompt) {
     return;
@@ -278,8 +329,14 @@ export async function runFirstRunSetup(
   if (!isTTY) {
     if (dockerRuntime && needAnyPrompt) {
       const missingItems: string[] = [];
+      if (needWebUIInstallPrompt) {
+        missingItems.push("WebUI 安装确认");
+      }
       if (needNapcatPrompt) {
         missingItems.push("NapCat 连接配置");
+      }
+      if (needOwnerPrompt) {
+        missingItems.push("主人 QQ");
       }
       if (needWebUIAuthPrompt) {
         missingItems.push("WebUI 登录密钥");
@@ -342,12 +399,15 @@ export async function runFirstRunSetup(
 
     if (needNapcatPrompt) {
       await promptForNapcat(ask, napcat);
-      writeFileSync(
-        localConfigPath,
-        `${JSON.stringify(ensured.config, null, 2)}\n`,
-        "utf-8",
-      );
-      console.log(`[mioku-setup] 已写入 napcat 配置: ${localConfigPath}`);
+    }
+
+    if (needOwnerPrompt) {
+      await promptForOwnerQQ(ask, ensured.config);
+    }
+
+    if (needNapcatPrompt || needOwnerPrompt) {
+      writeFileSync(localConfigPath, `${JSON.stringify(ensured.config, null, 2)}\n`, "utf-8");
+      console.log(`[mioku-setup] 已写入本地配置: ${localConfigPath}`);
     }
 
     if (needWebUIAuthPrompt) {
