@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM oven/bun:1 AS builder
 
 WORKDIR /app
@@ -10,7 +12,7 @@ COPY package.json tsconfig.json app.ts ./
 COPY src ./src
 COPY plugins ./plugins
 
-RUN bun install
+RUN --mount=type=cache,target=/root/.bun/install/cache bun install
 
 FROM oven/bun:1 AS runner
 
@@ -35,4 +37,4 @@ EXPOSE 3339
 
 VOLUME ["/app/config", "/app/data", "/app/logs"]
 
-CMD ["bun", "run", "start"]
+CMD ["bun", "app.ts"]

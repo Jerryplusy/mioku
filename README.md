@@ -13,7 +13,7 @@
 - ⚙️ **配置管理** - 插件独立配置，支持热更新
 - 📦 **Workspace 管理** - 插件和服务独立依赖管理
 
-## 快速开始
+## 快速开始(推荐)
 
 > 推荐使用bun管理依赖，也可使用npm/pnpm :)
 
@@ -60,6 +60,26 @@ bun run start
 
 ```
 
+### Docker Compose(推荐)
+
+```bash
+docker compose up --build
+```
+
+第一次初始化完成后，后续可以使用后台启动。
+
+```bash
+docker compose up -d
+```
+
+仓库已经提供 [`docker-compose.yml`](./docker-compose.yml)，默认会挂载：
+
+- `./config -> /app/config`
+- `./data -> /app/data`
+- `./logs -> /app/logs`
+
+这意味着你可以直接修改宿主机上的配置文件，重启容器后立即生效。
+
 ## Docker
 
 ```bash
@@ -91,25 +111,32 @@ docker run -d \
   mioku
 ```
 
-### Docker Compose
+### Docker 更新
+
+> 使用Docker安装更新比手动安装复杂得多，需先拉取最新代码后重新构建容器
 
 ```bash
-docker compose up --build
-```
-
-第一次初始化完成后，后续可以使用后台启动。
-
-```bash
+git pull
+docker compose build --no-cache
 docker compose up -d
 ```
 
-仓库已经提供 [`docker-compose.yml`](./docker-compose.yml)，默认会挂载：
+如果你用的是 `docker run`，流程对应为：
 
-- `./config -> /app/config`
-- `./data -> /app/data`
-- `./logs -> /app/logs`
-
-这意味着你可以直接修改宿主机上的配置文件，重启容器后立即生效。
+```bash
+git pull
+docker build -t mioku .
+docker rm -f mioku
+docker run -d \
+  --name mioku \
+  --restart unless-stopped \
+  --add-host=host.docker.internal:host-gateway \
+  -p 3339:3339 \
+  -v "$(pwd)/config:/app/config" \
+  -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/logs:/app/logs" \
+  mioku
+```
 
 ## 核心概念
 
