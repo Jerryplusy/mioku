@@ -9,10 +9,8 @@ RUN apt-get update \
 COPY package.json bun.lock tsconfig.json app.ts ./
 COPY src ./src
 COPY plugins ./plugins
-COPY docker ./docker
 
 RUN mkdir -p config data logs
-RUN chmod +x docker/entrypoint.sh
 RUN bun install --frozen-lockfile
 
 ENV NODE_ENV=production
@@ -21,4 +19,4 @@ EXPOSE 3339
 
 VOLUME ["/app/config", "/app/data", "/app/logs"]
 
-ENTRYPOINT ["./docker/entrypoint.sh"]
+CMD ["bun", "run", "start"]
