@@ -20,7 +20,7 @@ FROM oven/bun:1 AS runner
 WORKDIR /app
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git unzip ca-certificates \
+  && apt-get install -y --no-install-recommends git unzip curl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/package.json ./package.json
@@ -29,8 +29,10 @@ COPY --from=builder /app/app.ts ./app.ts
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/plugins ./plugins
 COPY --from=builder /app/node_modules ./node_modules
+COPY install-mioku.sh ./install-mioku.sh
 
 RUN mkdir -p config data logs
+RUN chmod +x ./install-mioku.sh
 
 ENV NODE_ENV=production
 

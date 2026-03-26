@@ -279,12 +279,14 @@ function hasUsableWebUIAuth(cwd: string): boolean {
 async function installWebUI(cwd: string): Promise<boolean> {
   const scriptPath = join(cwd, "install-mioku.sh");
   if (!existsSync(scriptPath)) {
-    console.warn("[mioku-setup] 未找到 install-mioku.sh，跳过 WebUI 安装。");
+    console.warn(
+      `[mioku-setup] 未找到 install-mioku.sh（${scriptPath}），跳过 WebUI 安装。`,
+    );
     return false;
   }
 
   return await new Promise<boolean>((resolve) => {
-    const child = spawn("bash", [scriptPath, "webui"], {
+    const child = spawn("bash", [scriptPath, "webui", "--skip-service"], {
       cwd,
       stdio: ["ignore", "inherit", "inherit"],
     });
@@ -374,6 +376,19 @@ export async function runFirstRunSetup(
 
   try {
     console.log("------ 欢迎使用Mioku ------");
+    if (needNapcatPrompt) {
+      await promptForNapcat(ask, napcat);
+    }
+
+    if (needOwnerPrompt) {
+      await promptForOwnerQQ(ask, ensured.config);
+    }
+
+    if (needNapcatPrompt || needOwnerPrompt) {
+      writeFileSync(localConfigPath, `${JSON.stringify(ensured.config, null, 2)}\n`, "utf-8");
+      console.log(`[mioku-setup] 已写入本地配置: ${localConfigPath}`);
+    }
+
     if (needWebUIInstallPrompt) {
       const shouldInstallWebUI = await askYesNo(
         ask,
@@ -395,19 +410,6 @@ export async function runFirstRunSetup(
           );
         }
       }
-    }
-
-    if (needNapcatPrompt) {
-      await promptForNapcat(ask, napcat);
-    }
-
-    if (needOwnerPrompt) {
-      await promptForOwnerQQ(ask, ensured.config);
-    }
-
-    if (needNapcatPrompt || needOwnerPrompt) {
-      writeFileSync(localConfigPath, `${JSON.stringify(ensured.config, null, 2)}\n`, "utf-8");
-      console.log(`[mioku-setup] 已写入本地配置: ${localConfigPath}`);
     }
 
     if (needWebUIAuthPrompt) {
