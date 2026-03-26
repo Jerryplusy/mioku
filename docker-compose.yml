@@ -1,0 +1,15 @@
+services:
+  mioku:
+    build: .
+    container_name: mioku
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    ports:
+      - "3339:3339"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs

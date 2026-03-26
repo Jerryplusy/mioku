@@ -2,6 +2,7 @@ import process from "node:process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
+import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 
 type MiokiNapcat = {
@@ -109,7 +110,14 @@ function hasNapcatRequiredFields(napcat: MiokiNapcat): boolean {
 }
 
 function isWebUIInstalled(cwd: string): boolean {
-  return existsSync(join(cwd, "src", "services", "webui", "package.json"));
+  return (
+    existsSync(join(cwd, "src", "services", "webui", "package.json")) &&
+    existsSync(join(cwd, "src", "services", "webui", "dist", "index.html"))
+  );
+}
+
+function isDockerRuntime(): boolean {
+  return process.env.MIOKU_DOCKER === "1" || existsSync("/.dockerenv");
 }
 
 function normalizeWebUIAuth(raw: any): WebUIAuthConfig | null {
@@ -133,6 +141,25 @@ async function askWithDefault(
     return defaultValue;
   }
   return answer;
+}
+
+async function askYesNo(
+  ask: (question: string) => Promise<string>,
+  label: string,
+  defaultYes = true,
+): Promise<boolean> {
+  const hint = defaultYes ? "Y/n" : "y/N";
+  const answer = (await ask(`${label} (${hint}): `)).trim().toLowerCase();
+  if (!answer) {
+    return defaultYes;
+  }
+  if (["y", "yes"].includes(answer)) {
+    return true;
+  }
+  if (["n", "no"].includes(answer)) {
+    return false;
+  }
+  return defaultYes;
 }
 
 async function promptForNapcat(
@@ -199,6 +226,30 @@ function hasUsableWebUIAuth(cwd: string): boolean {
   );
 }
 
+async function installWebUI(cwd: string): Promise<boolean> {
+  const scriptPath = join(cwd, "install-mioku.sh");
+  if (!existsSync(scriptPath)) {
+    console.warn("[mioku-setup] 未找到 install-mioku.sh，跳过 WebUI 安装。");
+    return false;
+  }
+
+  return await new Promise<boolean>((resolve) => {
+    const child = spawn("bash", [scriptPath, "webui"], {
+      cwd,
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+
+    child.on("error", (error) => {
+      console.warn(`[mioku-setup] WebUI 安装失败: ${error.message}`);
+      resolve(false);
+    });
+
+    child.on("close", (code) => {
+      resolve(code === 0);
+    });
+  });
+}
+
 export async function runFirstRunSetup(
   cwd: string = process.cwd(),
 ): Promise<void> {
@@ -210,10 +261,14 @@ export async function runFirstRunSetup(
   const ensured = ensureLocalConfig(cwd);
   const napcat = getPrimaryNapcat(ensured.config);
   const needNapcatPrompt = ensured.created || !hasNapcatRequiredFields(napcat);
-  const webuiInstalled = isWebUIInstalled(cwd);
-  const needWebUIAuthPrompt =
+  const dockerRuntime = isDockerRuntime();
+  let webuiInstalled = isWebUIInstalled(cwd);
+  const needWebUIInstallPrompt =
+    ensured.created && !dockerRuntime && !webuiInstalled;
+  let needWebUIAuthPrompt =
     webuiInstalled && (ensured.created || !hasUsableWebUIAuth(cwd));
-  const needAnyPrompt = needNapcatPrompt || needWebUIAuthPrompt;
+  const needAnyPrompt =
+    needNapcatPrompt || needWebUIInstallPrompt || needWebUIAuthPrompt;
 
   if (!needAnyPrompt) {
     return;
@@ -221,11 +276,33 @@ export async function runFirstRunSetup(
 
   const isTTY = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (!isTTY) {
+    if (dockerRuntime && needAnyPrompt) {
+      const missingItems: string[] = [];
+      if (needNapcatPrompt) {
+        missingItems.push("NapCat 连接配置");
+      }
+      if (needWebUIAuthPrompt) {
+        missingItems.push("WebUI 登录密钥");
+      }
+      console.error(
+        `[mioku-setup] Docker 首次启动需要交互终端来完成初始化：${missingItems.join("、")}`,
+      );
+      console.error(
+        "[mioku-setup] 请先使用交互模式运行一次，例如 `docker run -it ...` 或 `docker compose up`。",
+      );
+      throw new Error("Docker 初始配置未完成");
+    }
+
     if (needNapcatPrompt) {
       console.warn(
         "[mioku-setup] 检测到 napcat 必填项未配置，当前为非交互终端，已跳过引导。",
       );
       console.warn(`[mioku-setup] 请手动编辑: ${localConfigPath}`);
+    }
+    if (needWebUIInstallPrompt) {
+      console.warn(
+        "[mioku-setup] 当前未安装 WebUI，若需要可执行: ./install-mioku.sh webui",
+      );
     }
     return;
   }
@@ -237,6 +314,29 @@ export async function runFirstRunSetup(
 
   try {
     console.log("------ 欢迎使用Mioku ------");
+    if (needWebUIInstallPrompt) {
+      const shouldInstallWebUI = await askYesNo(
+        (q) => rl.question(q),
+        "是否现在安装 WebUI 管理界面",
+        true,
+      );
+
+      if (shouldInstallWebUI) {
+        console.log("[mioku-setup] 正在安装 WebUI，请稍候...");
+        const installed = await installWebUI(cwd);
+        if (installed) {
+          webuiInstalled = isWebUIInstalled(cwd);
+          needWebUIAuthPrompt =
+            webuiInstalled && (ensured.created || !hasUsableWebUIAuth(cwd));
+          console.log("[mioku-setup] WebUI 安装完成。");
+        } else {
+          console.warn(
+            "[mioku-setup] WebUI 安装失败，可稍后手动执行 ./install-mioku.sh webui",
+          );
+        }
+      }
+    }
+
     if (needNapcatPrompt) {
       await promptForNapcat((q) => rl.question(q), napcat);
       writeFileSync(

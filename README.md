@@ -26,7 +26,19 @@ cd mioku
 bun install
 ```
 
-## 安装webui(推荐)
+## 本地启动
+
+```bash
+bun run start
+```
+
+第一次启动时会自动创建 `config/mioku.json`，并引导你填写 NapCat 正向 WS 配置。
+
+如果当前目录还没有安装 WebUI，首次启动还会额外询问是否现在安装 WebUI。
+
+> 除了 NapCat，还可以使用其他任何符合 OneBot v11 协议的实现端如 LLTwoBot/Lagrange 等。可能会出现少许兼容性问题。
+
+## 安装 WebUI（手动）
 
 ```bash
 # 使用脚本安装webui
@@ -34,6 +46,8 @@ bun install
 
 # 更多脚本功能请运行./install-mioku.sh查看
 ```
+
+安装完成后，再次执行 `bun run app`，首次会提示设置 WebUI 登录密钥。
 
 ## 插件/服务安装和管理
 
@@ -46,15 +60,56 @@ bun install
 
 ```
 
-## 启动及配置
+## Docker
 
 ```bash
-bun run start
+docker build -t mioku .
+
+docker run --rm -it \
+  --name mioku-init \
+  --add-host=host.docker.internal:host-gateway \
+  -p 3339:3339 \
+  -v "$(pwd)/config:/app/config" \
+  -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/logs:/app/logs" \
+  mioku
 ```
 
-初次启动时将自动运行引导程序，填入NapCat**正向**WS地址、端口、密钥和自定义webui密钥（若安装）即可。
+第一次运行会在终端里询问初始配置
 
-> 除了NapCat，还可以使用其他任何符合OneBotv11协议的实现端如LLTwoBot/Lgr等。可能会出现少许问题。
+配置会写入挂载出来的 `./config`。初始化完成后，可以选用后台模式启动：
+
+```bash
+docker run -d \
+  --name mioku \
+  --restart unless-stopped \
+  --add-host=host.docker.internal:host-gateway \
+  -p 3339:3339 \
+  -v "$(pwd)/config:/app/config" \
+  -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/logs:/app/logs" \
+  mioku
+```
+
+### Docker Compose
+
+```bash
+docker compose up --build
+```
+
+第一次初始化完成后，后续可以使用后台启动。
+
+```bash
+docker compose up -d
+```
+
+仓库已经提供 [`docker-compose.yml`](./docker-compose.yml)，默认会挂载：
+
+- `./config -> /app/config`
+- `./data -> /app/data`
+- `./logs -> /app/logs`
+
+这意味着你可以直接修改宿主机上的配置文件，重启容器后立即生效。
 
 ## 核心概念
 
