@@ -67,6 +67,10 @@ docker compose build
 docker compose run --rm --service-ports mioku
 ```
 
+Compose 方案会把当前仓库源码挂载进容器，容器只负责运行环境和依赖。因此运行时管理依赖、安装插件/服务和手动安装操作一致，都在宿主机目录。
+
+> 换句话说，你的本地源码很重要。
+
 首次启动初始化完成后，后续可以使用后台启动：
 
 ```bash
@@ -78,8 +82,10 @@ docker compose up -d
 - `./config -> /app/config`
 - `./data -> /app/data`
 - `./logs -> /app/logs`
+- `./src -> /app/src`
+- `./plugins -> /app/plugins`
 
-这意味着你可以直接修改宿主机上的配置文件，重启容器后立即生效。
+这意味着你可以直接修改宿主机上的配置与源码，重启容器后立即生效。
 
 ## Docker
 
@@ -114,15 +120,16 @@ docker run -d \
 
 ### Docker 更新
 
-> 使用Docker安装更新比手动安装复杂得多，需先拉取最新代码后重新构建容器
+> 推荐的 Docker Compose 方案不需要每次更新都重新构建
 
 ```bash
 git pull
-docker compose build --no-cache
-docker compose up -d
+docker compose restart mioku
 ```
 
-如果你用的是 `docker run`，流程对应为：
+如果 `package.json`、插件或服务依赖发生变化，容器启动时会自动执行一次 `bun install`。
+
+如果你用的是 `docker run` 镜像模式，每次更新仍然需要重新构建。对应流程为：
 
 ```bash
 git pull
