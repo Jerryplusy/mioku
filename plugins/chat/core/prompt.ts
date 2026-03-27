@@ -536,7 +536,6 @@ function buildResponseFormatSection(
 ### Optional Voice Message Format
 - You MAY optionally send one voice message by writing [audio:content]
 - Audio is OPTIONAL. Do NOT use it in every reply
-- Use voice only when it adds expression: strong emotions, greetings, daily catchphrases, short reactions, short calls, playful interjections, or very brief comforting lines
 - Example: "[audio:おはようー]"`);
   }
 
@@ -544,13 +543,10 @@ function buildResponseFormatSection(
     lines.push(`
 ### Optional Markdown Screenshot Format
 - You MAY optionally send one rendered Markdown screenshot by wrapping content with exact tags: <MARKDOWN> ... </MARKDOWN>
-- The entire Markdown block becomes ONE screenshot message. Internal newlines inside the block do NOT split it into multiple chat messages.
 - Put the Markdown block on its own message whenever possible.
 - Markdown blocks are ideal for long explanations, tutorials, comparisons, tables, structured notes, and code examples.
 - Inside <MARKDOWN>...</MARKDOWN>, there is NO length limit. If the user needs detail, explain clearly and thoroughly instead of over-compressing.
 - Markdown supports headings, lists, tables, blockquotes, and fenced code blocks with language names for syntax highlighting.
-- If you include code, prefer fenced code blocks like \`\`\`ts or \`\`\`python so the screenshot can highlight it.
-- Do NOT put [[[at:...]]], [[[reply:...]]], or [[[poke:...]]] markers inside the Markdown content itself. If needed, place markers outside the Markdown block.
 - When a short plain chat reply is enough, prefer normal text instead of Markdown.
 - However, if the user's content contains information that requires detailed explanation, complexity, comparison, summarization, generalization, analysis, or discussion, don't hesitate to immediately choose to use Markdown for explanation.`);
   }
