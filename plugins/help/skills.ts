@@ -1,10 +1,13 @@
 import type { AISkill, AITool } from "../../src";
+import type { HelpService } from "../../src/services/help";
+import type { ScreenshotService } from "../../src/services/screenshot";
 import {
   buildHelpInfoText,
   generateHelpImage,
-  replyWithImage,
+  getHelpRenderVersions,
+  resolveHelpBotProfile,
+  sendImageFromSkillContext,
 } from "./shared";
-import { getHelpRuntimeState } from "./runtime";
 
 const helpSkills: AISkill[] = [
   {
@@ -20,8 +23,9 @@ const helpSkills: AISkill[] = [
           properties: {},
           required: [],
         },
-        handler: async () => {
-          const { helpService } = getHelpRuntimeState();
+        handler: async (_args: any, runtimeCtx?: any) => {
+          const ctx = runtimeCtx?.ctx;
+          const helpService = ctx?.services?.help as HelpService | undefined;
           if (!helpService) {
             return "help-service 未加载，无法获取帮助信息";
           }
@@ -32,43 +36,51 @@ const helpSkills: AISkill[] = [
       {
         name: "send_help_image",
         description:
-          "生成并发送帮助图片到群聊，如果有人说他想看帮助，优先调用图片发送而不是自己查看帮助",
+          "生成并发送帮助图片到群聊，如果有人说他想看帮助，优先调用图片发送而不是自己查看帮助。",
         parameters: {
           type: "object",
           properties: {},
           required: [],
         },
-        handler: async (_args: any, event?: any) => {
-          const {
-            ctx,
-            helpService,
-            screenshotService,
-            miokiVersion,
-            miokuVersion,
-          } = getHelpRuntimeState();
+        handler: async (_args: any, runtimeCtx?: any) => {
+          const ctx = runtimeCtx?.ctx;
+          const event = runtimeCtx?.event || runtimeCtx?.rawEvent;
+          const helpService = ctx?.services?.help as HelpService | undefined;
+          const screenshotService = ctx?.services?.screenshot as
+            | ScreenshotService
+            | undefined;
+          const { miokiVersion, miokuVersion } = await getHelpRenderVersions();
 
           if (!screenshotService) {
             return "screenshot 服务未加载，无法生成帮助图片";
           }
 
           try {
+            const { botNickname, botAvatarUrl } = resolveHelpBotProfile(
+              ctx,
+              event,
+            );
             const imagePath = await generateHelpImage({
               helpService,
               screenshotService,
               miokiVersion,
               miokuVersion,
+              botNickname,
+              botAvatarUrl,
             });
 
             if (!imagePath) {
               return "生成帮助图片失败";
             }
 
-            if (event?.reply) {
-              await replyWithImage(event, ctx?.segment, imagePath);
-              return "已发送帮助图片";
-            }
-
-            return "帮助图片已生成，但当前上下文不支持发送";
+            // Help skill defaults to normal send instead of quote-reply.
+            await sendImageFromSkillContext({
+              ctx,
+              event,
+              imagePath,
+              quoteReply: false,
+            });
+            return "已发送帮助图片";
           } catch (error) {
             return `生成帮助图片失败: ${error}`;
           }

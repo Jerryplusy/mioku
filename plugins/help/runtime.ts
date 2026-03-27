@@ -1,11 +1,4 @@
-import type { MiokiContext } from "mioki";
-import type { HelpService } from "../../src/services/help";
-import type { ScreenshotService } from "../../src/services/screenshot";
-
 export interface HelpPluginRuntimeState {
-  ctx?: MiokiContext;
-  helpService?: HelpService;
-  screenshotService?: ScreenshotService;
   miokiVersion?: string;
   miokuVersion?: string;
 }
