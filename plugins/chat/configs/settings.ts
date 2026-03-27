@@ -1,7 +1,7 @@
 export const SETTINGS_CONFIG = {
   searxng: {
     enabled: false,
-    baseUrl: "your-api-url",
+    baseUrl: "https://search.crystelf.top/",
     timeoutMs: 8000,
     defaultLimit: 5,
     maxLimit: 8,
@@ -14,6 +14,12 @@ export const SETTINGS_CONFIG = {
     maxExtractedChars: 12_000,
     browserTimeoutMs: 15_000,
     allowedContentTypes: ["text/html", "application/xhtml+xml", "text/plain"],
+  },
+  audio: {
+    enabled: true,
+    baseUrl: "http://localhost:3939",
+    apiKey: "fufu",
+    timeoutMs: 40_000,
   },
   blacklistGroups: [],
   whitelistGroups: [],
@@ -32,8 +38,8 @@ export const SETTINGS_CONFIG = {
   cooldownAfterReplyMs: 20_000,
   dynamicDelay: {
     enabled: true,
-    interactionWindowMs: 600_000,
-    baseDelayMs: 60_000,
-    maxDelayMs: 600_000,
+    interactionWindowMs: 60_000,
+    baseDelayMs: 30_000,
+    maxDelayMs: 300_000,
   },
 };

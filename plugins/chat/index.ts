@@ -281,7 +281,11 @@ const chatPlugin: MiokuPlugin = {
           userNames.push(msg.userName);
           messageIds.push(msg.messageId);
           structuredUserInputs.push(
-            buildStructuredUserInputFromEvent(msg.event, msg.content, msg.timestamp),
+            buildStructuredUserInputFromEvent(
+              msg.event,
+              msg.content,
+              msg.timestamp,
+            ),
           );
         }
 
@@ -383,10 +387,9 @@ const chatPlugin: MiokuPlugin = {
             ctx,
             groupId,
             messages: result.messages,
+            config: cfg,
             sentIndices: toolCtx.sentMessageIndices,
             typoGenerator: humanize.typoGenerator,
-            typingDelayEnabled: cfg.enableTypingDelay,
-            enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
           },
           selfId,
         );
@@ -695,7 +698,11 @@ const chatPlugin: MiokuPlugin = {
             manager: groupStructuredHistory,
             ttlMs: cfg.groupStructuredHistoryTtlMs,
             currentUserInputs: collected.map((msg) =>
-              buildStructuredUserInputFromEvent(msg.event, msg.content, msg.timestamp),
+              buildStructuredUserInputFromEvent(
+                msg.event,
+                msg.content,
+                msg.timestamp,
+              ),
             ),
           },
         );
@@ -705,10 +712,9 @@ const chatPlugin: MiokuPlugin = {
             ctx,
             groupId,
             messages: result.messages,
+            config: cfg,
             sentIndices: toolCtx.sentMessageIndices,
             typoGenerator: humanize.typoGenerator,
-            typingDelayEnabled: cfg.enableTypingDelay,
-            enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
           },
           selfId,
         );
@@ -879,10 +885,9 @@ Planned reason: ${planResult.reason}`;
               ctx,
               groupId,
               messages: result.messages,
+              config: cfg,
               sentIndices: toolCtx.sentMessageIndices,
               typoGenerator: humanize.typoGenerator,
-              typingDelayEnabled: cfg.enableTypingDelay,
-              enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
             },
             selfId,
           );
@@ -1074,10 +1079,9 @@ Suggestion:
                   ctx,
                   groupId,
                   messages: result.messages,
+                  config: cfg,
                   sentIndices: toolCtx.sentMessageIndices,
                   typoGenerator: humanize.typoGenerator,
-                  typingDelayEnabled: cfg.enableTypingDelay,
-                  enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
                 },
                 selfId,
               );
@@ -1151,7 +1155,11 @@ Suggestion:
           if (content) {
             queuedContents.push(content);
             structuredUserInputs.push(
-              buildStructuredUserInputFromEvent(item.event, content, item.queuedAt),
+              buildStructuredUserInputFromEvent(
+                item.event,
+                content,
+                item.queuedAt,
+              ),
             );
           }
         }
@@ -1271,10 +1279,9 @@ Suggestion:
             ctx,
             groupId,
             messages: result.messages,
+            config: cfg,
             sentIndices: toolCtx.sentMessageIndices,
             typoGenerator: humanize.typoGenerator,
-            typingDelayEnabled: cfg.enableTypingDelay,
-            enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
           },
           selfId,
         );
@@ -1569,10 +1576,9 @@ Suggestion:
               ctx,
               groupId,
               messages: result.messages,
+              config: cfg,
               sentIndices: toolCtx.sentMessageIndices,
               typoGenerator: humanize.typoGenerator,
-              typingDelayEnabled: cfg.enableTypingDelay,
-              enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
             },
             e.self_id,
           );
@@ -1604,10 +1610,9 @@ Suggestion:
                 undefined,
                 userId,
                 result.messages[i],
+                cfg,
                 humanize.typoGenerator,
                 e.self_id,
-                cfg.enableTypingDelay,
-                cfg.enableMarkdownScreenshot,
               );
             }
           }
@@ -1766,10 +1771,9 @@ Suggestion:
                 ctx,
                 groupId: targetGroupId,
                 messages: result.messages,
+                config: cfg,
                 sentIndices: toolCtx.sentMessageIndices,
                 typoGenerator: humanize.typoGenerator,
-                typingDelayEnabled: cfg.enableTypingDelay,
-                enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
               },
               e.self_id,
             );
@@ -2123,7 +2127,9 @@ Suggestion:
           {
             manager: groupStructuredHistory,
             ttlMs: cfg.groupStructuredHistoryTtlMs,
-            currentUserInputs: [buildStructuredUserInputFromTarget(targetMessage)],
+            currentUserInputs: [
+              buildStructuredUserInputFromTarget(targetMessage),
+            ],
           },
         );
 
@@ -2132,10 +2138,9 @@ Suggestion:
             ctx,
             groupId,
             messages: result.messages,
+            config: cfg,
             sentIndices: toolCtx.sentMessageIndices,
             typoGenerator: humanize.typoGenerator,
-            typingDelayEnabled: cfg.enableTypingDelay,
-            enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
           },
           e.self_id,
         );

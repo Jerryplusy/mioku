@@ -112,10 +112,12 @@ export function parseLineMarkers(
   atUsers: number[];
   pokeUsers: number[];
   quoteId?: number;
+  audioText?: string;
 } {
   const atUsers: number[] = [];
   const pokeUsers: number[] = [];
   let quoteId: number | undefined;
+  let audioText: string | undefined;
 
   // 提取 AT 标记
   const atPatterns = [
@@ -157,6 +159,15 @@ export function parseLineMarkers(
     }
   }
 
+  // 提取语音标记（单行只取第一个）
+  const audioMatch = line.match(/\[audio:([^\]]+)\]/i);
+  if (audioMatch?.[1]) {
+    const value = audioMatch[1].trim();
+    if (value) {
+      audioText = value;
+    }
+  }
+
   // 清理标记
   let cleanText = line
     .replace(/\[\[\[at:\d+\]\]\]/g, "")
@@ -166,7 +177,8 @@ export function parseLineMarkers(
     .replace(/\(\(\(poke:\d+\)\)\)/g, "")
     .replace(/\[\[\[reply:\d+\]\]\]/g, "")
     .replace(/\(\(\(reply:\d+\)\)\)/g, "")
+    .replace(/\[audio:[^\]]+\]/gi, "")
     .trim();
 
-  return { cleanText, atUsers, pokeUsers, quoteId };
+  return { cleanText, atUsers, pokeUsers, quoteId, audioText };
 }
