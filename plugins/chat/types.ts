@@ -113,6 +113,16 @@ export interface WebReaderConfig {
 }
 
 /**
+ * 语音消息配置
+ */
+export interface AudioConfig {
+  enabled: boolean;
+  baseUrl: string;
+  apiKey: string;
+  timeoutMs: number;
+}
+
+/**
  * 聊天插件配置
  */
 export interface ChatConfig {
@@ -128,6 +138,7 @@ export interface ChatConfig {
   temperature: number;
   searxng: SearxngConfig;
   webReader: WebReaderConfig;
+  audio: AudioConfig;
   historyCount: number;
   blacklistGroups: number[];
   whitelistGroups: number[];

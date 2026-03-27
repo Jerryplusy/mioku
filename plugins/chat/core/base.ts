@@ -10,6 +10,7 @@ import type { HumanizeEngine } from "../humanize";
 import { parseLineMarkers, splitByReplyMarkers } from "../utils/queue";
 import { getGroupHistory } from "../utils";
 import type { ScreenshotService } from "../../../src/services/screenshot";
+import { synthesizeAudioBase64 } from "./audio";
 import {
   extractStandaloneMarkdownBlock,
   renderMarkdownScreenshot,
@@ -22,11 +23,10 @@ export interface SendAIResponseOptions {
   ctx: MiokiContext;
   groupId: number;
   messages: string[];
+  config: ChatConfig;
   sentIndices?: Set<number>;
   typoGenerator: { apply: (text: string) => string };
   onLineSent?: () => void | Promise<void>;
-  typingDelayEnabled?: boolean;
-  enableMarkdownScreenshot?: boolean;
 }
 
 const FAST_TYPING_BASE_MS = 150;
@@ -48,12 +48,13 @@ export async function sendAIResponse(
     ctx,
     groupId,
     messages,
+    config,
     sentIndices,
     typoGenerator,
     onLineSent,
-    typingDelayEnabled = false,
-    enableMarkdownScreenshot = true,
   } = options;
+  const typingDelayEnabled = config.enableTypingDelay ?? false;
+  const enableMarkdownScreenshot = config.enableMarkdownScreenshot ?? true;
   const bot = ctx.pickBot(selfId);
   if (!bot) {
     ctx.logger.error(
@@ -75,7 +76,8 @@ export async function sendAIResponse(
     for (let j = 0; j < expandedLines.length; j++) {
       const line = expandedLines[j];
 
-      const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(line);
+      const { cleanText, atUsers, pokeUsers, quoteId, audioText } =
+        parseLineMarkers(line);
 
       if (quoteId !== undefined) {
         pendingReply = quoteId;
@@ -84,7 +86,11 @@ export async function sendAIResponse(
       const markdownContent = extractStandaloneMarkdownBlock(cleanText);
       const hasContent = cleanText && cleanText.trim().length > 0;
       const hasSendablePayload = Boolean(
-        hasContent || markdownContent || atUsers.length > 0 || pokeUsers.length > 0,
+        hasContent ||
+        markdownContent ||
+        atUsers.length > 0 ||
+        pokeUsers.length > 0 ||
+        audioText,
       );
       const isLastLine = j === expandedLines.length - 1;
 
@@ -138,7 +144,10 @@ export async function sendAIResponse(
             (imageSource?: string) => {
               const segments: any[] = [];
               if (finalQuoteIdForImage !== undefined) {
-                segments.push({ type: "reply", id: String(finalQuoteIdForImage) });
+                segments.push({
+                  type: "reply",
+                  id: String(finalQuoteIdForImage),
+                });
               }
               for (const atId of atUsers) {
                 segments.push(ctx.segment.at(atId));
@@ -162,13 +171,23 @@ export async function sendAIResponse(
       }
 
       const sendableText = markdownContent ?? cleanText;
+      const audioSource = await resolveAudioSource(ctx, {
+        audioText,
+        config,
+      });
+      const fallbackText = !audioSource && audioText ? audioText : undefined;
       if (sendableText) {
         lineSegments.push(ctx.segment.text(sendableText));
+      } else if (fallbackText) {
+        lineSegments.push(ctx.segment.text(fallbackText));
+      }
+      if (audioSource) {
+        lineSegments.push(ctx.segment.record(audioSource));
       }
 
       if (lineSegments.length > 0) {
         await bot.sendGroupMsg(groupId, lineSegments);
-        lastDelayBasisText = sendableText || line;
+        lastDelayBasisText = sendableText || fallbackText || audioText || line;
       }
 
       if (typingDelayEnabled && j < expandedLines.length - 1) {
@@ -191,13 +210,14 @@ export async function sendMessage(
   groupId: number | undefined,
   userId: number,
   text: string,
+  config: ChatConfig,
   typoGenerator: {
     apply: (text: string) => string;
   },
   selfId: number,
-  typingDelayEnabled: boolean = false,
-  enableMarkdownScreenshot: boolean = true,
 ): Promise<void> {
+  const typingDelayEnabled = config.enableTypingDelay ?? false;
+  const enableMarkdownScreenshot = config.enableMarkdownScreenshot ?? true;
   try {
     const bot = ctx.pickBot(selfId);
     if (!bot) {
@@ -216,7 +236,8 @@ export async function sendMessage(
     for (let j = 0; j < expandedLines.length; j++) {
       const line = expandedLines[j];
 
-      const { cleanText, atUsers, pokeUsers, quoteId } = parseLineMarkers(line);
+      const { cleanText, atUsers, pokeUsers, quoteId, audioText } =
+        parseLineMarkers(line);
 
       if (quoteId !== undefined) {
         pendingReply = quoteId;
@@ -225,7 +246,11 @@ export async function sendMessage(
       const markdownContent = extractStandaloneMarkdownBlock(cleanText);
       const hasContent = cleanText && cleanText.trim().length > 0;
       const hasSendablePayload = Boolean(
-        hasContent || markdownContent || atUsers.length > 0 || pokeUsers.length > 0,
+        hasContent ||
+        markdownContent ||
+        atUsers.length > 0 ||
+        pokeUsers.length > 0 ||
+        audioText,
       );
       const isLastLine = j === expandedLines.length - 1;
 
@@ -271,7 +296,10 @@ export async function sendMessage(
             (imageSource?: string) => {
               const segments: any[] = [];
               if (finalQuoteIdForImage !== undefined) {
-                segments.push({ type: "reply", id: String(finalQuoteIdForImage) });
+                segments.push({
+                  type: "reply",
+                  id: String(finalQuoteIdForImage),
+                });
               }
               for (const atId of atUsers) {
                 if (String(atId) !== String(selfId)) {
@@ -296,6 +324,12 @@ export async function sendMessage(
         }
       }
 
+      const audioSource = await resolveAudioSource(ctx, {
+        audioText,
+        config,
+      });
+      const fallbackText = !audioSource && audioText ? audioText : undefined;
+
       if (hasAt) {
         const sendableText = markdownContent ?? cleanText;
         const segments: any[] = [];
@@ -311,11 +345,17 @@ export async function sendMessage(
           }
           if (sendableText) {
             segments.push(ctx.segment.text(sendableText));
+          } else if (fallbackText) {
+            segments.push(ctx.segment.text(fallbackText));
+          }
+          if (audioSource) {
+            segments.push(ctx.segment.record(audioSource));
           }
 
           if (segments.length > 0 && groupId) {
             await bot.sendGroupMsg(groupId, segments);
-            lastDelayBasisText = sendableText || line;
+            lastDelayBasisText =
+              sendableText || fallbackText || audioText || line;
           }
           if (typingDelayEnabled && j < expandedLines.length - 1) {
             const delayMs = calculateTypingDelayMs(lastDelayBasisText || line);
@@ -349,6 +389,7 @@ export async function sendMessage(
                 .replace(/\(\(\(reply:\d+\)\)\)/g, "")
                 .replace(/\[\[\[poke:\d+\]\]\]/g, "")
                 .replace(/\(\(\(poke:\d+\)\)\)/g, "")
+                .replace(/\[audio:[^\]]+\]/gi, "")
                 .trim();
               if (cleaned) {
                 segments.push({ type: "text", text: cleaned });
@@ -373,23 +414,36 @@ export async function sendMessage(
             .replace(/\(\(\(reply:\d+\)\)\)/g, "")
             .replace(/\[\[\[poke:\d+\]\]\]/g, "")
             .replace(/\(\(\(poke:\d+\)\)\)/g, "")
+            .replace(/\[audio:[^\]]+\]/gi, "")
             .trim();
           if (cleaned) {
             segments.push({ type: "text", text: cleaned });
           }
         }
 
+        if (audioSource) {
+          segments.push(ctx.segment.record(audioSource));
+        } else if (fallbackText) {
+          segments.push({ type: "text", text: fallbackText });
+        }
+
         // 发送消息
         if (segments.length > 0) {
           if (groupId) {
             await bot.sendGroupMsg(groupId, segments);
-            lastDelayBasisText = sendableText || line;
+            lastDelayBasisText =
+              sendableText || fallbackText || audioText || line;
           }
         }
       } else {
         // 没有 @ 用户时，发送普通文本消息
         const sendableText = markdownContent ?? cleanText;
-        if (sendableText || pendingReply !== undefined) {
+        if (
+          sendableText ||
+          fallbackText ||
+          audioSource ||
+          pendingReply !== undefined
+        ) {
           const sendSegments: any[] = [];
           if (pendingReply !== undefined) {
             sendSegments.push({ type: "reply", id: String(pendingReply) });
@@ -397,10 +451,16 @@ export async function sendMessage(
           }
           if (sendableText) {
             sendSegments.push(ctx.segment.text(sendableText));
+          } else if (fallbackText) {
+            sendSegments.push(ctx.segment.text(fallbackText));
+          }
+          if (audioSource) {
+            sendSegments.push(ctx.segment.record(audioSource));
           }
           if (sendSegments.length > 0) {
             await dispatchSegments(bot, groupId, userId, () => sendSegments);
-            lastDelayBasisText = sendableText || line;
+            lastDelayBasisText =
+              sendableText || fallbackText || audioText || line;
           }
         }
       }
@@ -432,7 +492,9 @@ function expandOutgoingLines(
       continue;
     }
 
-    const typoApplied = typoGenerator.apply(unit);
+    const typoApplied = /\[audio:/i.test(unit)
+      ? unit
+      : typoGenerator.apply(unit);
     const parts = splitByReplyMarkers(typoApplied);
     expandedLines.push(...parts.filter((part) => part.trim()));
   }
@@ -523,6 +585,32 @@ function normalizeImageSource(file: string): string {
 
 function isLocalFilePath(value: string): boolean {
   return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value);
+}
+
+async function resolveAudioSource(
+  ctx: MiokiContext,
+  options: {
+    audioText?: string;
+    config: ChatConfig;
+  },
+): Promise<string | null> {
+  const trimmed = String(options.audioText || "").trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (!options.config.audio?.enabled || !options.config.audio.baseUrl?.trim()) {
+    return null;
+  }
+
+  try {
+    return await synthesizeAudioBase64(options.config.audio, trimmed);
+  } catch (error) {
+    ctx.logger.error(
+      `[audio] Failed to synthesize voice for "${trimmed}": ${error}`,
+    );
+    return null;
+  }
 }
 
 export interface GroupHistoryResult {
@@ -670,10 +758,9 @@ export function buildToolContext(
         groupId,
         targetMessage.userId,
         content,
+        config,
         humanize.typoGenerator,
         selfId,
-        config.enableTypingDelay,
-        config.enableMarkdownScreenshot,
       );
     },
   };

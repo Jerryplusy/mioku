@@ -459,6 +459,7 @@ function buildReplyStyleSection(
        : "Keep replies natural and conversational. Do not be verbose without purpose."
  }
  - Match the language used by others in the chat (if they speak Chinese, reply in Chinese, etc.).
+ - If you choose to send voice, Japanese is your strongest language. Chinese and English voice are much less natural for you, so prefer short natural Japanese for voice unless the situation strongly requires another language.
  - Don't repeat yourself or echo what others just said.
  - **NEVER repeat what you have already said in previous messages** — avoid saying the same things, using the same phrases, or bringing up the same topics again.
  - Don't start every message with someone's name.
@@ -529,6 +530,15 @@ function buildResponseFormatSection(
   - Example: "你好呀 [[[at:123456]]" will send "你好呀" with an @ to user 123456
   - Example: "\[[[reply:456789]]]我来回复这条消息" will quote-reply message 456789 with the text "我来回复这条消息"
   - Example multiple replies: "\[[[reply:111]]]回复第一条" + newline + "\[[[reply:222]]]回复第二条" will send two separate messages, each quoting different messages`);
+
+  if (ctx.config.audio?.enabled && ctx.config.audio.baseUrl?.trim()) {
+    lines.push(`
+### Optional Voice Message Format
+- You MAY optionally send one voice message by writing [audio:content]
+- Audio is OPTIONAL. Do NOT use it in every reply
+- Use voice only when it adds expression: strong emotions, greetings, daily catchphrases, short reactions, short calls, playful interjections, or very brief comforting lines
+- Example: "[audio:おはようー]"`);
+  }
 
   if (ctx.config.enableMarkdownScreenshot) {
     lines.push(`

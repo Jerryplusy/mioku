@@ -30,9 +30,9 @@ export class RateLimiter {
     this.groupCooldownMs = options?.groupCooldownMs ?? 1_000;
     this.dynamicDelayConfig = options?.dynamicDelay ?? {
       enabled: true,
-      interactionWindowMs: 600_000,
-      baseDelayMs: 60_000,
-      maxDelayMs: 600_000,
+      interactionWindowMs: 60_000,
+      baseDelayMs: 30_000,
+      maxDelayMs: 300_000,
     };
 
     this.cleanupTimer = setInterval(() => this.cleanup(), 300_000);
