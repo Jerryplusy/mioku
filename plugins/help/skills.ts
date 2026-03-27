@@ -4,10 +4,10 @@ import type { ScreenshotService } from "../../src/services/screenshot";
 import {
   buildHelpInfoText,
   generateHelpImage,
+  getHelpRenderVersions,
   resolveHelpBotProfile,
   sendImageFromSkillContext,
 } from "./shared";
-import { getHelpRuntimeState } from "./runtime";
 
 const helpSkills: AISkill[] = [
   {
@@ -24,7 +24,6 @@ const helpSkills: AISkill[] = [
           required: [],
         },
         handler: async (_args: any, runtimeCtx?: any) => {
-          const runtimeState = getHelpRuntimeState();
           const ctx = runtimeCtx?.ctx;
           const helpService = ctx?.services?.help as HelpService | undefined;
           if (!helpService) {
@@ -44,15 +43,13 @@ const helpSkills: AISkill[] = [
           required: [],
         },
         handler: async (_args: any, runtimeCtx?: any) => {
-          const runtimeState = getHelpRuntimeState();
           const ctx = runtimeCtx?.ctx;
           const event = runtimeCtx?.event || runtimeCtx?.rawEvent;
           const helpService = ctx?.services?.help as HelpService | undefined;
           const screenshotService = ctx?.services?.screenshot as
             | ScreenshotService
             | undefined;
-          const miokiVersion = runtimeState.miokiVersion;
-          const miokuVersion = runtimeState.miokuVersion;
+          const { miokiVersion, miokuVersion } = await getHelpRenderVersions();
 
           if (!screenshotService) {
             return "screenshot 服务未加载，无法生成帮助图片";

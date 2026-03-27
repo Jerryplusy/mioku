@@ -15,6 +15,7 @@ import type { PromptContext } from "./prompt";
 import type { SkillSessionManager } from "./tools";
 import { createTools } from "./tools";
 import { buildSystemPrompt } from "./prompt";
+import { consumeCompleteStreamUnits } from "./markdown-message";
 import {
   attachImagesToCurrentUserMessages,
   buildStructuredUserMessages,
@@ -106,18 +107,22 @@ export async function runChat(
 
   const flushStreamBuffer = async (force: boolean): Promise<void> => {
     while (true) {
-      const newlineIndex = streamBuffer.indexOf("\n");
-      if (newlineIndex < 0) break;
+      const { units, rest } = consumeCompleteStreamUnits(streamBuffer, force);
+      if (units.length === 0) {
+        streamBuffer = rest;
+        break;
+      }
 
-      const segment = streamBuffer.slice(0, newlineIndex);
-      streamBuffer = streamBuffer.slice(newlineIndex + 1);
-      await emitStreamSegment(segment);
-    }
+      streamBuffer = rest;
+      for (const unit of units) {
+        if (unit.trim()) {
+          await emitStreamSegment(unit);
+        }
+      }
 
-    if (force && streamBuffer.trim()) {
-      const segment = streamBuffer;
-      streamBuffer = "";
-      await emitStreamSegment(segment);
+      if (!force) {
+        break;
+      }
     }
   };
 

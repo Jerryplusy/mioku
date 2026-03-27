@@ -65,6 +65,23 @@ export async function getPackageVersion(
   }
 }
 
+export async function getHelpRenderVersions(): Promise<{
+  miokiVersion: string;
+  miokuVersion: string;
+}> {
+  const miokiVersion = await getPackageVersion(
+    `${process.cwd()}/node_modules/mioki/package.json`,
+  );
+  const miokuVersion = await getPackageVersion(
+    `${process.cwd()}/package.json`,
+  );
+
+  return {
+    miokiVersion,
+    miokuVersion,
+  };
+}
+
 export function checkNightMode(): boolean {
   const hour = new Date().getHours();
   return hour >= 19 || hour < 7;

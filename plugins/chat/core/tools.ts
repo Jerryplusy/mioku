@@ -29,9 +29,6 @@ export function createTools(
 ): CreateToolsResult {
   const tools: AITool[] = [];
 
-  // === AT / Quote tools (always available) ===
-  tools.push(...createMessageTools());
-
   // === Info query tools (always available) ===
   tools.push(...createInfoTools(toolCtx));
 
@@ -46,37 +43,10 @@ export function createTools(
 
   // === Meta tools (conditional) ===
   if (toolCtx.config.enableExternalSkills) {
-    tools.push(
-      createLoadSkillTool(toolCtx, skillManager),
-      createUnloadSkillTool(toolCtx, skillManager),
-    );
+    tools.push(createLoadSkillTool(toolCtx, skillManager));
   }
 
   return { tools };
-}
-
-// ==================== Message Tools ====================
-
-function createMessageTools(): AITool[] {
-  return [
-    {
-      name: "end_session",
-      description:
-        "End the current conversation session immediately. Use this when the conversation is complete or you want to stop responding.",
-      parameters: {
-        type: "object",
-        properties: {
-          reason: {
-            type: "string",
-            description: "Reason for ending the session (optional)",
-          },
-        },
-      },
-      handler: async (args) => {
-        return { success: true, ended: true, reason: args.reason };
-      },
-    },
-  ];
 }
 
 // ==================== Info Tools ====================
@@ -177,13 +147,13 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
             type: "array",
             items: { type: "string" },
             description:
-              "Optional categories, e.g. [\"general\"], [\"news\"], [\"science\"]",
+              'Optional categories, e.g. ["general"], ["news"], ["science"]',
           },
           engines: {
             type: "array",
             items: { type: "string" },
             description:
-              "Optional engines, e.g. [\"google\"], [\"bing\"], [\"duckduckgo\"]",
+              'Optional engines, e.g. ["google"], ["bing"], ["duckduckgo"]',
           },
         },
         required: [],
@@ -559,37 +529,6 @@ function createLoadSkillTool(
         expires_in: "1 hour",
         tools: loadedTools,
       };
-    },
-  };
-}
-
-function createUnloadSkillTool(
-  toolCtx: ToolContext,
-  skillManager: SkillSessionManager,
-): AITool {
-  return {
-    name: "unload_skill",
-    description:
-      "Unload a previously loaded external skill from the current session.",
-    parameters: {
-      type: "object",
-      properties: {
-        skill_name: {
-          type: "string",
-          description: "Skill name to unload",
-        },
-      },
-      required: ["skill_name"],
-    },
-    handler: async (args) => {
-      const removed = skillManager.unloadSkill(
-        toolCtx.sessionId,
-        args.skill_name,
-      );
-      if (!removed) {
-        return { error: `Skill "${args.skill_name}" is not loaded` };
-      }
-      return { success: true, skill_name: args.skill_name };
     },
   };
 }

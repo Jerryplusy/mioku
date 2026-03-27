@@ -1,6 +1,7 @@
 import type { MiokuPlugin } from "../../src";
 import type { AIService } from "../../src/services/ai";
 import type { ConfigService } from "../../src/services/config";
+import type { ScreenshotService } from "../../src/services/screenshot";
 import { logger, MiokiContext } from "mioki";
 import type {
   ChatConfig,
@@ -94,7 +95,7 @@ const chatPlugin: MiokuPlugin = {
   name: "chat",
   version: "1.0.0",
   description: "AI 智能聊天插件",
-  services: ["ai", "config", "help"],
+  services: ["ai", "config", "help", "screenshot"],
 
   async setup(ctx: MiokiContext) {
     ctx.logger.info("聊天插件正在初始化...");
@@ -102,6 +103,10 @@ const chatPlugin: MiokuPlugin = {
     // 获取服务
     const aiService = ctx.services?.ai as AIService | undefined;
     const configService = ctx.services?.config as ConfigService | undefined;
+    const screenshotService = ctx.services?.screenshot as
+      | ScreenshotService
+      | undefined;
+    let warnedMarkdownScreenshotUnavailable = false;
 
     // 注册配置
     if (configService) {
@@ -140,6 +145,18 @@ const chatPlugin: MiokuPlugin = {
 
       if (typeof merged.stream !== "boolean") {
         merged.stream = true;
+      }
+      if (typeof merged.enableMarkdownScreenshot !== "boolean") {
+        merged.enableMarkdownScreenshot = true;
+      }
+      if (!screenshotService && merged.enableMarkdownScreenshot) {
+        merged.enableMarkdownScreenshot = false;
+        if (!warnedMarkdownScreenshotUnavailable) {
+          ctx.logger.warn(
+            "聊天插件未加载 screenshot 服务，Markdown 截图渲染已自动关闭",
+          );
+          warnedMarkdownScreenshotUnavailable = true;
+        }
       }
 
       return merged as ChatConfig;
@@ -369,6 +386,7 @@ const chatPlugin: MiokuPlugin = {
             sentIndices: toolCtx.sentMessageIndices,
             typoGenerator: humanize.typoGenerator,
             typingDelayEnabled: cfg.enableTypingDelay,
+            enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
           },
           selfId,
         );
@@ -690,6 +708,7 @@ const chatPlugin: MiokuPlugin = {
             sentIndices: toolCtx.sentMessageIndices,
             typoGenerator: humanize.typoGenerator,
             typingDelayEnabled: cfg.enableTypingDelay,
+            enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
           },
           selfId,
         );
@@ -863,6 +882,7 @@ Planned reason: ${planResult.reason}`;
               sentIndices: toolCtx.sentMessageIndices,
               typoGenerator: humanize.typoGenerator,
               typingDelayEnabled: cfg.enableTypingDelay,
+              enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
             },
             selfId,
           );
@@ -1057,6 +1077,7 @@ Suggestion:
                   sentIndices: toolCtx.sentMessageIndices,
                   typoGenerator: humanize.typoGenerator,
                   typingDelayEnabled: cfg.enableTypingDelay,
+                  enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
                 },
                 selfId,
               );
@@ -1253,6 +1274,7 @@ Suggestion:
             sentIndices: toolCtx.sentMessageIndices,
             typoGenerator: humanize.typoGenerator,
             typingDelayEnabled: cfg.enableTypingDelay,
+            enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
           },
           selfId,
         );
@@ -1550,6 +1572,7 @@ Suggestion:
               sentIndices: toolCtx.sentMessageIndices,
               typoGenerator: humanize.typoGenerator,
               typingDelayEnabled: cfg.enableTypingDelay,
+              enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
             },
             e.self_id,
           );
@@ -1584,6 +1607,7 @@ Suggestion:
                 humanize.typoGenerator,
                 e.self_id,
                 cfg.enableTypingDelay,
+                cfg.enableMarkdownScreenshot,
               );
             }
           }
@@ -1745,6 +1769,7 @@ Suggestion:
                 sentIndices: toolCtx.sentMessageIndices,
                 typoGenerator: humanize.typoGenerator,
                 typingDelayEnabled: cfg.enableTypingDelay,
+                enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
               },
               e.self_id,
             );
@@ -2110,6 +2135,7 @@ Suggestion:
             sentIndices: toolCtx.sentMessageIndices,
             typoGenerator: humanize.typoGenerator,
             typingDelayEnabled: cfg.enableTypingDelay,
+            enableMarkdownScreenshot: cfg.enableMarkdownScreenshot,
           },
           e.self_id,
         );

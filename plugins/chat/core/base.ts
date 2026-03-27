@@ -9,6 +9,14 @@ import type { ChatDatabase } from "../db";
 import type { HumanizeEngine } from "../humanize";
 import { parseLineMarkers, splitByReplyMarkers } from "../utils/queue";
 import { getGroupHistory } from "../utils";
+import type { ScreenshotService } from "../../../src/services/screenshot";
+import {
+  extractStandaloneMarkdownBlock,
+  renderMarkdownScreenshot,
+  splitOutgoingUnits,
+  summarizeMarkdown,
+  MARKDOWN_OPEN_TAG,
+} from "./markdown-message";
 
 export interface SendAIResponseOptions {
   ctx: MiokiContext;
@@ -18,6 +26,7 @@ export interface SendAIResponseOptions {
   typoGenerator: { apply: (text: string) => string };
   onLineSent?: () => void | Promise<void>;
   typingDelayEnabled?: boolean;
+  enableMarkdownScreenshot?: boolean;
 }
 
 const FAST_TYPING_BASE_MS = 150;
@@ -43,6 +52,7 @@ export async function sendAIResponse(
     typoGenerator,
     onLineSent,
     typingDelayEnabled = false,
+    enableMarkdownScreenshot = true,
   } = options;
   const bot = ctx.pickBot(selfId);
   if (!bot) {
@@ -57,16 +67,7 @@ export async function sendAIResponse(
   for (let i = 0; i < messages.length; i++) {
     if (sentIndices?.has(i)) continue;
 
-    let msg = messages[i];
-    msg = typoGenerator.apply(msg);
-
-    const lines = msg.split("\n").filter((l) => l.trim());
-
-    const expandedLines: string[] = [];
-    for (const line of lines) {
-      const parts = splitByReplyMarkers(line);
-      expandedLines.push(...parts);
-    }
+    const expandedLines = expandOutgoingLines(messages[i], typoGenerator);
 
     let pendingReply: number | undefined;
     let lastDelayBasisText = "";
@@ -80,9 +81,10 @@ export async function sendAIResponse(
         pendingReply = quoteId;
       }
 
+      const markdownContent = extractStandaloneMarkdownBlock(cleanText);
       const hasContent = cleanText && cleanText.trim().length > 0;
       const hasSendablePayload = Boolean(
-        hasContent || atUsers.length > 0 || pokeUsers.length > 0,
+        hasContent || markdownContent || atUsers.length > 0 || pokeUsers.length > 0,
       );
       const isLastLine = j === expandedLines.length - 1;
 
@@ -116,13 +118,57 @@ export async function sendAIResponse(
         lineSegments.push(ctx.segment.at(atId));
       }
 
-      if (cleanText) {
-        lineSegments.push(ctx.segment.text(cleanText));
+      if (markdownContent) {
+        const screenshotService = ctx.services?.screenshot as
+          | ScreenshotService
+          | undefined;
+        const imagePath = await buildMarkdownImage(
+          ctx,
+          markdownContent,
+          screenshotService,
+          enableMarkdownScreenshot,
+        );
+
+        if (imagePath) {
+          const finalQuoteIdForImage = finalQuoteId;
+          await dispatchSegments(
+            bot,
+            groupId,
+            undefined,
+            (imageSource?: string) => {
+              const segments: any[] = [];
+              if (finalQuoteIdForImage !== undefined) {
+                segments.push({ type: "reply", id: String(finalQuoteIdForImage) });
+              }
+              for (const atId of atUsers) {
+                segments.push(ctx.segment.at(atId));
+              }
+              segments.push(
+                ctx.segment.image(
+                  normalizeImageSource(imageSource || imagePath),
+                ),
+              );
+              return segments;
+            },
+            imagePath,
+          );
+          lastDelayBasisText = summarizeMarkdown(markdownContent);
+          if (typingDelayEnabled && j < expandedLines.length - 1) {
+            const delayMs = calculateTypingDelayMs(lastDelayBasisText || line);
+            await new Promise((r) => setTimeout(r, delayMs));
+          }
+          continue;
+        }
+      }
+
+      const sendableText = markdownContent ?? cleanText;
+      if (sendableText) {
+        lineSegments.push(ctx.segment.text(sendableText));
       }
 
       if (lineSegments.length > 0) {
         await bot.sendGroupMsg(groupId, lineSegments);
-        lastDelayBasisText = cleanText || line;
+        lastDelayBasisText = sendableText || line;
       }
 
       if (typingDelayEnabled && j < expandedLines.length - 1) {
@@ -132,7 +178,7 @@ export async function sendAIResponse(
     }
 
     if (typingDelayEnabled && i < messages.length - 1) {
-      const delayMs = calculateTypingDelayMs(lastDelayBasisText || msg);
+      const delayMs = calculateTypingDelayMs(lastDelayBasisText || messages[i]);
       await new Promise((r) => setTimeout(r, delayMs));
     }
 
@@ -150,6 +196,7 @@ export async function sendMessage(
   },
   selfId: number,
   typingDelayEnabled: boolean = false,
+  enableMarkdownScreenshot: boolean = true,
 ): Promise<void> {
   try {
     const bot = ctx.pickBot(selfId);
@@ -161,18 +208,7 @@ export async function sendMessage(
     }
 
     // 应用错别字生成器
-    let msg = typoGenerator.apply(text);
-
-    // 按换行符分割为多条消息
-    let lines: string[];
-    lines = msg.split("\n").filter((l) => l.trim());
-
-    // 展开包含多个 reply 标记的行
-    const expandedLines: string[] = [];
-    for (const line of lines) {
-      const parts = splitByReplyMarkers(line);
-      expandedLines.push(...parts);
-    }
+    const expandedLines = expandOutgoingLines(text, typoGenerator);
 
     let pendingReply: number | undefined;
     let lastDelayBasisText = "";
@@ -186,9 +222,10 @@ export async function sendMessage(
         pendingReply = quoteId;
       }
 
+      const markdownContent = extractStandaloneMarkdownBlock(cleanText);
       const hasContent = cleanText && cleanText.trim().length > 0;
       const hasSendablePayload = Boolean(
-        hasContent || atUsers.length > 0 || pokeUsers.length > 0,
+        hasContent || markdownContent || atUsers.length > 0 || pokeUsers.length > 0,
       );
       const isLastLine = j === expandedLines.length - 1;
 
@@ -213,11 +250,78 @@ export async function sendMessage(
 
       const hasAt = atUsers.length > 0;
 
+      if (markdownContent) {
+        const screenshotService = ctx.services?.screenshot as
+          | ScreenshotService
+          | undefined;
+        const imagePath = await buildMarkdownImage(
+          ctx,
+          markdownContent,
+          screenshotService,
+          enableMarkdownScreenshot,
+        );
+
+        if (imagePath) {
+          const finalQuoteIdForImage = pendingReply;
+          pendingReply = undefined;
+          await dispatchSegments(
+            bot,
+            groupId,
+            userId,
+            (imageSource?: string) => {
+              const segments: any[] = [];
+              if (finalQuoteIdForImage !== undefined) {
+                segments.push({ type: "reply", id: String(finalQuoteIdForImage) });
+              }
+              for (const atId of atUsers) {
+                if (String(atId) !== String(selfId)) {
+                  segments.push(ctx.segment.at(atId));
+                }
+              }
+              segments.push(
+                ctx.segment.image(
+                  normalizeImageSource(imageSource || imagePath),
+                ),
+              );
+              return segments;
+            },
+            imagePath,
+          );
+          lastDelayBasisText = summarizeMarkdown(markdownContent);
+          if (typingDelayEnabled && j < expandedLines.length - 1) {
+            const delayMs = calculateTypingDelayMs(lastDelayBasisText || line);
+            await new Promise((r) => setTimeout(r, delayMs));
+          }
+          continue;
+        }
+      }
+
       if (hasAt) {
+        const sendableText = markdownContent ?? cleanText;
         const segments: any[] = [];
         if (pendingReply !== undefined) {
           segments.push({ type: "reply", id: String(pendingReply) });
           pendingReply = undefined;
+        }
+        if (markdownContent) {
+          for (const atId of atUsers) {
+            if (String(atId) !== String(selfId)) {
+              segments.push(ctx.segment.at(atId));
+            }
+          }
+          if (sendableText) {
+            segments.push(ctx.segment.text(sendableText));
+          }
+
+          if (segments.length > 0 && groupId) {
+            await bot.sendGroupMsg(groupId, segments);
+            lastDelayBasisText = sendableText || line;
+          }
+          if (typingDelayEnabled && j < expandedLines.length - 1) {
+            const delayMs = calculateTypingDelayMs(lastDelayBasisText || line);
+            await new Promise((r) => setTimeout(r, delayMs));
+          }
+          continue;
         }
         // 有 @ 用户时，构建消息保持原始位置
         // 先将原始行按 @ 标记分割，然后重新构建
@@ -279,28 +383,24 @@ export async function sendMessage(
         if (segments.length > 0) {
           if (groupId) {
             await bot.sendGroupMsg(groupId, segments);
-            lastDelayBasisText = cleanText || line;
+            lastDelayBasisText = sendableText || line;
           }
         }
       } else {
         // 没有 @ 用户时，发送普通文本消息
-        if (cleanText || pendingReply !== undefined) {
+        const sendableText = markdownContent ?? cleanText;
+        if (sendableText || pendingReply !== undefined) {
           const sendSegments: any[] = [];
           if (pendingReply !== undefined) {
             sendSegments.push({ type: "reply", id: String(pendingReply) });
             pendingReply = undefined;
           }
-          if (cleanText) {
-            sendSegments.push(ctx.segment.text(cleanText));
+          if (sendableText) {
+            sendSegments.push(ctx.segment.text(sendableText));
           }
           if (sendSegments.length > 0) {
-            if (groupId) {
-              await bot.sendGroupMsg(groupId, sendSegments);
-              lastDelayBasisText = cleanText || line;
-            } else if (userId) {
-              await bot.sendPrivateMsg(userId, sendSegments);
-              lastDelayBasisText = cleanText || line;
-            }
+            await dispatchSegments(bot, groupId, userId, () => sendSegments);
+            lastDelayBasisText = sendableText || line;
           }
         }
       }
@@ -313,6 +413,116 @@ export async function sendMessage(
   } catch (err) {
     ctx.logger.error("[sendMessage] error:", err);
   }
+}
+
+function expandOutgoingLines(
+  text: string,
+  typoGenerator: { apply: (text: string) => string },
+): string[] {
+  const units = splitOutgoingUnits(text);
+  const expandedLines: string[] = [];
+
+  for (const unit of units) {
+    if (!unit.trim()) {
+      continue;
+    }
+
+    if (unit.includes(MARKDOWN_OPEN_TAG)) {
+      expandedLines.push(unit);
+      continue;
+    }
+
+    const typoApplied = typoGenerator.apply(unit);
+    const parts = splitByReplyMarkers(typoApplied);
+    expandedLines.push(...parts.filter((part) => part.trim()));
+  }
+
+  return expandedLines;
+}
+
+async function buildMarkdownImage(
+  ctx: MiokiContext,
+  markdownContent: string,
+  screenshotService: ScreenshotService | undefined,
+  enableMarkdownScreenshot: boolean,
+): Promise<string | null> {
+  if (!enableMarkdownScreenshot || !screenshotService) {
+    return null;
+  }
+
+  try {
+    return await renderMarkdownScreenshot(markdownContent, screenshotService);
+  } catch (error) {
+    ctx.logger.error(`[MarkdownRender] failed: ${error}`);
+    return null;
+  }
+}
+
+async function dispatchSegments(
+  bot: any,
+  groupId: number | undefined,
+  userId: number | undefined,
+  buildSegments: (imageSource?: string) => any[],
+  fallbackImagePath?: string,
+): Promise<void> {
+  try {
+    await sendByTarget(bot, groupId, userId, buildSegments());
+  } catch (error) {
+    if (!fallbackImagePath || !isLocalFilePath(fallbackImagePath)) {
+      throw error;
+    }
+
+    const fsPromises = await import("fs/promises");
+    const buffer = await fsPromises.readFile(fallbackImagePath);
+    const base64Image = `base64://${buffer.toString("base64")}`;
+    await sendByTarget(bot, groupId, userId, buildSegments(base64Image));
+  }
+}
+
+async function sendByTarget(
+  bot: any,
+  groupId: number | undefined,
+  userId: number | undefined,
+  segments: any[],
+): Promise<void> {
+  if (groupId) {
+    await bot.sendGroupMsg(groupId, segments);
+    return;
+  }
+
+  if (userId) {
+    await bot.sendPrivateMsg(userId, segments);
+    return;
+  }
+
+  throw new Error("No valid message target");
+}
+
+function normalizeImageSource(file: string): string {
+  const value = String(file || "").trim();
+  if (!value) {
+    return value;
+  }
+
+  if (
+    value.startsWith("file://") ||
+    value.startsWith("base64://") ||
+    value.startsWith("data:") ||
+    value.startsWith("http://") ||
+    value.startsWith("https://")
+  ) {
+    return value;
+  }
+
+  if (isLocalFilePath(value)) {
+    return `file://${value}`;
+  }
+
+  return value;
+}
+
+function isLocalFilePath(value: string): boolean {
+  return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value);
 }
 
 export interface GroupHistoryResult {
@@ -463,6 +673,7 @@ export function buildToolContext(
         humanize.typoGenerator,
         selfId,
         config.enableTypingDelay,
+        config.enableMarkdownScreenshot,
       );
     },
   };
