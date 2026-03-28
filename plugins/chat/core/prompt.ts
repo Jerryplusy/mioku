@@ -46,6 +46,15 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   const toolStrength = normalizeConstraintStrength(
     ctx.config.toolCallConstraintStrength,
   );
+  const emojiStrength = normalizeConstraintStrength(
+    ctx.config.emojiUsageConstraintStrength,
+  );
+  const audioStrength = normalizeConstraintStrength(
+    ctx.config.audioUsageConstraintStrength,
+  );
+  const markdownStrength = normalizeConstraintStrength(
+    ctx.config.markdownUsageConstraintStrength,
+  );
 
   // 1. Extra Info — loaded external skills
   if (ctx.activeSkillsInfo) {
@@ -102,7 +111,16 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   sections.push(buildReplyStyleSection(ctx, lengthStrength));
 
   // 12. Available Tools & Response Format
-  sections.push(buildResponseFormatSection(ctx, lengthStrength, toolStrength));
+  sections.push(
+    buildResponseFormatSection(
+      ctx,
+      lengthStrength,
+      toolStrength,
+      emojiStrength,
+      audioStrength,
+      markdownStrength,
+    ),
+  );
 
   return sections.join("\n\n");
 }
@@ -508,6 +526,9 @@ function buildResponseFormatSection(
   ctx: PromptContext,
   lengthStrength: ConstraintStrength,
   toolStrength: ConstraintStrength,
+  emojiStrength: ConstraintStrength,
+  audioStrength: ConstraintStrength,
+  markdownStrength: ConstraintStrength,
 ): string {
   const lines = [`## Response Format`];
 
@@ -532,19 +553,32 @@ function buildResponseFormatSection(
   - Example multiple replies: "\[[[reply:111]]]回复第一条" + newline + "\[[[reply:222]]]回复第二条" will send two separate messages, each quoting different messages`);
 
   if (ctx.config.audio?.enabled && ctx.config.audio.baseUrl?.trim()) {
+    const audioModeLine =
+      audioStrength === "high"
+        ? "- Use voice sparingly. Only use it when spoken delivery is clearly better than text, such as a greeting, a sharp emotional reaction, or a daily phrase."
+        : audioStrength === "medium"
+          ? "- You may use voice for greetings, reactions, calls, confirmations, or comforting words, but stay selective."
+          : "- When a short spoken reaction would make the conversation feel more natural or vivid, you can use voice more freely.";
     lines.push(`
 ### Optional Voice Message Format
 - You MAY optionally send one voice message by writing [audio:content]
 - Audio is OPTIONAL. Do NOT use it in every reply
-- Example: "[audio:おはようー]"`);
+${audioModeLine}`);
   }
 
   if (ctx.config.enableMarkdownScreenshot) {
+    const markdownModeLine =
+      markdownStrength === "high"
+        ? "- Prefer normal chat text. Use Markdown only when the reply truly needs structured presentation, such as a tutorial, comparison, detailed explanation, code sample or processing large amounts of data, such as after a web search or viewing a webpage."
+        : markdownStrength === "medium"
+          ? "- Use Markdown when your responses require a structured presentation."
+          : "- Use Markdown freely where it can make your responses clearer.";
     lines.push(`
 ### Optional Markdown Screenshot Format
 - You MAY optionally send one rendered Markdown screenshot by wrapping content with exact tags: <MARKDOWN> ... </MARKDOWN>
 - Put the Markdown block on its own message whenever possible.
 - Markdown blocks are ideal for long explanations, tutorials, comparisons, tables, structured notes, and code examples.
+${markdownModeLine}
 - Inside <MARKDOWN>...</MARKDOWN>, there is NO length limit. If the user needs detail, explain clearly and thoroughly instead of over-compressing.
 - Markdown supports headings, lists, tables, blockquotes, and fenced code blocks with language names for syntax highlighting.
 - When a short plain chat reply is enough, prefer normal text instead of Markdown.
@@ -554,55 +588,52 @@ function buildResponseFormatSection(
   if (toolStrength === "high") {
     lines.push(`
 ### Tool Usage Intensity
-- Tool mode: HIGH
 - Be proactive with tools for uncertain facts, external info, verification, and current events.
 - Prefer validating with tools over guessing.`);
   } else if (toolStrength === "medium") {
     lines.push(`
 ### Tool Usage Intensity
-- Tool mode: MEDIUM
 - Use tools when clearly useful for correctness, verification, or missing context.`);
   } else {
     lines.push(`
 ### Tool Usage Intensity
-- Tool mode: LOW
 - Prefer direct chat responses first.
 - Use tools only when strictly necessary.`);
   }
 
-  // Meme/Sticker sending guide (controlled by replyProbability)
   const emojiAgent = ctx.emojiAgent;
   if (emojiAgent && ctx.config.emoji?.enabled) {
-    const replyProb = ctx.config.emoji.replyProbability ?? 0;
-    if (Math.random() < replyProb) {
-      const configChars = ctx.config.emoji.characters || [];
-      let availableEmotions: string[] = [];
+    const configChars = ctx.config.emoji.characters || [];
+    let availableEmotions: string[] = [];
 
-      if (configChars.length > 0) {
-        // 使用配置中指定的角色
-        for (const char of configChars) {
-          const emotions = emojiAgent.getAvailableEmotions(char);
-          availableEmotions.push(...emotions);
-        }
-      } else {
-        // 使用所有可用角色
-        const allChars = emojiAgent.getAvailableCharacters();
-        for (const char of allChars) {
-          const emotions = emojiAgent.getAvailableEmotions(char);
-          availableEmotions.push(...emotions);
-        }
+    if (configChars.length > 0) {
+      for (const char of configChars) {
+        const emotions = emojiAgent.getAvailableEmotions(char);
+        availableEmotions.push(...emotions);
       }
+    } else {
+      const allChars = emojiAgent.getAvailableCharacters();
+      for (const char of allChars) {
+        const emotions = emojiAgent.getAvailableEmotions(char);
+        availableEmotions.push(...emotions);
+      }
+    }
 
-      const uniqueEmotions = [...new Set(availableEmotions)].sort();
-      if (uniqueEmotions.length > 0) {
-        lines.push(`
-You like to send matching stickers/emojis when emotions are running high.
-If you want to send a sticker/emoji along with your message:
-- Use the format [meme:emotion] in your text
-- Available emotions: ${uniqueEmotions.join(", ")}
-- Example: "[meme:happy]太棒了！" will send a happy sticker with your message
-- Use this sparingly - only when a sticker adds meaningful expression to your reply`);
-      }
+    const uniqueEmotions = [...new Set(availableEmotions)].sort();
+    if (uniqueEmotions.length > 0) {
+      const emojiModeLine =
+        emojiStrength === "high"
+          ? "- Keep stickers rare. Use one only when it clearly strengthens a strong emotional beat or punchline."
+          : emojiStrength === "medium"
+            ? "- You may use a sticker for obvious emotional beats, reactions, jokes, teasing, or celebrations, but do not overuse it."
+            : "- When it helps the emotional effect of the reply, you can use a matching sticker more freely.";
+      lines.push(`
+### Optional Sticker / Emoji Format
+- You MAY optionally send one matching sticker by writing [meme:emotion]
+${emojiModeLine}
+- Do NOT send a sticker in every reply, and do not force one when the mood is plain
+- Prefer one matching sticker at most. It should enhance the text instead of replacing meaningful content
+- Available emotions: ${uniqueEmotions.join(", ")}`);
     }
   }
 

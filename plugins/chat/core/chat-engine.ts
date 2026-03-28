@@ -90,6 +90,7 @@ export async function runChat(
   const emitStreamSegment = async (segment: string): Promise<void> => {
     const text = cleanMarkers(segment)
       .replace(/\[meme:[^\]]+\]/gi, "")
+      .replace(/\[audio:[^\]]+\]/gi, "")
       .replace(/\r/g, "")
       .trim();
     if (!text || text === "---") {

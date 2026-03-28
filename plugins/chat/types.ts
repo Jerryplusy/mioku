@@ -63,7 +63,6 @@ export interface TypoConfig {
  */
 export interface EmojiConfig {
   enabled: boolean;
-  replyProbability: number;
   characters: string[];
   useAISelection: boolean;
 }
@@ -153,6 +152,9 @@ export interface ChatConfig {
   debug: boolean;
   outputLengthConstraintStrength: "low" | "medium" | "high";
   toolCallConstraintStrength: "low" | "medium" | "high";
+  emojiUsageConstraintStrength: "low" | "medium" | "high";
+  audioUsageConstraintStrength: "low" | "medium" | "high";
+  markdownUsageConstraintStrength: "low" | "medium" | "high";
   groupStructuredHistoryTtlMs: number;
   cooldownAfterReplyMs: number;
   dynamicDelay: DynamicDelayConfig;
