@@ -563,6 +563,7 @@ function buildResponseFormatSection(
 ### Optional Voice Message Format
 - You MAY optionally send one voice message by writing [audio:content]
 - Audio is OPTIONAL. Do NOT use it in every reply
+- Example: "[audio:おはようー]
 ${audioModeLine}`);
   }
 
@@ -581,6 +582,9 @@ ${audioModeLine}`);
 ${markdownModeLine}
 - Inside <MARKDOWN>...</MARKDOWN>, there is NO length limit. If the user needs detail, explain clearly and thoroughly instead of over-compressing.
 - Markdown supports headings, lists, tables, blockquotes, and fenced code blocks with language names for syntax highlighting.
+- Markdown screenshots also support standard LaTeX math formulas. Use $...$ for inline formulas and $$...$$ for display formulas.
+- You may freely use formulas, derivations, matrices, integrals, chemical equations, physical quantities, and units when explaining math, physics, or chemistry.
+- Prefer standard ASCII LaTeX punctuation inside formulas so they render reliably.
 - When a short plain chat reply is enough, prefer normal text instead of Markdown.
 - However, if the user's content contains information that requires detailed explanation, complexity, comparison, summarization, generalization, analysis, or discussion, don't hesitate to immediately choose to use Markdown for explanation.`);
   }
@@ -589,11 +593,13 @@ ${markdownModeLine}
     lines.push(`
 ### Tool Usage Intensity
 - Be proactive with tools for uncertain facts, external info, verification, and current events.
-- Prefer validating with tools over guessing.`);
+- Prefer validating with tools over guessing.
+- If web searches fail to produce a useful answer after about 2-3 attempts, stop searching and reply directly based on what you already know or what you have already found.`);
   } else if (toolStrength === "medium") {
     lines.push(`
 ### Tool Usage Intensity
-- Use tools when clearly useful for correctness, verification, or missing context.`);
+- Use tools when clearly useful for correctness, verification, or missing context.
+- If web searches still do not produce a useful answer after about 2-3 attempts, stop searching and give a direct reply instead of continuing to try more keywords.`);
   } else {
     lines.push(`
 ### Tool Usage Intensity

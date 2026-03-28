@@ -1,5 +1,7 @@
 import MarkdownIt from "markdown-it";
 import hljs from "highlight.js";
+import katex from "katex";
+import "katex/contrib/mhchem";
 import type { ScreenshotService } from "../../../src/services/screenshot";
 
 export const MARKDOWN_OPEN_TAG = "<MARKDOWN>";
@@ -27,6 +29,8 @@ const markdownRenderer = new MarkdownIt({
   },
 });
 
+installMathSupport(markdownRenderer);
+
 markdownRenderer.renderer.rules.link_open = (
   tokens: any[],
   idx: number,
@@ -44,6 +48,178 @@ markdownRenderer.renderer.rules.image = (tokens: any[], idx: number) => {
   const altText = escapeHtml(token.content || "图片");
   return `<figure class="md-image-placeholder">已省略图片资源：${altText}</figure>`;
 };
+
+function installMathSupport(md: any): void {
+  md.inline.ruler.after("escape", "math_inline", mathInlineRule);
+  md.block.ruler.after("blockquote", "math_block", mathBlockRule, {
+    alt: ["paragraph", "reference", "blockquote", "list"],
+  });
+  md.renderer.rules.math_inline = (tokens: any[], idx: number) =>
+    renderMath(tokens[idx].content, false);
+  md.renderer.rules.math_block = (tokens: any[], idx: number) =>
+    `${renderMath(tokens[idx].content, true)}\n`;
+}
+
+function mathInlineRule(state: any, silent: boolean): boolean {
+  const start = state.pos;
+  const src = state.src;
+
+  if (src.charCodeAt(start) !== 0x24) {
+    return false;
+  }
+
+  if (src.charCodeAt(start + 1) === 0x24) {
+    return false;
+  }
+
+  const prevChar = start > 0 ? src.charCodeAt(start - 1) : 0;
+  const nextChar = src.charCodeAt(start + 1);
+
+  if (isAsciiDigit(prevChar) || nextChar === 0x20 || nextChar === 0x09) {
+    return false;
+  }
+
+  let match = start + 1;
+  while ((match = src.indexOf("$", match)) !== -1) {
+    if (src.charCodeAt(match - 1) === 0x5c) {
+      match += 1;
+      continue;
+    }
+
+    const content = src.slice(start + 1, match);
+    if (!content.trim() || /[\n\r]/.test(content)) {
+      return false;
+    }
+
+    const afterChar = src.charCodeAt(match + 1);
+    if (isAsciiDigit(afterChar)) {
+      match += 1;
+      continue;
+    }
+
+    if (!silent) {
+      const token = state.push("math_inline", "math", 0);
+      token.content = content;
+    }
+
+    state.pos = match + 1;
+    return true;
+  }
+
+  return false;
+}
+
+function mathBlockRule(
+  state: any,
+  startLine: number,
+  endLine: number,
+  silent: boolean,
+): boolean {
+  const start = state.bMarks[startLine] + state.tShift[startLine];
+  const max = state.eMarks[startLine];
+  const firstLine = state.src.slice(start, max);
+
+  if (!firstLine.startsWith("$$")) {
+    return false;
+  }
+
+  if (silent) {
+    return true;
+  }
+
+  const firstRest = firstLine.slice(2);
+  let content = "";
+  let nextLine = startLine;
+  let closed = false;
+
+  const sameLineClose = firstRest.indexOf("$$");
+  if (sameLineClose >= 0) {
+    content = firstRest.slice(0, sameLineClose);
+    closed = true;
+  } else {
+    content = firstRest;
+    for (nextLine = startLine + 1; nextLine < endLine; nextLine += 1) {
+      const lineStart = state.bMarks[nextLine] + state.tShift[nextLine];
+      const lineMax = state.eMarks[nextLine];
+      const lineText = state.src.slice(lineStart, lineMax);
+      const closeIndex = lineText.indexOf("$$");
+      if (closeIndex >= 0) {
+        content += `\n${lineText.slice(0, closeIndex)}`;
+        closed = true;
+        break;
+      }
+      content += `\n${lineText}`;
+    }
+  }
+
+  if (!closed) {
+    return false;
+  }
+
+  state.line = nextLine + 1;
+  const token = state.push("math_block", "math", 0);
+  token.block = true;
+  token.content = content.trim();
+  token.map = [startLine, state.line];
+  return true;
+}
+
+function renderMath(source: string, displayMode: boolean): string {
+  const normalized = normalizeMathSource(source);
+
+  try {
+    const rendered = katex.renderToString(normalized, {
+      displayMode,
+      output: "mathml",
+      throwOnError: true,
+      strict: "ignore",
+      trust: false,
+    });
+    return displayMode
+      ? `<div class="md-math-block">${rendered}</div>`
+      : `<span class="md-math-inline">${rendered}</span>`;
+  } catch {
+    const fallback = escapeHtml(source);
+    return displayMode
+      ? `<pre class="md-math-fallback">${fallback}</pre>`
+      : `<code class="md-math-fallback-inline">${fallback}</code>`;
+  }
+}
+
+function normalizeMathSource(source: string): string {
+  const replacements: Record<string, string> = {
+    "（": "(",
+    "）": ")",
+    "｛": "{",
+    "｝": "}",
+    "［": "[",
+    "］": "]",
+    "，": ",",
+    "。": ".",
+    "：": ":",
+    "；": ";",
+    "！": "!",
+    "？": "?",
+    "＝": "=",
+    "＋": "+",
+    "－": "-",
+    "×": "\\times ",
+    "÷": "\\div ",
+    "／": "/",
+    "％": "%",
+    "＾": "^",
+    "＿": "_",
+    "　": " ",
+  };
+
+  return Array.from(String(source || ""))
+    .map((char) => replacements[char] ?? char)
+    .join("");
+}
+
+function isAsciiDigit(code: number): boolean {
+  return code >= 0x30 && code <= 0x39;
+}
 
 export function splitOutgoingUnits(text: string): string[] {
   const normalized = String(text || "").replace(/\r/g, "");
@@ -378,6 +554,46 @@ export async function renderMarkdownScreenshot(
         border: 1px dashed ${theme.divider};
         color: ${theme.muted};
         background: ${theme.quoteBg};
+      }
+      .md-math-inline {
+        display: inline-block;
+        max-width: 100%;
+        vertical-align: middle;
+        padding: 0 0.06em;
+      }
+      .md-math-block {
+        margin: 1.15em 0 1.3em;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid ${theme.tableBorder};
+        background: ${theme.quoteBg};
+        overflow-x: auto;
+      }
+      .md-math-block math {
+        display: block;
+      }
+      .markdown-body math {
+        color: ${theme.heading};
+        font-size: 1.05em;
+      }
+      .md-math-fallback,
+      .md-math-fallback-inline {
+        font-family: "JetBrains Mono", "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+      }
+      .md-math-fallback {
+        margin: 1.15em 0 1.3em;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px dashed ${theme.divider};
+        background: ${theme.quoteBg};
+        color: ${theme.muted};
+        white-space: pre-wrap;
+      }
+      .md-math-fallback-inline {
+        padding: 0.14em 0.42em;
+        border-radius: 8px;
+        background: ${theme.inlineCodeBg};
+        color: ${theme.inlineCodeText};
       }
       .hljs {
         color: ${theme.hljsText};
