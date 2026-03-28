@@ -81,7 +81,6 @@ export const PERSONALIZATION_CONFIG: {
 
   emoji: {
     enabled: false,
-    replyProbability: 0.3,
     characters: [],
     useAISelection: true,
   },

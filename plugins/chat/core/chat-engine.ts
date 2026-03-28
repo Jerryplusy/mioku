@@ -15,7 +15,10 @@ import type { PromptContext } from "./prompt";
 import type { SkillSessionManager } from "./tools";
 import { createTools } from "./tools";
 import { buildSystemPrompt } from "./prompt";
-import { consumeCompleteStreamUnits } from "./markdown-message";
+import {
+  consumeCompleteStreamUnits,
+  splitOutgoingUnits,
+} from "./markdown-message";
 import {
   attachImagesToCurrentUserMessages,
   buildStructuredUserMessages,
@@ -86,21 +89,25 @@ export async function runChat(
   const streamEnabled = Boolean(toolCtx.config.stream);
   const streamedMessages: string[] = [];
   let streamBuffer = "";
+  let streamUnitIndex = 0;
 
-  const emitStreamSegment = async (segment: string): Promise<void> => {
+  const emitStreamSegment = async (
+    segment: string,
+    unitIndex: number,
+  ): Promise<void> => {
     const text = cleanMarkers(segment)
       .replace(/\[meme:[^\]]+\]/gi, "")
+      .replace(/\[audio:[^\]]+\]/gi, "")
       .replace(/\r/g, "")
       .trim();
     if (!text || text === "---") {
       return;
     }
 
-    const index = streamedMessages.length;
     if (toolCtx.onTextContent) {
-      await toolCtx.onTextContent(text, index, index + 1);
+      await toolCtx.onTextContent(text, unitIndex, unitIndex + 1);
       toolCtx.sentMessageIndices ??= new Set<number>();
-      toolCtx.sentMessageIndices.add(index);
+      toolCtx.sentMessageIndices.add(unitIndex);
     }
     streamedMessages.push(text);
   };
@@ -115,8 +122,10 @@ export async function runChat(
 
       streamBuffer = rest;
       for (const unit of units) {
+        const unitIndex = streamUnitIndex;
+        streamUnitIndex += 1;
         if (unit.trim()) {
-          await emitStreamSegment(unit);
+          await emitStreamSegment(unit, unitIndex);
         }
       }
 
@@ -150,6 +159,12 @@ export async function runChat(
 
   if (streamEnabled) {
     await flushStreamBuffer(true);
+  }
+
+  if (toolCtx.config.debug) {
+    logger.info("[chat-engine] === Raw AI Reply ===");
+    logger.info(response.content || "(empty)");
+    logger.info("[chat-engine] === End Raw AI Reply ===");
   }
 
   if (response.reasoning) {
@@ -223,10 +238,17 @@ export async function runChat(
     }
   }
 
-  const finalMessages =
-    streamEnabled && streamedMessages.length > 0
-      ? streamedMessages
-      : parseMessages(finalText);
+  const finalMessages = splitOutgoingUnits(finalText).filter(
+    (unit) => unit.trim() && unit.trim() !== "---",
+  );
+
+  if (toolCtx.config.debug) {
+    logger.info("[chat-engine] === Final AI Reply ===");
+    logger.info(
+      finalMessages.length > 0 ? finalMessages.join("\n---\n") : "(empty)",
+    );
+    logger.info("[chat-engine] === End Final AI Reply ===");
+  }
 
   logger.info(
     `[chat-engine] Session ${toolCtx.sessionId} done | ${finalMessages.length} msg(s), ${allToolCalls.length} tool call(s)`,
@@ -394,17 +416,6 @@ function isPlainAssistantMessage(message: any): boolean {
  */
 function cleanMarkers(text: string): string {
   return text.trim();
-}
-
-/**
- * Parse AI text response into separate messages split by ---
- */
-function parseMessages(text: string): string[] {
-  if (!text.trim()) return [];
-  return text
-    .split(/\n---\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
 }
 
 function isToolErrorResult(result: any): boolean {
