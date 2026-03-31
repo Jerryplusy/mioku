@@ -98,7 +98,9 @@ function getPrimaryNapcat(config: MiokuConfig): MiokiNapcat {
   return config.mioki.napcat[0];
 }
 
-function ensureMiokiRoot(config: MiokuConfig): NonNullable<MiokuConfig["mioki"]> {
+function ensureMiokiRoot(
+  config: MiokuConfig,
+): NonNullable<MiokuConfig["mioki"]> {
   if (!config.mioki || typeof config.mioki !== "object") {
     config.mioki = {};
   }
@@ -138,7 +140,9 @@ function hasOwnerConfigured(config: MiokuConfig): boolean {
   if (!Array.isArray(owners) || owners.length === 0) {
     return false;
   }
-  return owners.some((item) => Number.isSafeInteger(Number(item)) && Number(item) > 10000);
+  return owners.some(
+    (item) => Number.isSafeInteger(Number(item)) && Number(item) > 10000,
+  );
 }
 
 function isWebUIInstalled(cwd: string): boolean {
@@ -237,7 +241,9 @@ async function promptForOwnerQQ(
 
   let ownerQQ = await askWithDefault(ask, "请输入主人QQ", currentOwner);
   while (!isValidQQ(ownerQQ)) {
-    ownerQQ = (await ask("\n主人QQ无效，请输入纯数字QQ号（至少5位）\n> ")).trim();
+    ownerQQ = (
+      await ask("\n主人QQ无效，请输入纯数字QQ号（至少5位）\n> ")
+    ).trim();
   }
 
   mioki.owners = [Number(ownerQQ)];
@@ -277,19 +283,27 @@ function hasUsableWebUIAuth(cwd: string): boolean {
 }
 
 async function installWebUI(cwd: string): Promise<boolean> {
-  const scriptPath = join(cwd, "install-mioku.sh");
+  const isWindows = process.platform === "win32";
+  const scriptName = isWindows ? "install-mioku.js" : "install-mioku.sh";
+  const scriptPath = join(cwd, scriptName);
   if (!existsSync(scriptPath)) {
     console.warn(
-      `[mioku-setup] 未找到 install-mioku.sh（${scriptPath}），跳过 WebUI 安装。`,
+      `[mioku-setup] 未找到 ${scriptName}（${scriptPath}），跳过 WebUI 安装。`,
     );
     return false;
   }
 
   return await new Promise<boolean>((resolve) => {
-    const child = spawn("bash", [scriptPath, "webui"], {
-      cwd,
-      stdio: ["ignore", "inherit", "inherit"],
-    });
+    const child = isWindows
+      ? spawn("node", [scriptPath, "webui"], {
+          cwd,
+          stdio: ["ignore", "inherit", "inherit"],
+          shell: true,
+        })
+      : spawn("bash", [scriptPath, "webui"], {
+          cwd,
+          stdio: ["ignore", "inherit", "inherit"],
+        });
 
     child.on("error", (error) => {
       console.warn(`[mioku-setup] WebUI 安装失败: ${error.message}`);
@@ -314,14 +328,18 @@ export async function runFirstRunSetup(
   ensureMiokiRoot(ensured.config);
   const napcat = getPrimaryNapcat(ensured.config);
   const needNapcatPrompt = ensured.created || !hasNapcatRequiredFields(napcat);
-  const needOwnerPrompt = ensured.created || !hasOwnerConfigured(ensured.config);
+  const needOwnerPrompt =
+    ensured.created || !hasOwnerConfigured(ensured.config);
   const dockerRuntime = isDockerRuntime();
   let webuiInstalled = isWebUIInstalled(cwd);
   const needWebUIInstallPrompt = ensured.created && !webuiInstalled;
   let needWebUIAuthPrompt =
     webuiInstalled && (ensured.created || !hasUsableWebUIAuth(cwd));
   const needAnyPrompt =
-    needNapcatPrompt || needOwnerPrompt || needWebUIInstallPrompt || needWebUIAuthPrompt;
+    needNapcatPrompt ||
+    needOwnerPrompt ||
+    needWebUIInstallPrompt ||
+    needWebUIAuthPrompt;
 
   if (!needAnyPrompt) {
     return;
@@ -360,7 +378,7 @@ export async function runFirstRunSetup(
     }
     if (needWebUIInstallPrompt) {
       console.warn(
-        "[mioku-setup] 当前未安装 WebUI，若需要可执行: ./install-mioku.sh webui",
+        "[mioku-setup] 当前未安装 WebUI，若需要可执行: node install-mioku.js webui (Windows) 或 ./install-mioku.sh webui (Linux/macOS)",
       );
     }
     return;
@@ -385,7 +403,11 @@ export async function runFirstRunSetup(
     }
 
     if (needNapcatPrompt || needOwnerPrompt) {
-      writeFileSync(localConfigPath, `${JSON.stringify(ensured.config, null, 2)}\n`, "utf-8");
+      writeFileSync(
+        localConfigPath,
+        `${JSON.stringify(ensured.config, null, 2)}\n`,
+        "utf-8",
+      );
       console.log(`[mioku-setup] 已写入本地配置: ${localConfigPath}`);
     }
 
@@ -406,7 +428,7 @@ export async function runFirstRunSetup(
           console.log("[mioku-setup] WebUI 安装完成。");
         } else {
           console.warn(
-            "[mioku-setup] WebUI 安装失败，可稍后手动执行 ./install-mioku.sh webui",
+            "[mioku-setup] WebUI 安装失败，可稍后手动执行: node install-mioku.ts webui (Windows) 或 ./install-mioku.sh webui (Linux/macOS)",
           );
         }
       }

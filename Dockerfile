@@ -22,6 +22,7 @@ COPY package.json tsconfig.json app.ts ./
 COPY src ./src
 COPY plugins ./plugins
 COPY install-mioku.sh ./install-mioku.sh
+COPY install-mioku.ts ./install-mioku.ts
 COPY docker ./docker
 
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install

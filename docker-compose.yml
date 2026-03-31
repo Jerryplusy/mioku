@@ -15,6 +15,7 @@ services:
       - ./package.json:/app/package.json
       - ./tsconfig.json:/app/tsconfig.json
       - ./install-mioku.sh:/app/install-mioku.sh
+      - ./install-mioku.js:/app/install-mioku.js
       - ./src:/app/src
       - ./plugins:/app/plugins
       - ./config:/app/config
