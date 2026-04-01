@@ -21,12 +21,11 @@ RUN apt-get update \
 COPY package.json tsconfig.json app.ts ./
 COPY src ./src
 COPY plugins ./plugins
-COPY install-mioku.sh ./install-mioku.sh
 COPY install-mioku.ts ./install-mioku.ts
 COPY docker ./docker
 
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install
-RUN chmod +x ./install-mioku.sh ./docker/entrypoint.sh
+RUN chmod +x ./docker/entrypoint.sh
 RUN mkdir -p config data logs temp
 
 ENV NODE_ENV=production

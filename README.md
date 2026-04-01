@@ -41,15 +41,10 @@ bun run start
 ## 安装 WebUI（手动）
 
 ```bash
-# Windows
-bun install-mioku.ts webui
+bun run mioku-install webui
 
-# Linux/macOS
-./install-mioku.sh webui
-
-# 查看更多脚本功能
-bun install-mioku.ts help   # Windows
-./install-mioku.sh help      # Linux/macOS
+# 查看更多功能
+bun run mioku-install help
 ```
 
 安装完成后，再次执行 `bun run start`，首次会提示设置 WebUI 登录密钥。
@@ -60,11 +55,8 @@ bun install-mioku.ts help   # Windows
 也可手动安装插件，进入config目录配置插件
 
 ```bash
-# Windows
-bun install-mioku.ts plugin <repo-url>
-
-# Linux/macOS
-./install-mioku.sh plugin <repo-url>
+bun run mioku-install plugin <repo-url>
+bun run mioku-install service <repo-url>
 ```
 
 ### Docker Compose(推荐)
@@ -114,7 +106,7 @@ docker run --rm -it \
   -v "$(pwd)/app.ts:/app/app.ts" \
   -v "$(pwd)/package.json:/app/package.json" \
   -v "$(pwd)/tsconfig.json:/app/tsconfig.json" \
-  -v "$(pwd)/install-mioku.sh:/app/install-mioku.sh" \
+  -v "$(pwd)/install-mioku.ts:/app/install-mioku.ts" \
   -v "$(pwd)/src:/app/src" \
   -v "$(pwd)/plugins:/app/plugins" \
   -v "$(pwd)/config:/app/config" \
@@ -140,7 +132,7 @@ docker run -d \
   -v "$(pwd)/app.ts:/app/app.ts" \
   -v "$(pwd)/package.json:/app/package.json" \
   -v "$(pwd)/tsconfig.json:/app/tsconfig.json" \
-  -v "$(pwd)/install-mioku.sh:/app/install-mioku.sh" \
+  -v "$(pwd)/install-mioku.ts:/app/install-mioku.ts" \
   -v "$(pwd)/src:/app/src" \
   -v "$(pwd)/plugins:/app/plugins" \
   -v "$(pwd)/config:/app/config" \

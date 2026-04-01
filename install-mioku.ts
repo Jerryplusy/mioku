@@ -409,7 +409,7 @@ function installWebui(
   const unpackDir = join(TMP_DIR, "unpack");
 
   log(`下载 webui dist: ${assetUrl}`);
-  downloadFile(assetUrl, assetFile);
+  downloadFile(assetUrl as string, assetFile);
 
   log("解压 webui dist");
   extractZip(assetFile, unpackDir);
@@ -424,9 +424,9 @@ function installWebui(
   }
   mkdirSync(distDir, { recursive: true });
 
-  copyDirRecursive(sourceDir, distDir);
+  copyDirRecursive(sourceDir as string, distDir);
 
-  const version = tagName.replace(/^v/, "");
+  const version = (tagName as string).replace(/^v/, "");
   writeFileSync(join(distDir, ".webui-version"), version, "utf-8");
   writeFileSync(
     join(distDir, "webui-version.json"),
@@ -458,16 +458,16 @@ function copyDirRecursive(src: string, dest: string) {
 function usage() {
   console.log(`
 用法:
-  bun install-mioku.ts plugin <repo-url> [--name NAME] [--pm bun|pnpm|npm]
-  bun install-mioku.ts service <repo-url> [--name NAME] [--pm bun|pnpm|npm]
-  bun install-mioku.ts webui [--pm bun|pnpm|npm] [--service-repo URL] [--webui-repo URL] [--tag latest|vX.Y.Z] [--skip-service]
-  bun install-mioku.ts help
+  bun run mioku-install plugin <repo-url> [--name NAME] [--pm bun|pnpm|npm]
+  bun run mioku-install service <repo-url> [--name NAME] [--pm bun|pnpm|npm]
+  bun run mioku-install webui [--pm bun|pnpm|npm] [--service-repo URL] [--webui-repo URL] [--tag latest|vX.Y.Z] [--skip-service]
+  bun run mioku-install help
 
 示例:
-  bun install-mioku.ts plugin https://github.com/you/your-plugin.git
-  bun install-mioku.ts service https://github.com/you/your-service.git --pm pnpm
-  bun install-mioku.ts webui
-  bun install-mioku.ts webui --tag v1.4.0
+  bun run mioku-install plugin https://github.com/you/your-plugin.git
+  bun run mioku-install service https://github.com/you/your-service.git --pm pnpm
+  bun run mioku-install webui
+  bun run mioku-install webui --tag v1.4.0
 `);
 }
 

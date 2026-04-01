@@ -1,6 +1,6 @@
 {
   "name": "mioku",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "author": "Jerryplusy",
   "license": "MIT",
   "description": "AI-powered bot application based on mioki",
@@ -25,7 +25,8 @@
   "scripts": {
     "start": "tsx app.ts",
     "dev": "tsx watch app.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "mioku-install": "tsx install-mioku.ts"
   },
   "mioki": {
     "prefix": "/",
