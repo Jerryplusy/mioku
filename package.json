@@ -25,7 +25,8 @@
   "scripts": {
     "start": "tsx app.ts",
     "dev": "tsx watch app.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "mioku-install": "tsx install-mioku.ts"
   },
   "mioki": {
     "prefix": "/",
