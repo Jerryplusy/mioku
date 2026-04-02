@@ -492,14 +492,28 @@ function expandOutgoingLines(
       continue;
     }
 
-    const typoApplied = /\[audio:/i.test(unit)
-      ? unit
-      : typoGenerator.apply(unit);
-    const parts = splitByReplyMarkers(typoApplied);
-    expandedLines.push(...parts.filter((part) => part.trim()));
+    const normalizedUnit = normalizeActionLineBreaks(unit);
+    const typoApplied = /\[audio:/i.test(normalizedUnit)
+      ? normalizedUnit
+      : typoGenerator.apply(normalizedUnit);
+    const lineParts = typoApplied
+      .split(/\n+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    for (const linePart of lineParts) {
+      const parts = splitByReplyMarkers(linePart);
+      expandedLines.push(...parts.filter((part) => part.trim()));
+    }
   }
 
   return expandedLines;
+}
+
+function normalizeActionLineBreaks(text: string): string {
+  return String(text || "").replace(
+    /\\\s*(?=(?:\[meme:[^\]]+\]|\[audio:[^\]]+\]|\[\[\[reply:\d+\]\]\]|\(\(\(reply:\d+\)\)\)))/gi,
+    "\n",
+  );
 }
 
 async function buildMarkdownImage(

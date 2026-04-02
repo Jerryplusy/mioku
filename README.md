@@ -41,23 +41,22 @@ bun run start
 ## 安装 WebUI（手动）
 
 ```bash
-# 使用脚本安装webui
-./install-mioku.sh webui
+bun run mioku-install webui
 
-# 更多脚本功能请运行./install-mioku.sh查看
+# 查看更多功能
+bun run mioku-install help
 ```
 
 安装完成后，再次执行 `bun run start`，首次会提示设置 WebUI 登录密钥。
 
-## 插件/服务安装和管理
+### 插件/服务安装和管理
 
-推荐使用webui进行管理   
+推荐使用webui进行管理  
 也可手动安装插件，进入config目录配置插件
 
 ```bash
-# 使用脚本安装插件
-./install-mioku.sh plugin <repo-url>
-
+bun run mioku-install plugin <repo-url>
+bun run mioku-install service <repo-url>
 ```
 
 ### Docker Compose(推荐)
@@ -107,7 +106,7 @@ docker run --rm -it \
   -v "$(pwd)/app.ts:/app/app.ts" \
   -v "$(pwd)/package.json:/app/package.json" \
   -v "$(pwd)/tsconfig.json:/app/tsconfig.json" \
-  -v "$(pwd)/install-mioku.sh:/app/install-mioku.sh" \
+  -v "$(pwd)/install-mioku.ts:/app/install-mioku.ts" \
   -v "$(pwd)/src:/app/src" \
   -v "$(pwd)/plugins:/app/plugins" \
   -v "$(pwd)/config:/app/config" \
@@ -133,7 +132,7 @@ docker run -d \
   -v "$(pwd)/app.ts:/app/app.ts" \
   -v "$(pwd)/package.json:/app/package.json" \
   -v "$(pwd)/tsconfig.json:/app/tsconfig.json" \
-  -v "$(pwd)/install-mioku.sh:/app/install-mioku.sh" \
+  -v "$(pwd)/install-mioku.ts:/app/install-mioku.ts" \
   -v "$(pwd)/src:/app/src" \
   -v "$(pwd)/plugins:/app/plugins" \
   -v "$(pwd)/config:/app/config" \
@@ -186,10 +185,12 @@ docker restart mioku
 每个插件可以注册一个 Skill，Skill 包含多个工具（Tool）。
 
 **命名规则：**
+
 - Skill 名称：通常与插件名相同（如 `chat`）
 - 工具调用：`{skill_name}.{tool_name}`（如 `chat.send_group_message`）
 
 **优势：**
+
 - 清晰的命名空间，避免工具名冲突
 - 按插件组织工具，便于管理
 - AI 可以理解工具的来源和分组

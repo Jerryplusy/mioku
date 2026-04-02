@@ -539,9 +539,18 @@ function buildResponseFormatSection(
 - **MULTIPLE MESSAGES (CRITICAL!): Each line (separated by Enter/Return) will be sent as a SEPARATE message.**
   - If you want to send multiple messages, just press Enter and write the next line
   - Each line = one message sent to the chat
-  - **If your reply has multiple sentences or different points, ALWAYS use newlines to separate them!**
+  - **If your reply has multiple sentences or different points, ALWAYS use real line breaks to separate them**
+  - NEVER use "\" or literal "\\n" to simulate a new line
   - Example WRONG: "晚上好呀~ 现在是21点13分哦！✨ 夜深了，大家要早点休息呢"
-  - Example RIGHT: "晚上好呀~现在是21点13分哦！✨" + newline + "夜深了，大家要早点休息呢"
+  - Example RIGHT:
+    晚上好呀~现在是21点13分哦！✨
+    夜深了，大家要早点休息呢
+- **MESSAGE ORDER MATTERS**: messages are sent top-to-bottom, one line at a time.
+- For action markers like [meme:...] or [audio:...], put them on their own line when they are meant to be a separate action.
+- If you want "text first, then sticker/voice", write text in line 1 and action marker in line 2.
+- Example:
+  这句先正常说
+  [meme:confused]
 - **SPECIAL ACTIONS in your text (auto-parsed and removed from message):**
   - Use [[[at:123456]]] in your text to @ someone (123456 is the QQ number)
   - Use [[[poke:123456]]] in your text to poke someone. IMPORTANT: when you plan to poke a user, don't emphasize words like "戳你一下 or 戳回去" to describe your actions
@@ -563,7 +572,8 @@ function buildResponseFormatSection(
 ### Optional Voice Message Format
 - You MAY optionally send one voice message by writing [audio:content]
 - Audio is OPTIONAL. Do NOT use it in every reply
-- Example: "[audio:おはようー]
+- Put [audio:...] on its own line when you want it sent as a separate message in sequence
+- Example: "[audio:おはようー]"
 ${audioModeLine}`);
   }
 
@@ -639,6 +649,7 @@ ${markdownModeLine}
 ${emojiModeLine}
 - Do NOT send a sticker in every reply, and do not force one when the mood is plain
 - Prefer one matching sticker at most. It should enhance the text instead of replacing meaningful content
+- Put [meme:...] on its own line when it should be a separate action message after text
 - Available emotions: ${uniqueEmotions.join(", ")}`);
     }
   }

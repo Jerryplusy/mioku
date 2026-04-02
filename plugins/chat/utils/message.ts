@@ -105,7 +105,10 @@ export function extractContent(
   cfg: ChatConfig,
   ctx: MiokiContext,
 ): { text: string; multimodal: any[] | null } {
-  let text = ctx.text(e) || "";
+  let text = "";
+  try {
+    text = ctx.text(e) || "";
+  } catch {}
 
   // If text is empty but user @'d the bot, describe the action
   if (!text.trim() && e.message) {

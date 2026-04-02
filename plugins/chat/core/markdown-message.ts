@@ -538,14 +538,16 @@ export async function renderMarkdownScreenshot(
       }
       .md-code-block pre {
         margin: 0;
-        padding: 18px 20px 20px;
+        padding: 10px 20px 16px;
         overflow: auto;
         background: transparent;
+        line-height: 1.62;
       }
       .md-code-block code {
         display: block;
+        margin: 0;
         font-size: 13px;
-        line-height: 1.7;
+        line-height: 1.62;
       }
       .md-image-placeholder {
         margin: 1em 0;
@@ -555,45 +557,71 @@ export async function renderMarkdownScreenshot(
         color: ${theme.muted};
         background: ${theme.quoteBg};
       }
-      .md-math-inline {
-        display: inline-block;
+      .markdown-body .md-math-inline {
+        display: inline-flex;
+        align-items: baseline;
         max-width: 100%;
-        vertical-align: middle;
-        padding: 0 0.06em;
+        margin: 0 0.04em;
+        line-height: 1;
+        vertical-align: -0.08em;
       }
-      .md-math-block {
-        margin: 1.15em 0 1.3em;
-        padding: 16px 18px;
+      .markdown-body .md-math-inline > math {
+        font-size: 0.98em;
+        line-height: 1;
+        color: ${theme.mathText};
+      }
+      .markdown-body .md-math-block {
+        margin: 1.2em 0 1.35em;
+        padding: 14px 16px;
         border-radius: 18px;
-        border: 1px solid ${theme.tableBorder};
-        background: ${theme.quoteBg};
+        border: 1px solid ${theme.mathBlockBorder};
+        background: ${theme.mathBlockBg};
         overflow-x: auto;
+        text-align: left;
       }
-      .md-math-block math {
+      .markdown-body .md-math-block > math {
         display: block;
+        min-width: max-content;
+        font-size: 1em;
+        line-height: 1.28;
+        color: ${theme.mathText};
       }
       .markdown-body math {
-        color: ${theme.heading};
-        font-size: 1.05em;
+        font-family: ${theme.mathFontFamily};
+        font-style: normal;
+        letter-spacing: normal;
+        word-spacing: normal;
+        font-weight: 400;
+        font-kerning: normal;
+        text-rendering: optimizeLegibility;
+      }
+      .markdown-body math * {
+        font-family: ${theme.mathFontFamily};
+        font-style: normal;
+        font-weight: inherit;
+      }
+      .markdown-body math[display="block"] {
+        margin: 0;
       }
       .md-math-fallback,
       .md-math-fallback-inline {
         font-family: "JetBrains Mono", "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
       }
       .md-math-fallback {
-        margin: 1.15em 0 1.3em;
-        padding: 16px 18px;
+        margin: 1.2em 0 1.35em;
+        padding: 14px 16px;
         border-radius: 18px;
-        border: 1px dashed ${theme.divider};
-        background: ${theme.quoteBg};
+        border: 1px dashed ${theme.mathInlineBorder};
+        background: ${theme.mathBlockBg};
         color: ${theme.muted};
         white-space: pre-wrap;
       }
       .md-math-fallback-inline {
         padding: 0.14em 0.42em;
         border-radius: 8px;
-        background: ${theme.inlineCodeBg};
-        color: ${theme.inlineCodeText};
+        border: 1px solid ${theme.mathInlineBorder};
+        background: ${theme.mathInlineBg};
+        color: ${theme.mathText};
       }
       .hljs {
         color: ${theme.hljsText};
@@ -842,6 +870,13 @@ function buildLightTheme() {
     tableBg: "rgba(255, 255, 255, 0.82)",
     tableHeadBg: "rgba(226, 248, 246, 0.88)",
     tableBorder: "rgba(148, 213, 209, 0.45)",
+    mathFontFamily:
+      '"STIX Two Text", "Cambria Math", "Times New Roman", "Noto Serif SC", "Source Han Serif SC", serif',
+    mathText: "#13424a",
+    mathInlineBg: "rgba(232, 250, 248, 0.92)",
+    mathInlineBorder: "rgba(148, 213, 209, 0.52)",
+    mathBlockBg: "rgba(232, 250, 248, 0.88)",
+    mathBlockBorder: "rgba(134, 208, 202, 0.58)",
     inlineCodeBg: "rgba(212, 246, 242, 0.95)",
     inlineCodeText: "#115e59",
     codeBg: "#f6fffe",
@@ -896,6 +931,13 @@ function buildDarkTheme() {
     tableBg: "rgba(9, 29, 39, 0.82)",
     tableHeadBg: "rgba(12, 43, 53, 0.92)",
     tableBorder: "rgba(75, 132, 146, 0.36)",
+    mathFontFamily:
+      '"STIX Two Text", "Cambria Math", "Times New Roman", "Noto Serif SC", "Source Han Serif SC", serif',
+    mathText: "#d6f6f1",
+    mathInlineBg: "rgba(18, 52, 65, 0.9)",
+    mathInlineBorder: "rgba(82, 156, 171, 0.42)",
+    mathBlockBg: "rgba(15, 44, 56, 0.84)",
+    mathBlockBorder: "rgba(83, 158, 173, 0.44)",
     inlineCodeBg: "rgba(16, 56, 70, 0.9)",
     inlineCodeText: "#8ef1e3",
     codeBg: "#071722",
