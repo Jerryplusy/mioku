@@ -29,6 +29,7 @@ export const SETTINGS_CONFIG = {
   enableExternalSkills: true,
   stream: true,
   enableTypingDelay: true,
+  typingDelayMaxTotalMs: 10_000,
   enableMarkdownScreenshot: true,
   debug: false,
   outputLengthConstraintStrength: "medium",

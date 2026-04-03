@@ -148,6 +148,7 @@ export interface ChatConfig {
   enableExternalSkills: boolean;
   stream: boolean;
   enableTypingDelay: boolean;
+  typingDelayMaxTotalMs: number;
   enableMarkdownScreenshot: boolean;
   debug: boolean;
   outputLengthConstraintStrength: "low" | "medium" | "high";

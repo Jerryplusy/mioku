@@ -547,10 +547,7 @@ function buildResponseFormatSection(
     夜深了，大家要早点休息呢
 - **MESSAGE ORDER MATTERS**: messages are sent top-to-bottom, one line at a time.
 - For action markers like [meme:...] or [audio:...], put them on their own line when they are meant to be a separate action.
-- If you want "text first, then sticker/voice", write text in line 1 and action marker in line 2.
-- Example:
-  这句先正常说
-  [meme:confused]
+
 - **SPECIAL ACTIONS in your text (auto-parsed and removed from message):**
   - Use [[[at:123456]]] in your text to @ someone (123456 is the QQ number)
   - Use [[[poke:123456]]] in your text to poke someone. IMPORTANT: when you plan to poke a user, don't emphasize words like "戳你一下 or 戳回去" to describe your actions
@@ -591,12 +588,7 @@ ${audioModeLine}`);
 - Markdown blocks are ideal for long explanations, tutorials, comparisons, tables, structured notes, and code examples.
 ${markdownModeLine}
 - Inside <MARKDOWN>...</MARKDOWN>, there is NO length limit. If the user needs detail, explain clearly and thoroughly instead of over-compressing.
-- Markdown supports headings, lists, tables, blockquotes, and fenced code blocks with language names for syntax highlighting.
-- Markdown screenshots also support standard LaTeX math formulas. Use $...$ for inline formulas and $$...$$ for display formulas.
-- You may freely use formulas, derivations, matrices, integrals, chemical equations, physical quantities, and units when explaining math, physics, or chemistry.
-- Prefer standard ASCII LaTeX punctuation inside formulas so they render reliably.
-- When a short plain chat reply is enough, prefer normal text instead of Markdown.
-- However, if the user's content contains information that requires detailed explanation, complexity, comparison, summarization, generalization, analysis, or discussion, don't hesitate to immediately choose to use Markdown for explanation.`);
+`);
   }
 
   if (toolStrength === "high") {
