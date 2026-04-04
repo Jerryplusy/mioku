@@ -15,6 +15,7 @@ import type { PromptContext } from "./prompt";
 import type { SkillSessionManager } from "./tools";
 import { createTools } from "./tools";
 import { buildSystemPrompt } from "./prompt";
+import { isExternalSkillAllowed } from "./external-skills";
 import {
   consumeCompleteStreamUnits,
   splitOutgoingUnits,
@@ -50,7 +51,12 @@ export async function runChat(
 ): Promise<ChatResult> {
   const { tools: chatTools } = createTools(toolCtx, skillManager);
   const skillTools = skillManager.getTools(toolCtx.sessionId);
-  const activeSkillsInfo = skillManager.getActiveSkillsInfo(toolCtx.sessionId);
+  const activeSkillsInfo = skillManager.getActiveSkillsInfo(
+    toolCtx.sessionId,
+    (skillName) =>
+      toolCtx.config.enableExternalSkills &&
+      isExternalSkillAllowed(toolCtx.config, skillName),
+  );
   const prompt = buildSystemPrompt({
     ...promptCtx,
     activeSkillsInfo: activeSkillsInfo || undefined,
@@ -335,6 +341,14 @@ function buildSessionTools(
   }
 
   for (const [name, tool] of skillTools) {
+    const skillName = name.split(".")[0] || "";
+    if (
+      !toolCtx.config.enableExternalSkills ||
+      !isExternalSkillAllowed(toolCtx.config, skillName)
+    ) {
+      continue;
+    }
+
     tools.push({
       name,
       tool: {

@@ -3,6 +3,10 @@ import type { AITool } from "../../../src";
 import type { SkillSession, ToolContext } from "../types";
 import { searchWebWithSearxng } from "./searxng";
 import { readWebPage } from "./web-reader";
+import {
+  filterAllowedExternalSkills,
+  isExternalSkillAllowed,
+} from "./external-skills";
 
 interface CreateToolsResult {
   tools: AITool[];
@@ -16,7 +20,10 @@ export interface SkillSessionManager {
     tools: AITool[],
   ): SkillSession;
   unloadSkill(sessionId: string, skillName: string): boolean;
-  getActiveSkillsInfo(sessionId: string): string;
+  getActiveSkillsInfo(
+    sessionId: string,
+    isSkillVisible?: (skillName: string) => boolean,
+  ): string;
   cleanup(): void;
 }
 
@@ -43,7 +50,14 @@ export function createTools(
 
   // === Meta tools (conditional) ===
   if (toolCtx.config.enableExternalSkills) {
-    tools.push(createLoadSkillTool(toolCtx, skillManager));
+    const allSkills = toolCtx.aiService.getAllSkills?.();
+    const allowedSkills = allSkills
+      ? filterAllowedExternalSkills(toolCtx.config, [...allSkills.values()])
+      : [];
+
+    if (allowedSkills.length > 0) {
+      tools.push(createLoadSkillTool(toolCtx, skillManager));
+    }
   }
 
   return { tools };
@@ -506,6 +520,21 @@ function createLoadSkillTool(
       required: ["skill_name"],
     },
     handler: async (args) => {
+      if (!isExternalSkillAllowed(toolCtx.config, args.skill_name)) {
+        const allSkills = toolCtx.aiService.getAllSkills?.();
+        const allowedSkills = allSkills
+          ? filterAllowedExternalSkills(toolCtx.config, [...allSkills.values()])
+          : [];
+        const allowedNames = allowedSkills.map((skill) => skill.name);
+
+        return {
+          error:
+            allowedNames.length > 0
+              ? `Skill "${args.skill_name}" is not allowed. Allowed skills: ${allowedNames.join(", ")}`
+              : "No external skills are allowed in current config",
+        };
+      }
+
       const skill = toolCtx.aiService.getSkill(args.skill_name);
       if (!skill) {
         return { error: `Skill "${args.skill_name}" does not exist` };

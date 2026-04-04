@@ -60,7 +60,10 @@ export class SkillSessionManager {
     return sessionSkills.delete(skillName);
   }
 
-  getActiveSkillsInfo(sessionId: string): string {
+  getActiveSkillsInfo(
+    sessionId: string,
+    isSkillVisible?: (skillName: string) => boolean,
+  ): string {
     const sessionSkills = this.sessions.get(sessionId);
     if (!sessionSkills || sessionSkills.size === 0) return "";
 
@@ -70,6 +73,9 @@ export class SkillSessionManager {
     for (const [skillName, session] of sessionSkills) {
       if (now > session.expiresAt) {
         sessionSkills.delete(skillName);
+        continue;
+      }
+      if (isSkillVisible && !isSkillVisible(skillName)) {
         continue;
       }
       const remainingMin = Math.ceil((session.expiresAt - now) / 60000);

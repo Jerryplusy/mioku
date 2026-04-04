@@ -146,6 +146,7 @@ export interface ChatConfig {
   maxIterations: number;
   enableGroupAdmin: boolean;
   enableExternalSkills: boolean;
+  allowedExternalSkills: string[];
   stream: boolean;
   enableTypingDelay: boolean;
   typingDelayMaxTotalMs: number;

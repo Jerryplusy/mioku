@@ -2,6 +2,7 @@ import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
 import type { AIService } from "../../../src/services/ai";
 import { pickPersonalityState, pickReplyStyle } from "../humanize";
 import type { EmojiAgent } from "../humanize";
+import { filterAllowedExternalSkills } from "./external-skills";
 
 export interface PromptContext {
   config: ChatConfig;
@@ -696,7 +697,9 @@ Admin rules:
   // External skills note
   if (ctx.config.enableExternalSkills) {
     const skillsMap = ctx.aiService.getAllSkills?.();
-    const skillEntries = skillsMap ? [...skillsMap.values()] : [];
+    const skillEntries = skillsMap
+      ? filterAllowedExternalSkills(ctx.config, [...skillsMap.values()])
+      : [];
     const skillList =
       skillEntries.length > 0
         ? skillEntries.map((s) => `- ${s.name}: ${s.description}`).join("\n")
@@ -705,8 +708,8 @@ Admin rules:
     if (skillList) {
       lines.push(`
 ### External Skills
-You can load external skills to gain additional capabilities. Use load_skill to load, unload_skill to remove.
-Available skills:
+You can load external skills to gain additional capabilities. Use load_skill to load the allowed skills below.
+Allowed skills:
 ${skillList}`);
     }
   }

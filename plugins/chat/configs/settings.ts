@@ -27,6 +27,7 @@ export const SETTINGS_CONFIG = {
   maxSessions: 100,
   enableGroupAdmin: true,
   enableExternalSkills: true,
+  allowedExternalSkills: [],
   stream: true,
   enableTypingDelay: true,
   typingDelayMaxTotalMs: 10_000,
