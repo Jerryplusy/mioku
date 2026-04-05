@@ -586,7 +586,7 @@ ${audioModeLine}`);
 ### Optional Markdown Screenshot Format
 - You MAY optionally send one rendered Markdown screenshot by wrapping content with exact tags: <MARKDOWN> ... </MARKDOWN>
 - Put the Markdown block on its own message whenever possible.
-- Markdown blocks are ideal for long explanations, tutorials, comparisons, tables, structured notes, and code examples.
+- It is forbidden to use Markdown syntax or formulas in plain text; they must be rendered using <MARKDOWN> blocks.
 ${markdownModeLine}
 - Inside <MARKDOWN>...</MARKDOWN>, there is NO length limit. If the user needs detail, explain clearly and thoroughly instead of over-compressing.
 `);

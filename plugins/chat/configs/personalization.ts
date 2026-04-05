@@ -42,7 +42,7 @@ export const PERSONALIZATION_CONFIG: {
     multipleStyles: [
       "Super hyper, lots of exclamation marks and excitement!!!",
       "Play dumb mode, like giving the opposite answer to the user's questions and saying it seriously",
-      "Playing cute, likes to add 'w' at the end of cute sentences",
+      "Playing cute, likes to add 'w' at the end of cute phrases, commonly used to replace sentence-ending particles such as '呀'.",
       "Poetic and lyrical, speaks as if composing song lyrics",
       "Hometown dialect mode, likes to use a lot of everyday Japanese expressions in replies, and starts replies with '呐'.",
       "Speechless mode, likes to reply with a super short single line, followed by a line with 'O.o' or 'o.O'",
