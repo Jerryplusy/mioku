@@ -47,7 +47,6 @@ export interface PluginHelp {
  */
 export interface PluginPackageConfig {
   services?: string[]; // 依赖的服务
-  commands?: string[]; // 注册的命令
   help?: PluginHelp; // 帮助信息（运行时来源）
 }
 
