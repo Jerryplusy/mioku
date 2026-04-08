@@ -391,8 +391,6 @@ class AIInstanceImpl implements AIInstance {
         sessionMessages.push(toolMessage);
         turnMessages.push(toolMessage);
       }
-
-      continue;
     }
 
     logger.warn(
@@ -804,8 +802,7 @@ function parseToolArguments(raw: string): any {
 function isToolErrorResult(result: any): boolean {
   if (!result || typeof result !== "object") return false;
   if (result.error) return true;
-  if (result.success === false) return true;
-  return false;
+  return result.success === false;
 }
 
 function buildToolCallKey(name: string, args: any): string {
@@ -839,9 +836,7 @@ function extractTextContent(
 
   return content
     .filter((part): part is { type: "text"; text: string } => {
-      return Boolean(
-        part && part.type === "text" && typeof part.text === "string",
-      );
+      return Boolean(part && part.type === "text");
     })
     .map((part) => part.text)
     .join("\n")

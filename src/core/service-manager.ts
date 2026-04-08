@@ -25,7 +25,7 @@ export class ServiceManager {
 
   constructor(servicesDir: string = "src/services") {
     this.servicesDir = path.resolve(process.cwd(), servicesDir);
-    this.ensureServicesDir();
+    this.ensureServicesDir().then();
   }
 
   public static getInstance(): ServiceManager {

@@ -89,7 +89,10 @@ export async function runChat(
     : [];
 
   if (hasStructuredHistory) {
-    structuredHistory!.manager.touch(toolCtx.sessionId, structuredHistory!.ttlMs);
+    structuredHistory!.manager.touch(
+      toolCtx.sessionId,
+      structuredHistory!.ttlMs,
+    );
   }
 
   const streamEnabled = Boolean(toolCtx.config.stream);
@@ -151,7 +154,11 @@ export async function runChat(
       toolCtx.pendingImageUrls,
     ),
     executableToolsProvider: () =>
-      buildSessionTools(chatTools, skillManager.getTools(toolCtx.sessionId), toolCtx),
+      buildSessionTools(
+        chatTools,
+        skillManager.getTools(toolCtx.sessionId),
+        toolCtx,
+      ),
     temperature: toolCtx.config.temperature,
     maxIterations: toolCtx.config.maxIterations,
     stream: streamEnabled,
@@ -295,7 +302,10 @@ function buildCurrentMessages(
 
   if (currentUserMessages.length > 0) {
     messages.push(
-      ...attachImagesToCurrentUserMessages(currentUserMessages, pendingImageUrls),
+      ...attachImagesToCurrentUserMessages(
+        currentUserMessages,
+        pendingImageUrls,
+      ),
     );
     return messages;
   }
@@ -413,7 +423,11 @@ function persistStructuredHistory(
     });
   }
 
-  structuredHistory.manager.append(sessionId, messages, structuredHistory.ttlMs);
+  structuredHistory.manager.append(
+    sessionId,
+    messages,
+    structuredHistory.ttlMs,
+  );
 }
 
 function isPlainAssistantMessage(message: any): boolean {
@@ -435,8 +449,7 @@ function cleanMarkers(text: string): string {
 function isToolErrorResult(result: any): boolean {
   if (!result || typeof result !== "object") return false;
   if (result.error) return true;
-  if (result.success === false) return true;
-  return false;
+  return result.success === false;
 }
 
 async function generateToolFailureReply(
@@ -483,7 +496,9 @@ ${failedSummary}
       return text;
     }
   } catch (err) {
-    logger.warn(`[chat-engine] Failed to generate tool-failure fallback reply: ${err}`);
+    logger.warn(
+      `[chat-engine] Failed to generate tool-failure fallback reply: ${err}`,
+    );
   }
 
   return "我刚刚查这条信息时出了点问题，你可以换个关键词再试试，或者给我更具体一点的线索。";
