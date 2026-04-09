@@ -1,8 +1,16 @@
-import type { MiokuPlugin } from "../../src";
-import type { AIService } from "../../src/services/ai";
-import type { ConfigService } from "../../src/services/config";
-import type { ScreenshotService } from "../../src/services/screenshot";
-import { logger, MiokiContext } from "mioki";
+import type { AITool } from "../../src";
+import type {
+  AIService,
+  ChatRuntime,
+  ChatRuntimeCollectedInfo,
+  ChatRuntimeInformationRequestOptions,
+  ChatRuntimeNoticeOptions,
+  ChatRuntimePromptInjection,
+  ChatRuntimeResult,
+} from "../../src/services/ai/types";
+import type { ConfigService } from "../../src/services/config/tpyes";
+import type { ScreenshotService } from "../../src/services/screenshot/types";
+import { definePlugin, logger, MiokiContext } from "mioki";
 import type {
   ChatConfig,
   ChatMessage,
@@ -91,11 +99,27 @@ function buildStructuredUserInputFromTarget(
   });
 }
 
-const chatPlugin: MiokuPlugin = {
+type RuntimeReplyContextType =
+  | "reply"
+  | "comment"
+  | "idle"
+  | "review"
+  | "poked";
+
+interface ExecuteChatRuntimeRequestOptions {
+  event: any;
+  config: ChatConfig;
+  targetMessageContent?: string;
+  promptInjections?: ChatRuntimePromptInjection[];
+  extraTools?: AITool[];
+  send?: boolean;
+  replyContextType?: RuntimeReplyContextType;
+}
+
+const chatPlugin = definePlugin({
   name: "chat",
   version: "1.0.0",
   description: "AI 智能聊天插件",
-  services: ["ai", "config", "help", "screenshot"],
 
   async setup(ctx: MiokiContext) {
     ctx.logger.info("聊天插件正在初始化...");

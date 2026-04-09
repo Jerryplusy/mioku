@@ -252,9 +252,12 @@ Response format (JSON):
       }
     }
 
-    const character = type === "meme"
-      ? (characters && characters.length > 0 ? characters[0] : "unknown")
-      : undefined;
+    const character =
+      type === "meme"
+        ? characters && characters.length > 0
+          ? characters[0]
+          : "unknown"
+        : undefined;
 
     logger.info(
       `[image-analyzer] ✓ ${type === "meme" ? "Meme" : "Image"}: ${description}${emotion ? ` [${emotion}]` : ""}${characters && characters.length > 0 ? ` (${characters.join(", ")})` : ""}`,
@@ -306,11 +309,7 @@ export async function processImage(
     let filePath: string | undefined;
 
     // 如果是表情包，下载到本地
-    if (
-      analysis.type === "meme" &&
-      analysis.emotion &&
-      analysis.description
-    ) {
+    if (analysis.type === "meme" && analysis.emotion && analysis.description) {
       // 确定文件扩展名：GIF 用 .gif，其他用原始扩展名
       const ext = analysis.gifBuffer ? ".gif" : getImageExtension(imageUrl);
 
@@ -322,9 +321,10 @@ export async function processImage(
       const fileName = `${safeDesc}${ext}`;
 
       // 获取角色列表（支持多个角色）
-      const characters = analysis.characters && analysis.characters.length > 0
-        ? analysis.characters
-        : [analysis.character || "unknown"];
+      const characters =
+        analysis.characters && analysis.characters.length > 0
+          ? analysis.characters
+          : [analysis.character || "unknown"];
 
       // 为每个角色创建文件夹并保存图片
       const savePromises = characters.map(async (character) => {
@@ -347,17 +347,23 @@ export async function processImage(
         if (analysis.gifBuffer) {
           try {
             await fs.writeFile(targetPath, analysis.gifBuffer);
-            logger.info(`[image-analyzer] ✓ Saved GIF for ${character}: ${targetPath}`);
+            logger.info(
+              `[image-analyzer] ✓ Saved GIF for ${character}: ${targetPath}`,
+            );
             return targetPath;
           } catch (err) {
-            logger.warn(`[image-analyzer] Failed to save GIF for ${character}: ${err}`);
+            logger.warn(
+              `[image-analyzer] Failed to save GIF for ${character}: ${err}`,
+            );
             return null;
           }
         } else {
           // 普通图片，下载
           const downloaded = await downloadImage(imageUrl, targetPath);
           if (downloaded) {
-            logger.info(`[image-analyzer] ✓ Saved for ${character}: ${targetPath}`);
+            logger.info(
+              `[image-analyzer] ✓ Saved for ${character}: ${targetPath}`,
+            );
             return targetPath;
           } else {
             logger.warn(`[image-analyzer] Download failed for ${character}`);

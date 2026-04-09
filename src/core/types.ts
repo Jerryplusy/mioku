@@ -51,19 +51,6 @@ export interface PluginPackageConfig {
 }
 
 /**
- * Mioku 插件定义
- */
-export interface MiokuPlugin {
-  name: string;
-  version?: string;
-  description?: string;
-  priority?: number;
-  dependencies?: string[];
-  services?: string[];
-  setup?: (ctx: MiokiContext) => any;
-}
-
-/**
  * Mioku 服务定义
  */
 export interface MiokuService {

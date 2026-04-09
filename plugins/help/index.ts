@@ -1,9 +1,8 @@
-import type { MiokuPlugin } from "../../src";
 import type { AIService } from "../../src/services/ai/types";
 import type { ConfigService } from "../../src/services/config/tpyes";
 import type { HelpService } from "../../src/services/help/types";
 import type { ScreenshotService } from "../../src/services/screenshot/types";
-import type { MiokiContext } from "mioki";
+import { definePlugin, type MiokiContext } from "mioki";
 import * as path from "path";
 import { HELP_DEMO_CONFIG } from "./demo-config";
 import {
@@ -14,7 +13,7 @@ import {
 } from "./shared";
 import { resetHelpRuntimeState, setHelpRuntimeState } from "./runtime";
 
-const helpPlugin: MiokuPlugin = {
+const helpPlugin = definePlugin({
   name: "help",
   version: "1.0.0",
   description: "帮助插件，生成帮助图片",
@@ -97,6 +96,6 @@ const helpPlugin: MiokuPlugin = {
       ctx.logger.info("帮助插件已卸载");
     };
   },
-};
+});
 
 export default helpPlugin;
