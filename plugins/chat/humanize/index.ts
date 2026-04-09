@@ -6,7 +6,7 @@ export { TypoGenerator } from "./typo";
 export { ExpressionLearner } from "./expression";
 export { pickReplyStyle, pickPersonalityState } from "./utils";
 
-import type { AIInstance } from "../../../src/services/ai";
+import type { AIInstance } from "../../../src/services/ai/types";
 import type { ChatDatabase } from "../db";
 import type { ChatConfig } from "../types";
 import { EmojiAgent } from "./emoji-agent";

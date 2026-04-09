@@ -1,5 +1,6 @@
 import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
-import type { AIService } from "../../../src/services/ai";
+import type { AIService } from "../../../src/services/ai/types";
+import type { ChatRuntimePromptInjection } from "../../../src/services/ai/types";
 import { pickPersonalityState, pickReplyStyle } from "../humanize";
 import type { EmojiAgent } from "../humanize";
 import { filterAllowedExternalSkills } from "./external-skills";

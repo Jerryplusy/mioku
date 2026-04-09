@@ -1,7 +1,7 @@
 import type {
   AIInstance,
   SessionToolDefinition,
-} from "../../../src/services/ai";
+} from "../../../src/services/ai/types";
 import { logger } from "mioki";
 import type { AITool } from "../../../src";
 import type {

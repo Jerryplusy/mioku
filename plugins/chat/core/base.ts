@@ -9,7 +9,7 @@ import type { ChatDatabase } from "../db";
 import type { HumanizeEngine } from "../humanize";
 import { parseLineMarkers, splitByReplyMarkers } from "../utils/queue";
 import { getGroupHistory } from "../utils";
-import type { ScreenshotService } from "../../../src/services/screenshot";
+import type { ScreenshotService } from "../../../src/services/screenshot/types";
 import { synthesizeAudioBase64 } from "./audio";
 import {
   extractStandaloneMarkdownBlock,

@@ -1,5 +1,5 @@
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import type { MultimodalContentItem } from "../../../src/services/ai";
+import type { MultimodalContentItem } from "../../../src/services/ai/types";
 
 export interface StructuredUserInput {
   userName: string;

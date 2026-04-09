@@ -1,4 +1,4 @@
-import type { AIInstance } from "../../../src/services/ai";
+import type { AIInstance } from "../../../src/services/ai/types";
 import type { MiokiContext } from "mioki";
 import { logger } from "mioki";
 

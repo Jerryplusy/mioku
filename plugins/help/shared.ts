@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import type { CommandRole, PluginHelp } from "../../src";
-import type { HelpService } from "../../src/services/help";
-import type { ScreenshotService } from "../../src/services/screenshot";
+import type { HelpService } from "../../src/services/help/types";
+import type { ScreenshotService } from "../../src/services/screenshot/types";
 
 const ROLE_CONFIG: Record<
   CommandRole,
@@ -72,9 +72,7 @@ export async function getHelpRenderVersions(): Promise<{
   const miokiVersion = await getPackageVersion(
     `${process.cwd()}/node_modules/mioki/package.json`,
   );
-  const miokuVersion = await getPackageVersion(
-    `${process.cwd()}/package.json`,
-  );
+  const miokuVersion = await getPackageVersion(`${process.cwd()}/package.json`);
 
   return {
     miokiVersion,
@@ -183,8 +181,7 @@ export async function sendImageFromSkillContext(options: {
   quoteReply?: boolean;
 }): Promise<void> {
   const { ctx, event, imagePath, quoteReply = false } = options;
-  const selfId =
-    event?.self_id != null ? Number(event.self_id) : undefined;
+  const selfId = event?.self_id != null ? Number(event.self_id) : undefined;
   const bot =
     selfId != null && typeof ctx?.pickBot === "function"
       ? ctx.pickBot(selfId)
@@ -822,7 +819,9 @@ export function resolveHelpBotProfile(
   const fallbackNickname = "Mioku Bot";
   const selfId = event?.self_id;
   const bot =
-    (selfId && typeof ctx?.pickBot === "function" ? ctx.pickBot(selfId) : null) ||
+    (selfId && typeof ctx?.pickBot === "function"
+      ? ctx.pickBot(selfId)
+      : null) ||
     (ctx?.bots instanceof Map ? Array.from(ctx.bots.values())[0] : null);
   const botId = selfId || bot?.uin || bot?.user_id || bot?.self_id;
   const botNickname = bot?.nickname || bot?.name || fallbackNickname;

@@ -1,6 +1,6 @@
 import { logger } from "mioki";
 import puppeteer from "puppeteer";
-import type { AIInstance } from "../../../src/services/ai";
+import type { AIInstance } from "../../../src/services/ai/types";
 import type { WebReaderConfig } from "../types";
 
 type ReadMode = "fetch" | "browser";
@@ -102,8 +102,14 @@ function clampText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars).trim()}...`;
 }
 
-function trimList(values: string[], maxItems: number, maxChars: number): string[] {
-  const deduped = [...new Set(values.map((item) => normalizeText(item)).filter(Boolean))];
+function trimList(
+  values: string[],
+  maxItems: number,
+  maxChars: number,
+): string[] {
+  const deduped = [
+    ...new Set(values.map((item) => normalizeText(item)).filter(Boolean)),
+  ];
   return deduped.slice(0, maxItems).map((item) => clampText(item, maxChars));
 }
 
@@ -252,15 +258,17 @@ function pickBestParagraphs(text: string, maxChars: number): string {
   }
 
   if (paragraphs.length <= 8) {
-    return clampText(paragraphs.map((paragraph) => paragraph.text).join("\n\n"), maxChars);
+    return clampText(
+      paragraphs.map((paragraph) => paragraph.text).join("\n\n"),
+      maxChars,
+    );
   }
 
   const scored = paragraphs.map((paragraph) => {
     const value = paragraph.text;
-    const punctuationCount =
-      (value.match(/[，。！？；：,.!?;:]/g) || []).length;
-    const sentenceCount =
-      (value.match(/[。！？.!?]/g) || []).length;
+    const punctuationCount = (value.match(/[，。！？；：,.!?;:]/g) || [])
+      .length;
+    const sentenceCount = (value.match(/[。！？.!?]/g) || []).length;
     const linkLikeCount = (value.match(/https?:\/\/|www\./g) || []).length;
     const separatorCount = (value.match(/[|>•·]/g) || []).length;
 
@@ -284,7 +292,13 @@ function pickBestParagraphs(text: string, maxChars: number): string {
   return clampText(selected.join("\n\n"), maxChars);
 }
 
-function extractHtmlContent(html: string, cfg: WebReaderConfig): Omit<ExtractedPage, "finalUrl" | "contentType" | "statusCode" | "sourceBytes"> {
+function extractHtmlContent(
+  html: string,
+  cfg: WebReaderConfig,
+): Omit<
+  ExtractedPage,
+  "finalUrl" | "contentType" | "statusCode" | "sourceBytes"
+> {
   const title = extractTitleFromHtml(html);
   const metaDescription = extractMetaDescription(html);
   const headings = extractHeadings(html);
@@ -366,7 +380,9 @@ async function readResponseText(
     return { text, bytes };
   }
 
-  const decoder = createTextDecoder(parseCharset(response.headers.get("content-type")));
+  const decoder = createTextDecoder(
+    parseCharset(response.headers.get("content-type")),
+  );
   let bytes = 0;
   let text = "";
 
@@ -389,7 +405,10 @@ async function readResponseText(
   return { text, bytes };
 }
 
-function isAllowedContentType(contentType: string | null, cfg: WebReaderConfig): boolean {
+function isAllowedContentType(
+  contentType: string | null,
+  cfg: WebReaderConfig,
+): boolean {
   if (!contentType) {
     return true;
   }
@@ -432,7 +451,10 @@ async function fetchPage(
     const normalizedContentType = (contentType || "").toLowerCase();
 
     if (normalizedContentType.startsWith("text/plain")) {
-      const normalizedText = clampText(normalizeText(text), cfg.maxExtractedChars);
+      const normalizedText = clampText(
+        normalizeText(text),
+        cfg.maxExtractedChars,
+      );
       return {
         finalUrl,
         title: undefined,
@@ -443,9 +465,7 @@ async function fetchPage(
         statusCode: response.status,
         sourceBytes: bytes,
         warnings:
-          normalizedText.length < 180
-            ? ["Extracted content is sparse."]
-            : [],
+          normalizedText.length < 180 ? ["Extracted content is sparse."] : [],
       };
     }
 
@@ -513,7 +533,9 @@ async function renderPage(
 
       const metaDescription =
         doc
-          ?.querySelector('meta[name="description"], meta[property="og:description"]')
+          ?.querySelector(
+            'meta[name="description"], meta[property="og:description"]',
+          )
           ?.getAttribute("content") || "";
 
       const headings = Array.from(doc?.querySelectorAll("h1, h2, h3") || [])
@@ -522,9 +544,8 @@ async function renderPage(
         .slice(0, 10);
 
       const candidates = Array.from(
-        doc?.querySelectorAll(
-          "article, main, [role='main'], section, div",
-        ) || [],
+        doc?.querySelectorAll("article, main, [role='main'], section, div") ||
+          [],
       ).slice(0, 300) as any[];
 
       let bestNode = doc?.querySelector("article, main, [role='main']") || null;
@@ -658,7 +679,9 @@ async function summarizePage(
 
     const parsed = parseJsonContent(response.content);
     const title = normalizeText(String(parsed.title || page.title || ""));
-    const content = normalizeText(String(parsed.content || parsed.summary || ""));
+    const content = normalizeText(
+      String(parsed.content || parsed.summary || ""),
+    );
     const warnings = trimList(
       [
         ...(Array.isArray(parsed.warnings) ? parsed.warnings.map(String) : []),
@@ -679,7 +702,10 @@ async function summarizePage(
       title: page.title,
       content: page.text,
       warnings: trimList(
-        [...page.warnings, "Model summarization failed; returned fallback extraction."],
+        [
+          ...page.warnings,
+          "Model summarization failed; returned fallback extraction.",
+        ],
         6,
         180,
       ),
@@ -729,19 +755,14 @@ export async function readWebPage(
       };
     }
 
-    const summary = cfg.useWorkingModel && ai
-      ? await summarizePage(
-          ai,
-          model,
-          page,
-          cfg,
-          args.question,
-        )
-      : {
-          title: page.title,
-          content: page.text,
-          warnings: page.warnings,
-        };
+    const summary =
+      cfg.useWorkingModel && ai
+        ? await summarizePage(ai, model, page, cfg, args.question)
+        : {
+            title: page.title,
+            content: page.text,
+            warnings: page.warnings,
+          };
 
     return {
       success: true,
