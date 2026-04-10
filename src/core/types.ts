@@ -1,5 +1,3 @@
-import type { MiokiContext } from "mioki";
-
 /**
  * AI 工具定义
  */
@@ -11,14 +9,14 @@ export interface AITool {
     properties: Record<string, any>;
     required?: string[];
   };
-  handler: (args: any, event?: any) => Promise<any> | any;
+  handler: (args: any, event?: any) => Promise<any> | any; //处理逻辑
 }
 
 /**
- * AI Skill 定义 (一个插件对应一个 skill)
+ * AI Skill 定义
  */
 export interface AISkill {
-  name: string; // skill 名称，通常与插件名相同
+  name: string;
   description: string;
   tools: AITool[]; // skill 下的工具列表
 }
@@ -26,28 +24,29 @@ export interface AISkill {
 /**
  * 指令权限级别
  */
-export type CommandRole = "master" | "admin" | "owner" | "member";
+export type CommandRole = "master" | "admin" | "owner" | "member"; // 主人 管理员 群主 群成员
 
 /**
  * 插件帮助信息
  */
 export interface PluginHelp {
-  title: string;
-  description: string;
+  title: string; // 插件名称
+  description: string; // 描述
   commands: Array<{
-    cmd: string;
-    desc: string;
-    usage?: string;
-    role?: CommandRole;
+    cmd: string; // 命令
+    desc: string; // 命令描述
+    usage?: string; // 使用示例
+    role?: CommandRole; // 使用权限
   }>;
 }
 
 /**
- * 插件包配置 (package.json 中的 mioku 字段)
+ * 插件包配置
+ * package.json 中的 mioku 字段
  */
 export interface PluginPackageConfig {
   services?: string[]; // 依赖的服务
-  help?: PluginHelp; // 帮助信息（运行时来源）
+  help?: PluginHelp; // 帮助信息
 }
 
 /**
@@ -61,7 +60,7 @@ export interface MiokuService {
   // 初始化服务
   init(): Promise<void>;
 
-  // 提供的 API
+  // 服务提供的 API
   api: Record<string, any>;
 
   // 清理资源
@@ -75,9 +74,9 @@ export interface PluginMetadata {
   name: string;
   version: string;
   description?: string;
-  path: string;
-  packageJson: any;
-  config: PluginPackageConfig;
+  path: string; // 插件路径
+  packageJson: any; // 插件 package
+  config: PluginPackageConfig; // 插件 Mioku 配置项
 }
 
 /**
@@ -87,6 +86,6 @@ export interface ServiceMetadata {
   name: string;
   version: string;
   description?: string;
-  path: string;
-  packageJson: any;
+  path: string; // 服务路径
+  packageJson: any; // 服务 package
 }
