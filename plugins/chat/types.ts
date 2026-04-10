@@ -7,17 +7,22 @@ import type { ChatDatabase } from "./db";
  * 人格状态配置
  */
 export interface PersonalityConfig {
+  // 状态列表
   states: string[];
-  stateProbability: number; // 切换到其他状态的概率 (0-1)
+  // 切换到其他状态的概率 (0-1)
+  stateProbability: number;
 }
 
 /**
  * 回复风格配置
  */
 export interface ReplyStyleConfig {
+  // 默认回复风格
   baseStyle: string;
+  // 特殊回复风格
   multipleStyles: string[];
-  multipleProbability: number; // 使用特殊风格的概率 (0-1)
+  // 使用特殊风格的概率 (0-1)
+  multipleProbability: number;
 }
 
 /**
@@ -25,8 +30,10 @@ export interface ReplyStyleConfig {
  */
 export interface MemoryConfig {
   enabled: boolean;
-  maxIterations: number; // ReAct 最大迭代次数
-  timeoutMs: number; // 检索超时
+  // ReAct 最大迭代次数
+  maxIterations: number;
+  // 检索超时
+  timeoutMs: number;
 }
 
 /**
@@ -34,8 +41,11 @@ export interface MemoryConfig {
  */
 export interface TopicConfig {
   enabled: boolean;
-  messageThreshold: number; // 触发话题检查的消息数
-  timeThresholdMs: number; // 触发话题检查的时间间隔
+  // 触发话题检查的消息数
+  messageThreshold: number;
+  // 触发话题检查的时间间隔
+  timeThresholdMs: number;
+  // 一个会话最大的Topic数量
   maxTopicsPerSession: number;
 }
 
@@ -44,9 +54,12 @@ export interface TopicConfig {
  */
 export interface PlannerConfig {
   enabled: boolean;
-  idleThresholdMs: number; // 群聊空闲时间阈值（毫秒）
-  idleMessageCount: number; // 群聊记录保底消息数量
-  idleCheckBotIds: number[]; // 空闲检查的 bot ID 列表
+  // 群聊空闲时间阈值（毫秒）
+  idleThresholdMs: number;
+  // 群聊记录保底消息数量
+  idleMessageCount: number;
+  // 空闲检查的 bot ID 列表
+  idleCheckBotIds: number[];
 }
 
 /**
@@ -54,8 +67,10 @@ export interface PlannerConfig {
  */
 export interface TypoConfig {
   enabled: boolean;
-  errorRate: number; // 单字替换概率 (0-1)
-  wordReplaceRate: number; // 整词替换概率 (0-1)
+  // 单字替换概率 (0-1)
+  errorRate: number;
+  // 整词替换概率 (0-1)
+  wordReplaceRate: number;
 }
 
 /**
@@ -63,7 +78,9 @@ export interface TypoConfig {
  */
 export interface EmojiConfig {
   enabled: boolean;
+  // 允许的表情包角色
   characters: string[];
+  // 使用AI选择表情包发送
   useAISelection: boolean;
 }
 
@@ -72,8 +89,10 @@ export interface EmojiConfig {
  */
 export interface ExpressionConfig {
   enabled: boolean;
-  maxExpressions: number; // 最大学习表达数
-  sampleSize: number; // 每次注入 prompt 的表达数
+  // 最大学习表达数
+  maxExpressions: number;
+  // 每次注入 prompt 的表达数
+  sampleSize: number;
 }
 
 /**
@@ -82,8 +101,11 @@ export interface ExpressionConfig {
  */
 export interface DynamicDelayConfig {
   enabled: boolean;
+  // 互动窗口 在这个区间内统计群聊活跃程度
   interactionWindowMs: number;
+  // 每个人与bot交互后增加的基础延迟
   baseDelayMs: number;
+  // 延迟最大上限
   maxDelayMs: number;
 }
 
@@ -92,9 +114,13 @@ export interface DynamicDelayConfig {
  */
 export interface SearxngConfig {
   enabled: boolean;
+  // 服务器URL
   baseUrl: string;
+  // 超时
   timeoutMs: number;
+  // 获取的搜索结果的默认上限
   defaultLimit: number;
+  // 最大上限
   maxLimit: number;
 }
 
@@ -103,11 +129,17 @@ export interface SearxngConfig {
  */
 export interface WebReaderConfig {
   enabled: boolean;
+  // 是否使用工作模型精简网页结果
   useWorkingModel: boolean;
+  // 超时
   timeoutMs: number;
+  // 最大网页字节数
   maxHtmlBytes: number;
+  // 最大字符数
   maxExtractedChars: number;
+  // 浏览器渲染超时
   browserTimeoutMs: number;
+  // 允许的网页格式
   allowedContentTypes: string[];
 }
 
@@ -116,7 +148,9 @@ export interface WebReaderConfig {
  */
 export interface AudioConfig {
   enabled: boolean;
+  // 服务器URL
   baseUrl: string;
+  // 密钥
   apiKey: string;
   timeoutMs: number;
 }
@@ -242,7 +276,7 @@ export interface ToolContext {
   db: ChatDatabase;
   botRole: "owner" | "admin" | "member";
   /**
-   * 当 AI 返回文本内容时立即调用（不等待工具调用完成）
+   * 当 AI 返回文本内容时立即调用
    * 回调接收文本内容、消息索引、总消息数
    */
   onTextContent?: (
@@ -272,8 +306,6 @@ export interface ChatResult {
   emojiPath?: string | null;
   protocolMessages?: ChatCompletionMessageParam[];
 }
-
-// ==================== 真人化系统数据类型 ====================
 
 /**
  * 话题记录

@@ -37,8 +37,10 @@ export interface MultimodalMessage {
  */
 export interface ToolCallRecord {
   name: string;
-  arguments: any; // 参数
-  result: any; // 调用结果
+  // 参数
+  arguments: any;
+  // 调用结果
+  result: any;
 }
 
 /**
@@ -46,42 +48,59 @@ export interface ToolCallRecord {
  */
 export interface CompleteOptions {
   model: string;
-  messages: ChatCompletionMessageParam[]; // 补全消息参数
-  tools?: ChatCompletionTool[]; // 补全工具参数
-  executableTools?: SessionToolDefinition[]; // 静态工具列表
-  executableToolsProvider?: () => SessionToolDefinition[]; // 获取动态工具列表函数
+  // 补全消息参数
+  messages: ChatCompletionMessageParam[];
+  // 补全工具参数
+  tools?: ChatCompletionTool[];
+  // 静态工具列表
+  executableTools?: SessionToolDefinition[];
+  // 获取动态工具列表函数
+  executableToolsProvider?: () => SessionToolDefinition[];
   temperature?: number;
   max_tokens?: number;
-  maxIterations?: number; // 最大迭代次数
-  stream?: boolean; // 流式输出
-  onTextDelta?: (delta: string) => void | Promise<void>; // 流式文本回调函数
+  // 最大迭代次数
+  maxIterations?: number;
+  // 流式输出
+  stream?: boolean;
+  // 流式文本回调函数
+  onTextDelta?: (delta: string) => void | Promise<void>;
 }
 
 /**
  * 原始补全响应
  */
 export interface CompleteResponse {
-  content: string | null; // 文本响应内容
-  reasoning: string | null; // 推理内容
+  // 文本响应内容
+  content: string | null;
+  // 推理内容
+  reasoning: string | null;
   toolCalls: {
     id: string;
     name: string;
-    arguments: string; // 工具调用参数
+    // 工具调用参数
+    arguments: string;
   }[];
-  raw: ChatCompletionMessageParam; //原始响应消息
-  iterations?: number; // 迭代次数
-  allToolCalls?: ToolCallRecord[]; // 所有工具调用的完整记录
-  turnMessages?: ChatCompletionMessageParam[]; // 本轮交互的全部消息
+  //原始响应消息
+  raw: ChatCompletionMessageParam;
+  // 迭代次数
+  iterations?: number;
+  // 所有工具调用的完整记录
+  allToolCalls?: ToolCallRecord[];
+  // 本轮交互的全部消息
+  turnMessages?: ChatCompletionMessageParam[];
 }
 
 export interface SessionToolDefinition {
   name: string;
-  tool: AITool; // 工具定义
+  // 工具定义
+  tool: AITool;
 }
 
 export interface ChatRuntimePromptInjection {
-  content: string; // 注入内容
-  title?: string; // 可选标题
+  // 注入内容
+  content: string;
+  // 可选标题
+  title?: string;
 }
 
 export interface ChatRuntimeGroupTarget {
@@ -121,23 +140,32 @@ export type ChatRuntimeNoticeOptions = ChatRuntimeBaseOptions & {
 };
 
 export interface ChatRuntimeCollectedInfo {
-  data: any; // 内容
-  isComplete?: boolean; // 询问信息是否完成
-  confidence?: number; // 对信息的把握程度
-  notes?: string; // 备注
+  // 内容
+  data: any;
+  // 询问信息是否完成
+  isComplete?: boolean;
+  // 对信息的把握程度
+  confidence?: number;
+  // 备注
+  notes?: string;
 }
 
 export interface ChatRuntimeResult {
-  messages: string[]; // 发送的消息内容
-  toolCalls: ToolCallRecord[]; //工具调用历史
-  collectedInfo: ChatRuntimeCollectedInfo | null; // 结果
+  // 发送的消息内容
+  messages: string[];
+  //工具调用历史
+  toolCalls: ToolCallRecord[];
+  // 结果
+  collectedInfo: ChatRuntimeCollectedInfo | null;
 }
 
 export interface ChatRuntime {
+  // 向用户查询内容
   requestInformation(
     options: ChatRuntimeInformationRequestOptions,
-  ): Promise<ChatRuntimeResult>; // 向用户查询内容
-  generateNotice(options: ChatRuntimeNoticeOptions): Promise<ChatRuntimeResult>; // 通知信息
+  ): Promise<ChatRuntimeResult>;
+  // 通知信息
+  generateNotice(options: ChatRuntimeNoticeOptions): Promise<ChatRuntimeResult>;
 }
 
 /**
