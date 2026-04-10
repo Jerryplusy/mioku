@@ -33,6 +33,7 @@ export interface PromptContext {
     userNames: string[];
     messageIds: number[];
   };
+  promptInjections?: ChatRuntimePromptInjection[];
   // Emoji agent for dynamic meme info
   emojiAgent?: EmojiAgent;
 }
@@ -88,6 +89,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   sections.push(
     buildTargetMessageSection(ctx.targetMessage, ctx.reviewMessages),
   );
+  sections.push(...buildInjectedSections(ctx.promptInjections));
 
   // 8. Reply Context - tells AI what kind of reply this is
   if (ctx.replyContext) {
@@ -130,6 +132,20 @@ export function buildSystemPrompt(ctx: PromptContext): string {
 // ==================== Section Builders ====================
 
 type ConstraintStrength = "low" | "medium" | "high";
+
+function buildInjectedSections(
+  injections: ChatRuntimePromptInjection[] | undefined,
+): string[] {
+  if (!injections || injections.length === 0) {
+    return [];
+  }
+
+  return injections
+    .map((injection, index) => {
+      const title = injection.title || `Runtime Instruction ${index + 1}`;
+      return `## ${title}\n${injection.content}`;
+    });
+}
 
 function normalizeConstraintStrength(value: unknown): ConstraintStrength {
   if (value === "low" || value === "high" || value === "medium") {

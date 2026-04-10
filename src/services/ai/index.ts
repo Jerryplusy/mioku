@@ -522,6 +522,7 @@ class AIServiceImpl implements AIService {
   private instances: Map<string, AIInstance> = new Map();
   private globalSkills: Map<string, AISkill> = new Map();
   private defaultInstanceName: string | null = null;
+  private chatRuntime: ChatRuntime | null = null;
 
   constructor() {}
 
@@ -581,6 +582,25 @@ class AIServiceImpl implements AIService {
       return this.instances.get(this.defaultInstanceName);
     }
     return undefined;
+  }
+
+  registerChatRuntime(runtime: ChatRuntime): boolean {
+    this.chatRuntime = runtime;
+    logger.info("Chat runtime registered successfully");
+    return true;
+  }
+
+  getChatRuntime(): ChatRuntime | undefined {
+    return this.chatRuntime ?? undefined;
+  }
+
+  removeChatRuntime(): boolean {
+    if (!this.chatRuntime) {
+      return false;
+    }
+    this.chatRuntime = null;
+    logger.info("Chat runtime removed");
+    return true;
   }
 
   registerSkill(skill: AISkill): boolean {

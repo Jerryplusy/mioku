@@ -17,7 +17,6 @@ const helpPlugin = definePlugin({
   name: "help",
   version: "1.0.0",
   description: "帮助插件，生成帮助图片",
-  services: ["help", "screenshot", "config"],
 
   async setup(ctx: MiokiContext) {
     const configService = ctx.services?.config as ConfigService | undefined;

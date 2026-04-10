@@ -33,6 +33,10 @@ interface StructuredHistoryRunContext {
   currentUserInputs: StructuredUserInput[];
 }
 
+interface ChatRuntimeRunOptions {
+  extraTools?: AITool[];
+}
+
 /**
  * Run a single chat turn using a fresh tool loop inside the current request.
  */
@@ -48,6 +52,7 @@ export async function runChat(
   humanize: HumanizeEngine,
   skillManager: SkillSessionManager,
   structuredHistory?: StructuredHistoryRunContext,
+  runtimeOptions?: ChatRuntimeRunOptions,
 ): Promise<ChatResult> {
   const { tools: chatTools } = createTools(toolCtx, skillManager);
   const skillTools = skillManager.getTools(toolCtx.sessionId);
@@ -158,6 +163,7 @@ export async function runChat(
         chatTools,
         skillManager.getTools(toolCtx.sessionId),
         toolCtx,
+        runtimeOptions?.extraTools,
       ),
     temperature: toolCtx.config.temperature,
     maxIterations: toolCtx.config.maxIterations,
@@ -336,11 +342,22 @@ function buildSessionTools(
   chatTools: AITool[],
   skillTools: Map<string, AITool>,
   toolCtx: ToolContext,
+  extraTools: AITool[] = [],
 ): SessionToolDefinition[] {
   const tools: SessionToolDefinition[] = [];
   const runtimeContext = createExternalSkillRuntimeContext(toolCtx);
 
   for (const tool of chatTools) {
+    tools.push({
+      name: tool.name,
+      tool: {
+        ...tool,
+        handler: (args: any) => tool.handler(args, runtimeContext),
+      },
+    });
+  }
+
+  for (const tool of extraTools) {
     tools.push({
       name: tool.name,
       tool: {
