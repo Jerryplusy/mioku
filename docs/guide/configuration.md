@@ -104,4 +104,4 @@ config/webui/settings.json
 config/webui/auth.json
 ```
 
-> 了解[如何在插件中管理插件配置](/developer/plugin-config-help)
+> 了解[如何在插件中管理插件配置](/developer/plugin-advanced)
