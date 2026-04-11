@@ -31,7 +31,7 @@ declare global {
     generateText(options: {
       prompt?: string;
       messages: TextMessage[];
-      model: string;
+      model?: string;
       temperature?: number;
     }): Promise<string>;
 
@@ -39,7 +39,7 @@ declare global {
     generateMultimodal(options: {
       prompt?: string;
       messages: MultimodalMessage[];
-      model: string;
+      model?: string;
       temperature?: number;
     }): Promise<string>;
 
@@ -47,7 +47,7 @@ declare global {
     generateWithTools(options: {
       prompt?: string;
       messages: TextMessage[] | MultimodalMessage[];
-      model: string;
+      model?: string;
       tools?: (string | import("./core/types").AITool)[];
       temperature?: number;
       maxIterations?: number;
@@ -63,7 +63,7 @@ declare global {
 
     // 原始补全调用
     complete(options: {
-      model: string;
+      model?: string;
       messages: any[];
       tools?: any[];
       executableTools?: Array<{

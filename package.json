@@ -20,13 +20,17 @@
     "@types/node": "^20.0.0",
     "prettier": "^3.8.1",
     "tsx": "^4.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitepress": "^1.0.0"
   },
   "scripts": {
     "start": "tsx app.ts",
     "dev": "tsx watch app.ts",
     "build": "tsc",
-    "mioku-install": "tsx install-mioku.ts"
+    "mioku-install": "tsx install-mioku.ts",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "mioki": {
     "prefix": "/",

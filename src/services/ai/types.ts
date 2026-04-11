@@ -47,7 +47,7 @@ export interface ToolCallRecord {
  * 原始补全请求参数
  */
 export interface CompleteOptions {
-  model: string;
+  model?: string;
   // 补全消息参数
   messages: ChatCompletionMessageParam[];
   // 补全工具参数
@@ -176,7 +176,7 @@ export interface AIInstance {
   generateText(options: {
     prompt?: string;
     messages: TextMessage[];
-    model: string;
+    model?: string;
     temperature?: number;
     max_tokens?: number;
   }): Promise<string>;
@@ -185,7 +185,7 @@ export interface AIInstance {
   generateMultimodal(options: {
     prompt?: string;
     messages: MultimodalMessage[];
-    model: string;
+    model?: string;
     temperature?: number;
     max_tokens?: number;
   }): Promise<string>;
@@ -194,7 +194,7 @@ export interface AIInstance {
   generateWithTools(options: {
     prompt?: string;
     messages: TextMessage[] | MultimodalMessage[];
-    model: string;
+    model?: string;
     temperature?: number;
     maxIterations?: number;
   }): Promise<{

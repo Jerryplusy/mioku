@@ -1,9 +1,12 @@
+import * as fs from "fs/promises";
+import * as path from "path";
 import { logger } from "mioki";
 import OpenAI from "openai";
 import type {
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from "openai/resources/chat/completions";
+import { BASE_CONFIG as CHAT_BASE_CONFIG } from "../../../plugins/chat/configs/base";
 import type { AITool, AISkill, MiokuService } from "../../core/types";
 import {
   AssistantMessageResult,
@@ -38,16 +41,17 @@ class AIInstanceImpl implements AIInstance {
   async generateText(options: {
     prompt?: string;
     messages: TextMessage[];
-    model: string;
+    model?: string;
     temperature?: number;
     max_tokens?: number;
   }): Promise<string> {
+    const model = await this.resolveModel(options.model);
     const messages: ChatCompletionMessageParam[] = options.prompt
       ? [{ role: "system", content: options.prompt }, ...options.messages]
       : [...options.messages];
 
     const response = await this.client.chat.completions.create({
-      model: options.model,
+      model,
       messages,
       temperature: options.temperature ?? 0.7,
       ...(options.max_tokens != null && {
@@ -61,10 +65,11 @@ class AIInstanceImpl implements AIInstance {
   async generateMultimodal(options: {
     prompt?: string;
     messages: MultimodalMessage[];
-    model: string;
+    model?: string;
     temperature?: number;
     max_tokens?: number;
   }): Promise<string> {
+    const model = await this.resolveModel(options.model);
     const convertedMessages: ChatCompletionMessageParam[] =
       options.messages.map((msg) => {
         if (typeof msg.content === "string") {
@@ -94,7 +99,7 @@ class AIInstanceImpl implements AIInstance {
       : convertedMessages;
 
     const response = await this.client.chat.completions.create({
-      model: options.model,
+      model,
       messages,
       temperature: options.temperature ?? 0.7,
       ...(options.max_tokens != null && {
@@ -113,8 +118,9 @@ class AIInstanceImpl implements AIInstance {
       return this.completeWithExecutableTools(options);
     }
 
+    const model = await this.resolveModel(options.model);
     const assistant = await this.requestAssistantMessage({
-      model: options.model,
+      model,
       messages: options.messages,
       tools: options.tools,
       temperature: options.temperature ?? 0.7,
@@ -135,6 +141,7 @@ class AIInstanceImpl implements AIInstance {
   private async completeWithExecutableTools(
     options: CompleteOptions,
   ): Promise<CompleteResponse> {
+    const model = await this.resolveModel(options.model);
     const maxIterations = options.maxIterations ?? 40;
     const allToolCalls: ToolCallRecord[] = [];
     const failedToolCallKeys = new Set<string>();
@@ -166,7 +173,7 @@ class AIInstanceImpl implements AIInstance {
       }
 
       const assistant = await this.requestAssistantMessage({
-        model: options.model,
+        model,
         messages: sessionMessages,
         tools: tools.length > 0 ? tools : undefined,
         temperature: options.temperature ?? 0.7,
@@ -409,7 +416,7 @@ class AIInstanceImpl implements AIInstance {
   async generateWithTools(options: {
     prompt?: string;
     messages: TextMessage[] | MultimodalMessage[];
-    model: string;
+    model?: string;
     temperature?: number;
     maxIterations?: number;
   }): Promise<{
@@ -512,6 +519,29 @@ class AIInstanceImpl implements AIInstance {
       logger.info(`Prompt ${name} removed`);
     }
     return deleted;
+  }
+
+  private async resolveModel(model?: string): Promise<string> {
+    const explicitModel = String(model || "").trim();
+    if (explicitModel) {
+      return explicitModel;
+    }
+
+    const chatModel = await readChatPrimaryModel();
+    return chatModel || CHAT_BASE_CONFIG.model;
+  }
+}
+
+async function readChatPrimaryModel(): Promise<string | undefined> {
+  const configPath = path.join(process.cwd(), "config", "chat", "base.json");
+
+  try {
+    const raw = await fs.readFile(configPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    const model = String(parsed?.model || "").trim();
+    return model || undefined;
+  } catch {
+    return undefined;
   }
 }
 

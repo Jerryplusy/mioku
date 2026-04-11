@@ -1,0 +1,471 @@
+:root {
+  --vp-nav-logo-height: 32px;
+  --vp-c-brand-1: #3fbdb1;
+  --vp-c-brand-2: #2aa697;
+  --vp-c-brand-3: #1e8a7d;
+  --vp-c-brand-soft: rgba(63, 189, 177, 0.16);
+  --vp-nav-bg-color: rgba(249, 255, 254, 0.62);
+  --vp-sidebar-bg-color: rgba(247, 254, 252, 0.74);
+  --vp-local-nav-bg-color: rgba(250, 255, 254, 0.58);
+  --vp-c-bg-soft: rgba(236, 248, 246, 0.84);
+  --vp-c-bg-mute: rgba(228, 245, 242, 0.92);
+  --vp-c-default-soft: rgba(217, 242, 238, 0.74);
+  --vp-c-text-1: #163130;
+  --vp-c-text-2: rgba(22, 49, 48, 0.74);
+  --vp-font-family-base:
+    "IBM Plex Sans", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", sans-serif;
+  --vp-font-family-mono:
+    "JetBrains Mono", "IBM Plex Mono", "SFMono-Regular", monospace;
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(
+    120deg,
+    #0c9f93 10%,
+    #ff7aa6 45%,
+    #4ea5ff 100%
+  );
+  --vp-home-hero-image-background-image: radial-gradient(
+    circle at center,
+    rgba(123, 216, 207, 0.42) 0,
+    rgba(255, 255, 255, 0) 72%
+  );
+  --vp-home-hero-image-filter: drop-shadow(0 24px 56px rgba(42, 166, 151, 0.2));
+}
+
+.dark {
+  --vp-c-brand-1: #6ce6d9;
+  --vp-c-brand-2: #48d4c7;
+  --vp-c-brand-3: #31b4a8;
+  --vp-c-brand-soft: rgba(108, 230, 217, 0.18);
+  --vp-nav-bg-color: rgba(9, 18, 22, 0.56);
+  --vp-sidebar-bg-color: rgba(12, 23, 27, 0.72);
+  --vp-local-nav-bg-color: rgba(10, 19, 23, 0.58);
+  --vp-c-bg-soft: rgba(17, 32, 36, 0.82);
+  --vp-c-bg-mute: rgba(19, 36, 41, 0.92);
+  --vp-c-default-soft: rgba(21, 42, 47, 0.78);
+  --vp-c-text-1: rgba(234, 247, 247, 0.94);
+  --vp-c-text-2: rgba(214, 233, 233, 0.72);
+  --vp-home-hero-image-background-image: radial-gradient(
+    circle at center,
+    rgba(64, 203, 191, 0.24) 0,
+    rgba(7, 18, 22, 0) 72%
+  );
+  --vp-home-hero-image-filter: drop-shadow(0 28px 72px rgba(14, 244, 224, 0.18));
+}
+
+body {
+  background:
+    radial-gradient(circle at top, rgba(121, 216, 207, 0.1), transparent 36%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(247, 250, 250, 1));
+}
+
+.dark body {
+  background:
+    radial-gradient(circle at top, rgba(37, 154, 146, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(11, 18, 22, 1), rgba(12, 17, 22, 1));
+}
+
+@media (min-width: 960px) {
+  :root {
+    --vp-nav-logo-height: 36px;
+  }
+}
+
+html {
+  scroll-behavior: auto;
+}
+
+body.theme-fading::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+body.theme-fading.theme-fading-out::before {
+  opacity: 0;
+}
+
+body.theme-fading[data-theme-fade-from="light"]::before {
+  background:
+    radial-gradient(circle at top, rgba(121, 216, 207, 0.1), transparent 36%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(247, 250, 250, 1));
+}
+
+body.theme-fading[data-theme-fade-from="dark"]::before {
+  background:
+    radial-gradient(circle at top, rgba(37, 154, 146, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(11, 18, 22, 1), rgba(12, 17, 22, 1));
+}
+
+body,
+.Layout,
+.VPContent,
+.VPDoc,
+.VPDocAside .content,
+.VPNavBar .wrapper,
+.VPLocalNav .container,
+.VPSidebar,
+.VPFooter,
+.mioku-home__card,
+.mioku-home__entry,
+.VPHome .VPButton,
+.VPSidebarItem .item .link,
+.VPNavBarMenuLink,
+.VPLocalNavOutlineDropdown .menu-link,
+.vp-doc a,
+.VPLink.link {
+  transition:
+    background 0.2s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.VPNav {
+  background: transparent;
+}
+
+.VPNavBar .wrapper,
+.VPLocalNav .container {
+  background: var(--vp-nav-bg-color);
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  border-bottom: 1px solid rgba(63, 189, 177, 0.12);
+}
+
+.VPNavBar .content-body {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-bottom: 0;
+}
+
+.VPNavBarTitle .title {
+  gap: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--vp-c-brand-1);
+}
+
+.VPNavBarMenuLink,
+.VPLocalNavOutlineDropdown .menu-link {
+  transition:
+    color 0.22s ease,
+    opacity 0.22s ease;
+}
+
+.VPNavBarMenuLink:hover,
+.VPNavBarMenuLink.active,
+.VPNavBarMenu .VPFlyout:hover .text {
+  color: var(--vp-c-brand-1);
+}
+
+.VPNavBarMenuLink.active::after {
+  background-color: var(--vp-c-brand-1);
+}
+
+.VPSidebar {
+  background: var(--vp-sidebar-bg-color);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-right: 1px solid rgba(63, 189, 177, 0.1);
+}
+
+.VPSidebarItem.level-0 > .item > .text {
+  color: var(--vp-c-brand-1);
+  font-weight: 700;
+}
+
+.VPSidebarItem .item .link {
+  margin: 0.08rem -0.24rem 0.08rem -0.34rem;
+  padding: 0.38rem 0.72rem 0.38rem 0.96rem;
+  border-radius: 12px;
+  transition:
+    background 0.2s ease,
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.VPSidebarItem .item .link:hover,
+.VPSidebarItem .item .link.active {
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+}
+
+.VPSidebarItem .item .indicator {
+  display: none;
+}
+
+.vp-doc a,
+.VPLink.link {
+  text-underline-offset: 0.18em;
+}
+
+.mioku-home {
+  margin: 2rem auto 0;
+  max-width: 1200px;
+}
+
+.mioku-home__eyebrow {
+  margin: 0;
+  color: var(--vp-c-text-2);
+  font-size: 0.82rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.mioku-home__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.4rem;
+}
+
+.mioku-home__card,
+.mioku-home__entry {
+  padding: 1.3rem 1.35rem;
+  border: 1px solid rgba(89, 173, 165, 0.14);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.dark .mioku-home__card,
+.dark .mioku-home__entry {
+  border-color: rgba(108, 230, 217, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.mioku-home__entry {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform 0.24s cubic-bezier(0.2, 0.85, 0.3, 1),
+    border-color 0.22s ease,
+    box-shadow 0.22s ease;
+}
+
+.mioku-home__entry:hover {
+  transform: translateY(-5px);
+  border-color: rgba(63, 189, 177, 0.4);
+  box-shadow: 0 22px 48px rgba(18, 78, 73, 0.08);
+}
+
+.mioku-home__card h3,
+.mioku-home__entry h3 {
+  margin-top: 0;
+  margin-bottom: 0.55rem;
+  font-size: 1.02rem;
+}
+
+.mioku-home__card p,
+.mioku-home__entry p {
+  margin: 0;
+  color: var(--vp-c-text-2);
+  line-height: 1.8;
+}
+
+.mioku-home__section {
+  margin-top: 1.8rem;
+  animation: mioku-rise 0.8s cubic-bezier(0.18, 0.88, 0.22, 1) both;
+}
+
+.mioku-home__section-title {
+  margin: 0 0 0.9rem;
+  font-size: 1.1rem;
+}
+
+.VPHome .VPFeature {
+  border-radius: 22px;
+}
+
+.VPHome .VPHero {
+  padding-top: 150px;
+  min-height: auto;
+}
+
+.VPHome .VPHero .name,
+.VPHome .VPHero .text {
+  letter-spacing: -0.02em;
+}
+
+.VPHome .VPHero .container {
+  max-width: 1200px;
+}
+
+.VPHome .VPHero .main {
+  max-width: 520px;
+}
+
+@media (min-width: 960px) {
+  .VPHome .VPHero .main {
+    padding-left: 18px;
+  }
+}
+
+.VPHome .VPHero .image {
+  flex: 1 1 50%;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.VPHome .VPHero .tagline {
+  max-width: 34rem;
+}
+
+.VPHome .VPHero .image-container {
+  width: min(580px, 100%);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  transform: none;
+}
+
+.VPHome .VPHero .image-src {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  aspect-ratio: auto;
+  object-fit: contain;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.VPHome .VPHero .image-bg {
+  display: none !important;
+}
+
+.mioku-about-visual {
+  overflow: hidden;
+  margin: 0 0 2rem;
+  position: relative;
+  border-radius: 28px;
+  box-shadow: 0 24px 64px rgba(23, 88, 82, 0.1);
+}
+
+body.theme-fading .mioku-about-visual {
+  z-index: 1000;
+}
+
+.mioku-about-visual__media {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.mioku-about-visual__media::before,
+.mioku-about-visual__media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  transition: opacity 0.2s ease;
+}
+
+.mioku-about-visual__media::before {
+  background-image: url("/images/home/about-hero.jpg");
+  opacity: 1;
+}
+
+.mioku-about-visual__media::after {
+  background-image: url("/images/home/about-hero-dark.jpg");
+  opacity: 0;
+}
+
+.dark .mioku-about-visual__media::before {
+  opacity: 0;
+}
+
+.dark .mioku-about-visual__media::after {
+  opacity: 1;
+}
+
+.VPHome .VPButton.brand {
+  box-shadow: 0 16px 36px rgba(35, 167, 154, 0.2);
+}
+
+.VPHome .VPButton.alt:hover,
+.VPButton.brand:hover {
+  transform: translateY(-2px);
+}
+
+.vp-doc h2,
+.vp-doc h3 {
+  scroll-margin-top: 100px;
+}
+
+.vp-doc .header-anchor:hover,
+.vp-doc .header-anchor:focus {
+  color: var(--vp-c-brand-1);
+}
+
+.VPFooter {
+  border-top: 1px solid rgba(63, 189, 177, 0.12);
+  background: rgba(255, 255, 255, 0.42);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+}
+
+.dark .VPFooter {
+  background: rgba(10, 18, 22, 0.36);
+}
+
+@keyframes mioku-rise {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 960px) {
+  .mioku-home__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .VPHome .VPHero .image-container {
+    width: min(520px, 100%);
+  }
+}
+
+@media (max-width: 640px) {
+  .mioku-home {
+    margin-top: 2rem;
+  }
+
+  .VPHome .VPHero {
+    min-height: auto;
+    padding-top: 72px;
+  }
+
+  .mioku-home__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .VPHome .VPHero {
+    padding-top: 56px;
+  }
+
+  .VPHome .VPHero .image-src {
+    border-radius: 22px;
+  }
+}
