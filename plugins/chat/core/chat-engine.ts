@@ -1,7 +1,7 @@
 import type {
   AIInstance,
   SessionToolDefinition,
-} from "../../../src/services/ai";
+} from "../../../src/services/ai/types";
 import { logger } from "mioki";
 import type { AITool } from "../../../src";
 import type {
@@ -15,6 +15,7 @@ import type { PromptContext } from "./prompt";
 import type { SkillSessionManager } from "./tools";
 import { createTools } from "./tools";
 import { buildSystemPrompt } from "./prompt";
+import { isExternalSkillAllowed } from "./external-skills";
 import {
   consumeCompleteStreamUnits,
   splitOutgoingUnits,
@@ -32,6 +33,10 @@ interface StructuredHistoryRunContext {
   currentUserInputs: StructuredUserInput[];
 }
 
+interface ChatRuntimeRunOptions {
+  extraTools?: AITool[];
+}
+
 /**
  * Run a single chat turn using a fresh tool loop inside the current request.
  */
@@ -47,10 +52,16 @@ export async function runChat(
   humanize: HumanizeEngine,
   skillManager: SkillSessionManager,
   structuredHistory?: StructuredHistoryRunContext,
+  runtimeOptions?: ChatRuntimeRunOptions,
 ): Promise<ChatResult> {
   const { tools: chatTools } = createTools(toolCtx, skillManager);
   const skillTools = skillManager.getTools(toolCtx.sessionId);
-  const activeSkillsInfo = skillManager.getActiveSkillsInfo(toolCtx.sessionId);
+  const activeSkillsInfo = skillManager.getActiveSkillsInfo(
+    toolCtx.sessionId,
+    (skillName) =>
+      toolCtx.config.enableExternalSkills &&
+      isExternalSkillAllowed(toolCtx.config, skillName),
+  );
   const prompt = buildSystemPrompt({
     ...promptCtx,
     activeSkillsInfo: activeSkillsInfo || undefined,
@@ -83,7 +94,10 @@ export async function runChat(
     : [];
 
   if (hasStructuredHistory) {
-    structuredHistory!.manager.touch(toolCtx.sessionId, structuredHistory!.ttlMs);
+    structuredHistory!.manager.touch(
+      toolCtx.sessionId,
+      structuredHistory!.ttlMs,
+    );
   }
 
   const streamEnabled = Boolean(toolCtx.config.stream);
@@ -145,7 +159,12 @@ export async function runChat(
       toolCtx.pendingImageUrls,
     ),
     executableToolsProvider: () =>
-      buildSessionTools(chatTools, skillManager.getTools(toolCtx.sessionId), toolCtx),
+      buildSessionTools(
+        chatTools,
+        skillManager.getTools(toolCtx.sessionId),
+        toolCtx,
+        runtimeOptions?.extraTools,
+      ),
     temperature: toolCtx.config.temperature,
     maxIterations: toolCtx.config.maxIterations,
     stream: streamEnabled,
@@ -289,7 +308,10 @@ function buildCurrentMessages(
 
   if (currentUserMessages.length > 0) {
     messages.push(
-      ...attachImagesToCurrentUserMessages(currentUserMessages, pendingImageUrls),
+      ...attachImagesToCurrentUserMessages(
+        currentUserMessages,
+        pendingImageUrls,
+      ),
     );
     return messages;
   }
@@ -320,6 +342,7 @@ function buildSessionTools(
   chatTools: AITool[],
   skillTools: Map<string, AITool>,
   toolCtx: ToolContext,
+  extraTools: AITool[] = [],
 ): SessionToolDefinition[] {
   const tools: SessionToolDefinition[] = [];
   const runtimeContext = createExternalSkillRuntimeContext(toolCtx);
@@ -334,7 +357,25 @@ function buildSessionTools(
     });
   }
 
+  for (const tool of extraTools) {
+    tools.push({
+      name: tool.name,
+      tool: {
+        ...tool,
+        handler: (args: any) => tool.handler(args, runtimeContext),
+      },
+    });
+  }
+
   for (const [name, tool] of skillTools) {
+    const skillName = name.split(".")[0] || "";
+    if (
+      !toolCtx.config.enableExternalSkills ||
+      !isExternalSkillAllowed(toolCtx.config, skillName)
+    ) {
+      continue;
+    }
+
     tools.push({
       name,
       tool: {
@@ -399,7 +440,11 @@ function persistStructuredHistory(
     });
   }
 
-  structuredHistory.manager.append(sessionId, messages, structuredHistory.ttlMs);
+  structuredHistory.manager.append(
+    sessionId,
+    messages,
+    structuredHistory.ttlMs,
+  );
 }
 
 function isPlainAssistantMessage(message: any): boolean {
@@ -421,8 +466,7 @@ function cleanMarkers(text: string): string {
 function isToolErrorResult(result: any): boolean {
   if (!result || typeof result !== "object") return false;
   if (result.error) return true;
-  if (result.success === false) return true;
-  return false;
+  return result.success === false;
 }
 
 async function generateToolFailureReply(
@@ -469,7 +513,9 @@ ${failedSummary}
       return text;
     }
   } catch (err) {
-    logger.warn(`[chat-engine] Failed to generate tool-failure fallback reply: ${err}`);
+    logger.warn(
+      `[chat-engine] Failed to generate tool-failure fallback reply: ${err}`,
+    );
   }
 
   return "我刚刚查这条信息时出了点问题，你可以换个关键词再试试，或者给我更具体一点的线索。";

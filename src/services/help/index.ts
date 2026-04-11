@@ -1,12 +1,6 @@
 import { logger } from "mioki";
 import type { MiokuService, PluginHelp } from "../../core/types";
-
-export interface HelpService {
-  registerHelp(pluginName: string, help: PluginHelp): void;
-  getHelp(pluginName: string): PluginHelp | undefined;
-  getAllHelp(): Map<string, PluginHelp>;
-  unregisterHelp(pluginName: string): boolean;
-}
+import { HelpService } from "./types";
 
 class HelpManager implements HelpService {
   private helpRegistry: Map<string, PluginHelp> = new Map();

@@ -1,170 +1,21 @@
+import * as fs from "fs/promises";
+import * as path from "path";
 import { logger } from "mioki";
 import OpenAI from "openai";
 import type {
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from "openai/resources/chat/completions";
+import { BASE_CONFIG as CHAT_BASE_CONFIG } from "../../../plugins/chat/configs/base";
 import type { AITool, AISkill, MiokuService } from "../../core/types";
-
-/**
- * 文本消息
- */
-export interface TextMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
-}
-
-/**
- * 多模态消息内容项
- */
-export interface MultimodalContentItem {
-  type: "text" | "image_url";
-  text?: string;
-  image_url?: {
-    url: string;
-    detail?: "auto" | "low" | "high";
-  };
-}
-
-/**
- * 多模态消息
- */
-export interface MultimodalMessage {
-  role: "system" | "user" | "assistant";
-  content: string | MultimodalContentItem[];
-}
-
-/**
- * 工具调用记录
- */
-export interface ToolCallRecord {
-  name: string;
-  arguments: any;
-  result: any;
-}
-
-/**
- * 原始补全请求参数
- */
-export interface CompleteOptions {
-  model: string;
-  messages: ChatCompletionMessageParam[];
-  tools?: ChatCompletionTool[];
-  executableTools?: SessionToolDefinition[];
-  executableToolsProvider?: () => SessionToolDefinition[];
-  temperature?: number;
-  max_tokens?: number;
-  maxIterations?: number;
-  stream?: boolean;
-  onTextDelta?: (delta: string) => void | Promise<void>;
-}
-
-/**
- * 原始补全响应
- */
-export interface CompleteResponse {
-  content: string | null;
-  reasoning: string | null;
-  toolCalls: {
-    id: string;
-    name: string;
-    arguments: string;
-  }[];
-  raw: ChatCompletionMessageParam;
-  iterations?: number;
-  allToolCalls?: ToolCallRecord[];
-  turnMessages?: ChatCompletionMessageParam[];
-}
-
-export interface SessionToolDefinition {
-  name: string;
-  tool: AITool;
-}
-
-/**
- * AI 实例接口
- */
-export interface AIInstance {
-  generateText(options: {
-    prompt?: string;
-    messages: TextMessage[];
-    model: string;
-    temperature?: number;
-    max_tokens?: number;
-  }): Promise<string>;
-
-  generateMultimodal(options: {
-    prompt?: string;
-    messages: MultimodalMessage[];
-    model: string;
-    temperature?: number;
-    max_tokens?: number;
-  }): Promise<string>;
-
-  generateWithTools(options: {
-    prompt?: string;
-    messages: TextMessage[] | MultimodalMessage[];
-    model: string;
-    temperature?: number;
-    maxIterations?: number;
-  }): Promise<{
-    content: string;
-    iterations: number;
-    allToolCalls: ToolCallRecord[];
-  }>;
-
-  /**
-   * 原始补全调用，提供对 OpenAI API 的直接访问。
-   * 当传入 executableTools 时，会在当前请求内执行标准 tool loop。
-   */
-  complete(options: CompleteOptions): Promise<CompleteResponse>;
-
-  registerPrompt(name: string, prompt: string): boolean;
-  getPrompt(name: string): string | undefined;
-  getAllPrompts(): Record<string, string>;
-  removePrompt(name: string): boolean;
-}
-
-/**
- * AI 服务接口
- */
-export interface AIService {
-  // 实例管理
-  create(options: {
-    name: string;
-    apiUrl: string;
-    apiKey: string;
-    modelType: "text" | "multimodal";
-  }): Promise<AIInstance>;
-  get(name: string): AIInstance | undefined;
-  list(): string[];
-  remove(name: string): boolean;
-
-  // 默认实例
-  setDefault(name: string): boolean;
-  getDefault(): AIInstance | undefined;
-
-  // Skill 管理
-  registerSkill(skill: AISkill): boolean;
-  getSkill(skillName: string): AISkill | undefined;
-  getAllSkills(): Map<string, AISkill>;
-  removeSkill(skillName: string): boolean;
-
-  // 工具查询（扁平化访问）
-  getTool(toolName: string): AITool | undefined;
-  getAllTools(): Map<string, AITool>;
-}
-
-interface AssistantMessageResult {
-  content: string;
-  reasoning: string | null;
-  toolCalls: Array<{
-    id: string;
-    name: string;
-    arguments: string;
-  }>;
-  raw: ChatCompletionMessageParam;
-}
+import {
+  AssistantMessageResult,
+  ChatRuntime,
+  CompleteOptions,
+  CompleteResponse,
+  SessionToolDefinition,
+  ToolCallRecord,
+} from "./types";
 
 /**
  * AI 实例实现
@@ -190,16 +41,17 @@ class AIInstanceImpl implements AIInstance {
   async generateText(options: {
     prompt?: string;
     messages: TextMessage[];
-    model: string;
+    model?: string;
     temperature?: number;
     max_tokens?: number;
   }): Promise<string> {
+    const model = await this.resolveModel(options.model);
     const messages: ChatCompletionMessageParam[] = options.prompt
       ? [{ role: "system", content: options.prompt }, ...options.messages]
       : [...options.messages];
 
     const response = await this.client.chat.completions.create({
-      model: options.model,
+      model,
       messages,
       temperature: options.temperature ?? 0.7,
       ...(options.max_tokens != null && {
@@ -213,10 +65,11 @@ class AIInstanceImpl implements AIInstance {
   async generateMultimodal(options: {
     prompt?: string;
     messages: MultimodalMessage[];
-    model: string;
+    model?: string;
     temperature?: number;
     max_tokens?: number;
   }): Promise<string> {
+    const model = await this.resolveModel(options.model);
     const convertedMessages: ChatCompletionMessageParam[] =
       options.messages.map((msg) => {
         if (typeof msg.content === "string") {
@@ -246,7 +99,7 @@ class AIInstanceImpl implements AIInstance {
       : convertedMessages;
 
     const response = await this.client.chat.completions.create({
-      model: options.model,
+      model,
       messages,
       temperature: options.temperature ?? 0.7,
       ...(options.max_tokens != null && {
@@ -265,8 +118,9 @@ class AIInstanceImpl implements AIInstance {
       return this.completeWithExecutableTools(options);
     }
 
+    const model = await this.resolveModel(options.model);
     const assistant = await this.requestAssistantMessage({
-      model: options.model,
+      model,
       messages: options.messages,
       tools: options.tools,
       temperature: options.temperature ?? 0.7,
@@ -287,6 +141,7 @@ class AIInstanceImpl implements AIInstance {
   private async completeWithExecutableTools(
     options: CompleteOptions,
   ): Promise<CompleteResponse> {
+    const model = await this.resolveModel(options.model);
     const maxIterations = options.maxIterations ?? 40;
     const allToolCalls: ToolCallRecord[] = [];
     const failedToolCallKeys = new Set<string>();
@@ -318,7 +173,7 @@ class AIInstanceImpl implements AIInstance {
       }
 
       const assistant = await this.requestAssistantMessage({
-        model: options.model,
+        model,
         messages: sessionMessages,
         tools: tools.length > 0 ? tools : undefined,
         temperature: options.temperature ?? 0.7,
@@ -391,8 +246,6 @@ class AIInstanceImpl implements AIInstance {
         sessionMessages.push(toolMessage);
         turnMessages.push(toolMessage);
       }
-
-      continue;
     }
 
     logger.warn(
@@ -563,7 +416,7 @@ class AIInstanceImpl implements AIInstance {
   async generateWithTools(options: {
     prompt?: string;
     messages: TextMessage[] | MultimodalMessage[];
-    model: string;
+    model?: string;
     temperature?: number;
     maxIterations?: number;
   }): Promise<{
@@ -667,6 +520,29 @@ class AIInstanceImpl implements AIInstance {
     }
     return deleted;
   }
+
+  private async resolveModel(model?: string): Promise<string> {
+    const explicitModel = String(model || "").trim();
+    if (explicitModel) {
+      return explicitModel;
+    }
+
+    const chatModel = await readChatPrimaryModel();
+    return chatModel || CHAT_BASE_CONFIG.model;
+  }
+}
+
+async function readChatPrimaryModel(): Promise<string | undefined> {
+  const configPath = path.join(process.cwd(), "config", "chat", "base.json");
+
+  try {
+    const raw = await fs.readFile(configPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    const model = String(parsed?.model || "").trim();
+    return model || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -676,6 +552,7 @@ class AIServiceImpl implements AIService {
   private instances: Map<string, AIInstance> = new Map();
   private globalSkills: Map<string, AISkill> = new Map();
   private defaultInstanceName: string | null = null;
+  private chatRuntime: ChatRuntime | null = null;
 
   constructor() {}
 
@@ -735,6 +612,25 @@ class AIServiceImpl implements AIService {
       return this.instances.get(this.defaultInstanceName);
     }
     return undefined;
+  }
+
+  registerChatRuntime(runtime: ChatRuntime): boolean {
+    this.chatRuntime = runtime;
+    logger.info("Chat runtime registered successfully");
+    return true;
+  }
+
+  getChatRuntime(): ChatRuntime | undefined {
+    return this.chatRuntime ?? undefined;
+  }
+
+  removeChatRuntime(): boolean {
+    if (!this.chatRuntime) {
+      return false;
+    }
+    this.chatRuntime = null;
+    logger.info("Chat runtime removed");
+    return true;
   }
 
   registerSkill(skill: AISkill): boolean {
@@ -804,8 +700,7 @@ function parseToolArguments(raw: string): any {
 function isToolErrorResult(result: any): boolean {
   if (!result || typeof result !== "object") return false;
   if (result.error) return true;
-  if (result.success === false) return true;
-  return false;
+  return result.success === false;
 }
 
 function buildToolCallKey(name: string, args: any): string {
@@ -839,9 +734,7 @@ function extractTextContent(
 
   return content
     .filter((part): part is { type: "text"; text: string } => {
-      return Boolean(
-        part && part.type === "text" && typeof part.text === "string",
-      );
+      return Boolean(part && part.type === "text");
     })
     .map((part) => part.text)
     .join("\n")

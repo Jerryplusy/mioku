@@ -2,7 +2,7 @@ import MarkdownIt from "markdown-it";
 import hljs from "highlight.js";
 import katex from "katex";
 import "katex/contrib/mhchem";
-import type { ScreenshotService } from "../../../src/services/screenshot";
+import type { ScreenshotService } from "../../../src/services/screenshot/types";
 
 export const MARKDOWN_OPEN_TAG = "<MARKDOWN>";
 export const MARKDOWN_CLOSE_TAG = "</MARKDOWN>";
@@ -13,7 +13,9 @@ const markdownRenderer = new MarkdownIt({
   breaks: true,
   typographer: false,
   highlight(code: string, language: string) {
-    const normalizedLanguage = String(language || "").trim().toLowerCase();
+    const normalizedLanguage = String(language || "")
+      .trim()
+      .toLowerCase();
 
     if (normalizedLanguage && hljs.getLanguage(normalizedLanguage)) {
       const highlighted = hljs.highlight(code, {
@@ -323,7 +325,10 @@ export function summarizeMarkdown(markdown: string): string {
 
   const heading = lines.find((line) => /^#{1,6}\s+/.test(line));
   if (heading) {
-    return heading.replace(/^#{1,6}\s+/, "").trim().slice(0, 40);
+    return heading
+      .replace(/^#{1,6}\s+/, "")
+      .trim()
+      .slice(0, 40);
   }
 
   const firstLine = lines.find((line) => !line.startsWith("```"));
@@ -331,10 +336,12 @@ export function summarizeMarkdown(markdown: string): string {
     return "Markdown";
   }
 
-  return firstLine
-    .replace(/^[>*\-\d.\s`]+/u, "")
-    .slice(0, 40)
-    .trim() || "Markdown";
+  return (
+    firstLine
+      .replace(/^[>*\-\d.\s`]+/u, "")
+      .slice(0, 40)
+      .trim() || "Markdown"
+  );
 }
 
 export async function renderMarkdownScreenshot(
@@ -841,8 +848,7 @@ function escapeHtml(text: string): string {
 
 function buildLightTheme() {
   return {
-    pageBg:
-      "linear-gradient(180deg, #eefcfb 0%, #ecfbfe 48%, #f6fbff 100%)",
+    pageBg: "linear-gradient(180deg, #eefcfb 0%, #ecfbfe 48%, #f6fbff 100%)",
     pageAccent:
       "radial-gradient(circle at 10% 12%, rgba(54, 211, 196, 0.22), transparent 30%), radial-gradient(circle at 86% 10%, rgba(56, 189, 248, 0.18), transparent 28%), radial-gradient(circle at 50% 100%, rgba(45, 212, 191, 0.12), transparent 38%)",
     pageGrid:
@@ -902,8 +908,7 @@ function buildLightTheme() {
 
 function buildDarkTheme() {
   return {
-    pageBg:
-      "linear-gradient(180deg, #07141c 0%, #0b1c25 52%, #102730 100%)",
+    pageBg: "linear-gradient(180deg, #07141c 0%, #0b1c25 52%, #102730 100%)",
     pageAccent:
       "radial-gradient(circle at 18% 14%, rgba(76, 201, 191, 0.18), transparent 34%), radial-gradient(circle at 82% 10%, rgba(34, 211, 238, 0.12), transparent 28%), radial-gradient(circle at 50% 100%, rgba(45, 212, 191, 0.1), transparent 42%)",
     pageGrid:

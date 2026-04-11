@@ -1,6 +1,6 @@
 import type { AISkill, AITool } from "../../src";
-import type { HelpService } from "../../src/services/help";
-import type { ScreenshotService } from "../../src/services/screenshot";
+import type { HelpService } from "../../src/services/help/types";
+import type { ScreenshotService } from "../../src/services/screenshot/types";
 import {
   buildHelpInfoText,
   generateHelpImage,

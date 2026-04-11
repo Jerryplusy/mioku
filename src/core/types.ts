@@ -1,5 +1,3 @@
-import type { MiokiContext } from "mioki";
-
 /**
  * AI 工具定义
  */
@@ -11,20 +9,23 @@ export interface AITool {
     properties: Record<string, any>;
     required?: string[];
   };
+  //处理逻辑
   handler: (args: any, event?: any) => Promise<any> | any;
 }
 
 /**
- * AI Skill 定义 (一个插件对应一个 skill)
+ * AI Skill 定义
  */
 export interface AISkill {
-  name: string; // skill 名称，通常与插件名相同
+  name: string;
   description: string;
-  tools: AITool[]; // skill 下的工具列表
+  // skill 下的工具列表
+  tools: AITool[];
 }
 
 /**
  * 指令权限级别
+ * 主人 管理员 群主 群成员
  */
 export type CommandRole = "master" | "admin" | "owner" | "member";
 
@@ -32,36 +33,31 @@ export type CommandRole = "master" | "admin" | "owner" | "member";
  * 插件帮助信息
  */
 export interface PluginHelp {
+  // 插件名称
   title: string;
+  // 描述
   description: string;
   commands: Array<{
+    // 命令
     cmd: string;
+    // 命令描述
     desc: string;
+    // 使用示例
     usage?: string;
+    // 使用权限
     role?: CommandRole;
   }>;
 }
 
 /**
- * 插件包配置 (package.json 中的 mioku 字段)
+ * 插件包配置
+ * package.json 中的 mioku 字段
  */
 export interface PluginPackageConfig {
-  services?: string[]; // 依赖的服务
-  commands?: string[]; // 注册的命令
-  help?: PluginHelp; // 帮助信息（运行时来源）
-}
-
-/**
- * Mioku 插件定义
- */
-export interface MiokuPlugin {
-  name: string;
-  version?: string;
-  description?: string;
-  priority?: number;
-  dependencies?: string[];
+  // 依赖的服务
   services?: string[];
-  setup?: (ctx: MiokiContext) => any;
+  // 帮助信息
+  help?: PluginHelp;
 }
 
 /**
@@ -75,7 +71,7 @@ export interface MiokuService {
   // 初始化服务
   init(): Promise<void>;
 
-  // 提供的 API
+  // 服务提供的 API
   api: Record<string, any>;
 
   // 清理资源
@@ -89,8 +85,11 @@ export interface PluginMetadata {
   name: string;
   version: string;
   description?: string;
+  // 插件路径
   path: string;
+  // 插件 package
   packageJson: any;
+  // 插件 Mioku 配置项
   config: PluginPackageConfig;
 }
 
@@ -101,6 +100,8 @@ export interface ServiceMetadata {
   name: string;
   version: string;
   description?: string;
+  // 服务路径
   path: string;
+  // 服务 package
   packageJson: any;
 }

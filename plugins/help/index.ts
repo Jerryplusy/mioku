@@ -1,8 +1,8 @@
-import type { MiokuPlugin } from "../../src";
-import type { ConfigService } from "../../src/services/config";
-import type { HelpService } from "../../src/services/help";
-import type { ScreenshotService } from "../../src/services/screenshot";
-import type { MiokiContext } from "mioki";
+import type { AIService } from "../../src/services/ai/types";
+import type { ConfigService } from "../../src/services/config/tpyes";
+import type { HelpService } from "../../src/services/help/types";
+import type { ScreenshotService } from "../../src/services/screenshot/types";
+import { definePlugin, type MiokiContext } from "mioki";
 import * as path from "path";
 import { HELP_DEMO_CONFIG } from "./demo-config";
 import {
@@ -11,16 +11,12 @@ import {
   replyWithImage,
   resolveHelpBotProfile,
 } from "./shared";
-import {
-  resetHelpRuntimeState,
-  setHelpRuntimeState,
-} from "./runtime";
+import { resetHelpRuntimeState, setHelpRuntimeState } from "./runtime";
 
-const helpPlugin: MiokuPlugin = {
+const helpPlugin = definePlugin({
   name: "help",
   version: "1.0.0",
   description: "帮助插件，生成帮助图片",
-  services: ["help", "screenshot", "config"],
 
   async setup(ctx: MiokiContext) {
     const configService = ctx.services?.config as ConfigService | undefined;
@@ -99,6 +95,6 @@ const helpPlugin: MiokuPlugin = {
       ctx.logger.info("帮助插件已卸载");
     };
   },
-};
+});
 
 export default helpPlugin;

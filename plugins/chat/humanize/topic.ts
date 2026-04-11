@@ -1,4 +1,4 @@
-import type { AIInstance } from "../../../src/services/ai";
+import type { AIInstance } from "../../../src/services/ai/types";
 import { logger } from "mioki";
 import type { ChatDatabase } from "../db";
 import type { ChatConfig } from "../types";

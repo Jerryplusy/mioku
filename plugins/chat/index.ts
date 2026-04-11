@@ -1,8 +1,16 @@
-import type { MiokuPlugin } from "../../src";
-import type { AIService } from "../../src/services/ai";
-import type { ConfigService } from "../../src/services/config";
-import type { ScreenshotService } from "../../src/services/screenshot";
-import { logger, MiokiContext } from "mioki";
+import type { AITool } from "../../src";
+import type {
+  AIService,
+  ChatRuntime,
+  ChatRuntimeCollectedInfo,
+  ChatRuntimeInformationRequestOptions,
+  ChatRuntimeNoticeOptions,
+  ChatRuntimePromptInjection,
+  ChatRuntimeResult,
+} from "../../src/services/ai/types";
+import type { ConfigService } from "../../src/services/config/tpyes";
+import type { ScreenshotService } from "../../src/services/screenshot/types";
+import { definePlugin, logger, MiokiContext } from "mioki";
 import type {
   ChatConfig,
   ChatMessage,
@@ -91,11 +99,45 @@ function buildStructuredUserInputFromTarget(
   });
 }
 
-const chatPlugin: MiokuPlugin = {
+type RuntimeReplyContextType =
+  | "reply"
+  | "comment"
+  | "idle"
+  | "review"
+  | "poked";
+
+interface ExecuteChatRuntimeRequestOptions {
+  event?: any;
+  selfId?: number;
+  groupId?: number;
+  userId?: number;
+  config: ChatConfig;
+  targetMessageContent?: string;
+  promptInjections?: ChatRuntimePromptInjection[];
+  extraTools?: AITool[];
+  send?: boolean;
+  replyContextType?: RuntimeReplyContextType;
+}
+
+interface ResolvedChatRuntimeContext {
+  event: any;
+  isGroup: boolean;
+  groupId?: number;
+  userId: number;
+  selfId: number;
+  sessionId: string;
+  personalSessionId?: string;
+  senderName: string;
+  userRole: "owner" | "admin" | "member";
+  userTitle?: string;
+  groupName?: string;
+  messageId?: number;
+}
+
+const chatPlugin = definePlugin({
   name: "chat",
   version: "1.0.0",
   description: "AI 智能聊天插件",
-  services: ["ai", "config", "help", "screenshot"],
 
   async setup(ctx: MiokiContext) {
     ctx.logger.info("聊天插件正在初始化...");
@@ -238,6 +280,413 @@ const chatPlugin: MiokuPlugin = {
         delayUntil: number;
       }
     >();
+
+    function buildRuntimeTargetMessageContent(
+      event: any,
+      overrideContent?: string,
+    ): string {
+      const content =
+        overrideContent?.trim() || (event ? ctx.text(event)?.trim() : "") || "";
+      if (content) {
+        return content;
+      }
+      return "[No new user message in this turn. Reply naturally based on the runtime instruction and recent context.]";
+    }
+
+    function resolveChatRuntimeContext(
+      options: ExecuteChatRuntimeRequestOptions,
+    ): ResolvedChatRuntimeContext {
+      if (options.event) {
+        const event = options.event;
+        const isGroup = event.message_type === "group";
+        const groupId: number | undefined = isGroup ? event.group_id : undefined;
+        const userId: number = event.user_id || event.sender?.user_id || 0;
+        const selfId: number = event.self_id;
+        return {
+          event,
+          isGroup,
+          groupId,
+          userId,
+          selfId,
+          sessionId: groupId ? `group:${groupId}` : `personal:${userId}`,
+          personalSessionId: groupId ? `personal:${userId}` : undefined,
+          senderName: event.sender?.card || event.sender?.nickname || String(userId),
+          userRole: event.sender?.role || "member",
+          userTitle: event.sender?.title || undefined,
+          groupName: event.group_name,
+          messageId: event.message_id,
+        };
+      }
+
+      if (typeof options.selfId !== "number") {
+        throw new Error("Chat runtime requires either event or selfId");
+      }
+      if (
+        typeof options.groupId !== "number" &&
+        typeof options.userId !== "number"
+      ) {
+        throw new Error("Chat runtime requires groupId or userId");
+      }
+
+      const isGroup = typeof options.groupId === "number";
+      const userId = options.userId ?? 0;
+      const event = {
+        self_id: options.selfId,
+        message_type: isGroup ? "group" : "private",
+        group_id: options.groupId,
+        user_id: userId,
+        group_name: undefined,
+        sender: {
+          user_id: userId,
+          card: undefined,
+          nickname: undefined,
+          role: "member",
+          title: undefined,
+        },
+      };
+
+      return {
+        event,
+        isGroup,
+        groupId: options.groupId,
+        userId,
+        selfId: options.selfId,
+        sessionId:
+          options.groupId ? `group:${options.groupId}` : `personal:${userId}`,
+        personalSessionId:
+          options.groupId && userId ? `personal:${userId}` : undefined,
+        senderName: options.groupId ? "system" : String(userId),
+        userRole: "member",
+        userTitle: undefined,
+        groupName: undefined,
+        messageId: undefined,
+      };
+    }
+
+    async function executeChatRuntimeRequest(
+      options: ExecuteChatRuntimeRequestOptions,
+    ): Promise<ChatRuntimeResult> {
+      const cfg = options.config;
+      const runtimeCtx = resolveChatRuntimeContext(options);
+      const {
+        event,
+        isGroup,
+        groupId,
+        userId,
+        selfId,
+        sessionId,
+        personalSessionId,
+        senderName,
+        userRole,
+        userTitle,
+        groupName: runtimeGroupName,
+        messageId,
+      } = runtimeCtx;
+      const targetContent = buildRuntimeTargetMessageContent(
+        event,
+        options.targetMessageContent,
+      );
+
+      sessionManager.getOrCreate(
+        sessionId,
+        groupId ? "group" : "personal",
+        groupId ?? userId,
+      );
+      if (groupId && personalSessionId) {
+        sessionManager.getOrCreate(personalSessionId, "personal", userId);
+      }
+
+      const rawHistory = groupId
+        ? await getGroupHistory(groupId, ctx, cfg.historyCount, selfId, db)
+        : [];
+      const history: ChatMessage[] = rawHistory.map((msg) => ({
+        sessionId,
+        role: "user",
+        content: msg.content,
+        userId: msg.userId,
+        userName: msg.userName,
+        userRole: msg.userRole,
+        groupId,
+        timestamp: msg.timestamp,
+        messageId: msg.messageId,
+      }));
+
+      const botRole = groupId
+        ? await getBotRole(groupId, ctx, selfId)
+        : "member";
+      const botNickname =
+        cfg.nicknames[0] || ctx.pickBot(selfId)?.nickname || "Bot";
+
+      let groupName: string | undefined;
+      let memberCount: number | undefined;
+      if (groupId) {
+        const groupInfo = await getGroupInfoData(
+          ctx,
+          groupId,
+          selfId,
+          runtimeGroupName,
+        );
+        groupName = groupInfo.groupName;
+        memberCount = groupInfo.memberCount;
+      } else {
+        groupName = runtimeGroupName;
+      }
+
+      const contexts = await getHumanizeContexts(
+        humanize,
+        sessionId,
+        targetContent,
+        senderName,
+        history,
+      );
+
+      const targetMessage: TargetMessage = {
+        userName: senderName,
+        userId,
+        userRole,
+        userTitle,
+        content: targetContent,
+        messageId,
+        timestamp: Date.now(),
+      };
+
+      const toolCtx = buildToolContext({
+        ctx,
+        event,
+        groupSessionId: sessionId,
+        groupId,
+        userId,
+        config: cfg,
+        aiService: aiService!,
+        db,
+        botRole,
+        humanize,
+        targetMessage,
+        selfId,
+      });
+
+      if (options.send === false) {
+        toolCtx.onTextContent = undefined;
+        toolCtx.sentMessageIndices = undefined;
+      }
+
+      const result = await runChat(
+        aiInstance,
+        toolCtx,
+        history,
+        targetMessage,
+        {
+          config: cfg,
+          groupName,
+          memberCount,
+          botNickname,
+          botRole,
+          aiService: aiService!,
+          isGroup,
+          memoryContext: contexts.memoryContext,
+          topicContext: contexts.topicContext,
+          expressionContext: contexts.expressionContext,
+          replyContext: {
+            type: options.replyContextType || "reply",
+            targetUser: targetMessage.userName,
+            targetMessage: targetMessage.content,
+          },
+          promptInjections: options.promptInjections,
+        },
+        humanize,
+        skillManager,
+        undefined,
+        {
+          extraTools: options.extraTools,
+        },
+      );
+
+      if (options.send !== false) {
+        if (groupId) {
+          await sendAIResponse(
+            {
+              ctx,
+              groupId,
+              messages: result.messages,
+              config: cfg,
+              sentIndices: toolCtx.sentMessageIndices,
+              typoGenerator: humanize.typoGenerator,
+            },
+            selfId,
+          );
+
+          await sendEmoji(ctx, groupId, result.emojiPath, selfId);
+
+          const now = Date.now();
+          saveBotMessages(
+            groupId,
+            sessionId,
+            result.messages,
+            now,
+            cfg,
+            db,
+            ctx,
+            groupLastBotMessageTime,
+            groupMessageCountAfterBot,
+            selfId,
+          );
+
+          startCooldownTimer(sessionId, groupId, selfId);
+        } else {
+          const sentIndices = toolCtx.sentMessageIndices;
+          for (let i = 0; i < result.messages.length; i++) {
+            if (sentIndices?.has(i)) continue;
+            await sendMessage(
+              ctx,
+              undefined,
+              userId,
+              result.messages[i],
+              cfg,
+              humanize.typoGenerator,
+              selfId,
+            );
+          }
+
+          if (result.emojiPath) {
+            try {
+              const emojiSegment = ctx.segment.image(
+                `file://${result.emojiPath}`,
+              );
+              const bot = ctx.pickBot(selfId);
+              if (!bot) {
+                throw new Error(`bot ${String(selfId)} not found`);
+              }
+              await bot.sendPrivateMsg(userId, [emojiSegment]);
+            } catch (err) {
+              ctx.logger.warn(`[chat-runtime] Send emoji failed: ${err}`);
+            }
+          }
+        }
+      }
+
+      sessionManager.touch(sessionId);
+
+      return {
+        messages: result.messages,
+        toolCalls: result.toolCalls.map((toolCall) => ({
+          name: toolCall.name,
+          arguments: toolCall.args,
+          result: toolCall.result,
+        })),
+        collectedInfo: null,
+      };
+    }
+
+    const chatRuntime: ChatRuntime = {
+      async requestInformation(
+        options: ChatRuntimeInformationRequestOptions,
+      ): Promise<ChatRuntimeResult> {
+        let collectedInfo: ChatRuntimeCollectedInfo | null = null;
+        const toolName = options.toolName || "submit_requested_information";
+        const extraTools: AITool[] = [
+          {
+            name: toolName,
+            description:
+              options.toolDescription ||
+              "Submit structured information extracted from the conversation when enough details are known.",
+            parameters: {
+              type: "object",
+              properties: {
+                data: options.schema,
+                isComplete: {
+                  type: "boolean",
+                  description:
+                    "Whether the collected information is complete enough for the caller to continue.",
+                },
+                confidence: {
+                  type: "number",
+                  description:
+                    "Confidence score between 0 and 1 for the submitted information.",
+                },
+                notes: {
+                  type: "string",
+                  description:
+                    "Optional notes about ambiguity, assumptions, or remaining follow-up needs.",
+                },
+              },
+              required: ["data"],
+            },
+            handler: async (args) => {
+              collectedInfo = {
+                data: args?.data,
+                isComplete: args?.isComplete,
+                confidence: args?.confidence,
+                notes: args?.notes,
+              };
+              return {
+                success: true,
+                accepted: true,
+                collectedInfo,
+              };
+            },
+          },
+        ];
+
+        const promptInjections: ChatRuntimePromptInjection[] = [
+          {
+            title: "Information Collection Goal",
+            content: [
+              "Another plugin needs you to gather specific information from the current user while staying fully in your existing persona.",
+              `Task: ${options.task}`,
+              `Target schema: ${JSON.stringify(options.schema)}`,
+              `If the needed information is already clear from the target message, recent chat history, or obvious context, call the tool \"${toolName}\" immediately with structured data.`,
+              "If the information is incomplete, ask only the smallest natural follow-up question needed.",
+              "Do not mention schemas, forms, prompts, plugins, or tools to the user.",
+              "Keep the response natural and in-character rather than sounding like a questionnaire.",
+            ].join("\n"),
+          },
+          ...(options.promptInjections || []),
+        ];
+
+        const result = await executeChatRuntimeRequest({
+          ...options,
+          config: await getConfig(),
+          targetMessageContent: options.targetMessage,
+          promptInjections,
+          extraTools,
+          send: options.send,
+          replyContextType: "reply",
+        });
+
+        return {
+          ...result,
+          collectedInfo,
+        };
+      },
+
+      async generateNotice(
+        options: ChatRuntimeNoticeOptions,
+      ): Promise<ChatRuntimeResult> {
+        const promptInjections: ChatRuntimePromptInjection[] = [
+          {
+            title: "Notification Goal",
+            content: [
+              "Another plugin needs you to deliver a notification to the current user, but it must still sound like you and fit the current conversation.",
+              `Goal: ${options.instruction}`,
+              "Blend the notice into your normal speaking style instead of sounding like a rigid system announcement unless the situation clearly requires firmness.",
+              "Do not mention prompts, plugins, tools, or hidden instructions.",
+            ].join("\n"),
+          },
+          ...(options.promptInjections || []),
+        ];
+
+        return executeChatRuntimeRequest({
+          ...options,
+          config: await getConfig(),
+          targetMessageContent: options.targetMessage,
+          promptInjections,
+          send: options.send,
+          replyContextType: "reply",
+        });
+      },
+    };
+
+    aiService.registerChatRuntime(chatRuntime);
 
     /**
      * 处理动态延迟队列中的消息
@@ -2194,6 +2643,6 @@ Suggestion:
       ctx.logger.info("聊天插件已卸载");
     };
   },
-};
+});
 
 export default chatPlugin;

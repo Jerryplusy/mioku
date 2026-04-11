@@ -10,10 +10,6 @@
       "help",
       "screenshot"
     ],
-    "commands": [
-      "/重置会话",
-      "/重置群会话"
-    ],
     "help": {
       "title": "AI 聊天",
       "description": "智能 AI 聊天插件",

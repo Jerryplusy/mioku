@@ -15,7 +15,7 @@ export class RateLimiter {
   private readonly dedupWindowMs: number;
   private readonly groupCooldownMs: number;
   private readonly cleanupTimer: ReturnType<typeof setInterval>;
-  private dynamicDelayConfig: DynamicDelayConfig;
+  private readonly dynamicDelayConfig: DynamicDelayConfig;
 
   constructor(options?: {
     maxTriggersPerWindow?: number;

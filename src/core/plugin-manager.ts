@@ -24,7 +24,7 @@ export class PluginManager {
 
   constructor(pluginsDir: string = "plugins") {
     this.pluginsDir = path.resolve(process.cwd(), pluginsDir);
-    this.ensurePluginsDir();
+    this.ensurePluginsDir().then();
   }
 
   public static getInstance(): PluginManager {

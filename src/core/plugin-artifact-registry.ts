@@ -1,8 +1,8 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { logger, type MiokiContext } from "mioki";
-import type { AIService } from "../services/ai";
-import type { HelpService } from "../services/help";
+import type { AIService } from "../services/ai/types";
+import type { HelpService } from "../services/help/types";
 import type { AISkill } from "./types";
 import pluginManager from "./plugin-manager";
 

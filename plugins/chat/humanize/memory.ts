@@ -1,4 +1,4 @@
-import type { AIInstance } from "../../../src/services/ai";
+import type { AIInstance } from "../../../src/services/ai/types";
 import { logger } from "mioki";
 import type { ChatDatabase } from "../db";
 import type { ChatConfig, ChatMessage } from "../types";
@@ -96,8 +96,7 @@ If no retrieval is needed, output exactly: NO_RETRIEVAL_NEEDED`,
         type: "function" as const,
         function: {
           name: "search_chat_history",
-          description:
-            "Search chat history for messages containing a keyword",
+          description: "Search chat history for messages containing a keyword",
           parameters: {
             type: "object",
             properties: {
