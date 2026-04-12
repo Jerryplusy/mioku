@@ -299,7 +299,9 @@ const chatPlugin = definePlugin({
       if (options.event) {
         const event = options.event;
         const isGroup = event.message_type === "group";
-        const groupId: number | undefined = isGroup ? event.group_id : undefined;
+        const groupId: number | undefined = isGroup
+          ? event.group_id
+          : undefined;
         const userId: number = event.user_id || event.sender?.user_id || 0;
         const selfId: number = event.self_id;
         return {
@@ -310,7 +312,8 @@ const chatPlugin = definePlugin({
           selfId,
           sessionId: groupId ? `group:${groupId}` : `personal:${userId}`,
           personalSessionId: groupId ? `personal:${userId}` : undefined,
-          senderName: event.sender?.card || event.sender?.nickname || String(userId),
+          senderName:
+            event.sender?.card || event.sender?.nickname || String(userId),
           userRole: event.sender?.role || "member",
           userTitle: event.sender?.title || undefined,
           groupName: event.group_name,
@@ -351,8 +354,9 @@ const chatPlugin = definePlugin({
         groupId: options.groupId,
         userId,
         selfId: options.selfId,
-        sessionId:
-          options.groupId ? `group:${options.groupId}` : `personal:${userId}`,
+        sessionId: options.groupId
+          ? `group:${options.groupId}`
+          : `personal:${userId}`,
         personalSessionId:
           options.groupId && userId ? `personal:${userId}` : undefined,
         senderName: options.groupId ? "system" : String(userId),
@@ -1392,8 +1396,7 @@ Planned reason: ${planResult.reason}`;
         const idleThreshold = cfg.planner.idleThresholdMs ?? 30 * 60_000;
         const messageCountThreshold = cfg.planner.idleMessageCount ?? 100;
         const checkInterval = 60_000;
-
-        const allBotIds = Array.from(ctx.bots?.keys() ?? []);
+        const allBotIds = Array.from(ctx.bots).map((bot) => bot.uin);
         const idleCheckBotIds = cfg.planner.idleCheckBotIds ?? allBotIds;
         const enabledBotIds = idleCheckBotIds.filter((id) =>
           allBotIds.includes(id),

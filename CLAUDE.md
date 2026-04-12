@@ -1,374 +1,85 @@
 # CLAUDE.md
 
-This file provides guidance to coding agents working in this repository.
+This file provides repository-specific instructions for coding agents working on Mioku.
 
-## Project Overview
+## What Mioku Is
 
-Mioku is a service-oriented bot framework built on top of [mioki](https://mioki.viki.moe/). `mioki` is responsible for plugin loading, bot lifecycle, and event dispatch. Mioku adds:
+Mioku extends `mioki`.
 
-- service discovery and lifecycle management
-- plugin metadata discovery from `plugins/*/package.json`
-- automatic help registration from plugin manifests
-- automatic AI skill loading from plugin `skills.ts`
+- `mioki` handles bot connections, plugin execution, and event dispatch.
+- Mioku adds plugin metadata discovery, service discovery/loading, help auto-registration, and AI skill auto-loading.
 
-The current architecture is intentionally split so that plugin runtime code, plugin help metadata, and plugin AI tools are not all mixed into one `index.ts`.
+Treat the checked-out source as the source of truth when docs and code differ.
 
-## Commands
+## Key Commands
 
 ```bash
-# Development
+bun install
 bun run start
 bun run dev
-
-# Validation
 bun run build
 ```
 
-## Architecture
+Use `bun run build` as the default validation step after edits in `src/`, `plugins/`, or `src/services/`.
 
-### Layered Model
+## Repository Layout
 
-```text
-Plugins -> Services -> Core -> mioki
-```
-
-### Core Layer
-
-`src/core/` contains the framework-level infrastructure:
-
-- `types.ts`
-  core interfaces such as `MiokuPlugin`, `MiokuService`, `AISkill`, `AITool`, and `PluginHelp`
-- `plugin-manager.ts`
-  discovers plugin metadata from `plugins/*/package.json`
-- `service-manager.ts`
-  loads services from `src/services/*`
-- `plugin-artifact-registry.ts`
-  registers plugin help and loads plugin skills after services are ready
-
-### Service Layer
-
-Services live in `src/services/*`.
-
-Each service:
-- has its own `package.json`
-- exports a `MiokuService`
-- exposes runtime APIs through `service.api`
-- becomes available to plugins as `ctx.services.<name>`
-
-Service shape:
-
-```ts
-export interface MiokuService {
-  name: string;
-  version: string;
-  description?: string;
-  init(): Promise<void>;
-  api: Record<string, any>;
-  dispose?(): Promise<void>;
-}
-```
-
-Example pattern:
-
-```ts
-const myService: MiokuService = {
-  name: "my-service",
-  version: "1.0.0",
-  api: {} as MyServiceAPI,
-
-  async init() {
-    this.api = new MyServiceImpl();
-  },
-};
-```
-
-### Plugin Layer
-
-Plugins live in `plugins/*`.
-
-A plugin now has up to four distinct responsibilities:
-
-1. `package.json`
-   declares metadata and help
-2. `index.ts`
-   handles runtime setup
-3. `skills.ts`
-   exports AI skills/tools
-4. optional `runtime.ts` / `shared.ts`
-   splits runtime state from reusable logic
-
-This separation is intentional. Do not collapse everything back into one large `index.ts`.
+- `app.ts`: local entrypoint
+- `src/index.ts`: Mioku startup orchestration
+- `src/core/`: framework infrastructure
+- `src/services/*`: built-in services
+- `plugins/*`: user-facing plugins
+- `config/`: runtime config
+- `data/`: persistent runtime data
+- `temp/`: temporary artifacts such as screenshots
+- `dist/`: TypeScript build output
 
 ## Startup Flow
 
-1. `app.ts` starts Mioku
-2. `src/index.ts` discovers plugin metadata and service metadata
-3. mioki starts loading enabled plugins
-4. `plugins/boot` runs first
-5. `service-manager.loadAllServices(ctx)` initializes all services
-6. `registerPluginArtifacts(ctx)` runs
-7. Mioku:
-   - reads `package.json -> mioku.help`
-   - registers help into the help service
-   - loads `plugins/*/skills.ts`
-   - registers exported `AISkill[]` into the AI service
-8. other plugins run their normal `setup()`
+The real startup flow is:
+
+1. `app.ts` starts Mioku.
+2. `src/index.ts` discovers plugins from `plugins/*/package.json`.
+3. `src/index.ts` discovers services from `src/services/*/package.json`.
+4. Mioku checks for missing services declared by plugins.
+5. `mioki` starts.
+6. `plugins/boot` runs first because it has `priority: -Infinity`.
+7. `serviceManager.loadAllServices(ctx)` initializes all discovered services.
+8. `registerPluginArtifacts(ctx)` auto-registers:
+   - help manifests from `package.json -> mioku.help`
+   - plugin AI skills from `skills.ts` or `skills.js`
+9. Normal plugins continue running under `mioki`.
 
 Important consequence:
-- plugin help is no longer manually registered in normal plugins
-- plugin AI skills are no longer manually registered in normal plugins
 
-## Current Plugin Definition
+- normal plugins should not manually self-register help
+- normal plugins should not manually self-register AI skills
 
-`index.ts` should define only runtime behavior:
+## Current Plugin Contract
 
-```ts
-const myPlugin: MiokuPlugin = {
-  name: "my-plugin",
-  version: "1.0.0",
-  services: ["config", "ai"],
+For normal plugins, responsibilities are split across files.
 
-  async setup(ctx) {
-    const configService = ctx.services?.config as ConfigService | undefined;
+### `package.json`
 
-    if (configService) {
-      await configService.registerConfig("my-plugin", "base", BASE_CONFIG);
-    }
+Use it for declarative metadata:
 
-    ctx.handle("message", async (event) => {
-      // runtime behavior
-    });
-
-    return () => {
-      // cleanup
-    };
-  },
-};
-```
-
-Do not add these old fields to the plugin object:
-
-- `help`
-- `skill`
-
-They are not part of the active plugin architecture anymore.
-
-## How Help Is Added
-
-Plugin help must be declared in `plugins/<name>/package.json`:
-
-```json
-{
-  "mioku": {
-    "services": ["ai", "config", "help"],
-    "help": {
-      "title": "AI 聊天",
-      "description": "智能 AI 聊天插件",
-      "commands": [
-        {
-          "cmd": "/重置会话",
-          "desc": "重置自己的AI聊天记录",
-          "role": "member"
-        },
-        {
-          "cmd": "/重置群会话",
-          "desc": "重置当前群的AI聊天记录",
-          "role": "admin"
-        }
-      ]
-    }
-  }
-}
-```
-
-Help command item schema:
-
-```ts
-type CommandRole = "master" | "admin" | "owner" | "member";
-
-interface PluginHelp {
-  title: string;
-  description: string;
-  commands: Array<{
-    cmd: string;
-    desc: string;
-    usage?: string;
-    role?: CommandRole;
-  }>;
-}
-```
-
-Notes:
-- `role` is optional
-- help is auto-registered by the framework
-- normal plugins should not call `helpService.registerHelp(...)`
-
-## How Skills and Tools Are Added
-
-Global AI tools must be declared in `plugins/<name>/skills.ts`.
-
-The file must default-export `AISkill[]`.
-
-Example:
-
-```ts
-import type { AISkill } from "../../src";
-
-const mySkills: AISkill[] = [
-  {
-    name: "weather",
-    description: "Weather-related operations",
-    tools: [
-      {
-        name: "get_weather",
-        description: "Get weather for a city",
-        parameters: {
-          type: "object",
-          properties: {
-            city: { type: "string" }
-          },
-          required: ["city"]
-        },
-        handler: async (args, event) => {
-          return { city: args.city, forecast: "sunny" };
-        }
-      }
-    ]
-  }
-];
-
-export default mySkills;
-```
-
-Tool conventions:
-- `name`
-  tool name within the skill namespace
-- `description`
-  clear natural-language description for the model
-- `parameters`
-  JSON-schema-like input definition
-- `handler(args, event?)`
-  actual implementation
-
-Tool results are always sent back into the model loop when the model makes a tool call. The model then decides whether to call another tool or produce the final assistant response. Do not add a custom `returnToAI` field.
-
-## Why `runtime.ts` Exists
-
-`runtime.ts` exists because `skills.ts` is loaded by the framework outside plugin `setup()`.
-
-That means:
-- `skills.ts` cannot rely on local variables created inside `setup()`
-- `skills.ts` cannot safely close over `ctx`, service instances, loop managers, or runtime caches from `index.ts`
-
-So when tools need access to runtime-created objects, the plugin should create a `runtime.ts`.
-
-Typical `runtime.ts` responsibilities:
-- store `ctx`
-- store service instances
-- store loop managers or controllers
-- store mutable runtime state shared between `index.ts` and `skills.ts`
-
-Pattern:
-
-```ts
-const runtimeState: RuntimeState = {};
-
-export function setRuntimeState(next: RuntimeState) {
-  Object.assign(runtimeState, next);
-}
-
-export function getRuntimeState() {
-  return runtimeState;
-}
-
-export function resetRuntimeState() {
-  // clear fields
-}
-```
-
-Then:
-- `index.ts` sets runtime state during `setup()`
-- `skills.ts` reads runtime state inside tool handlers
-
-## Why `shared.ts` Exists
-
-`shared.ts` is different from `runtime.ts`.
-
-Use `shared.ts` for pure reusable logic:
-- HTML rendering
-- formatting helpers
-- request builders
-- common serialization
-- image generation helpers
-
-Use `runtime.ts` for mutable process state.
-
-Short version:
-- `runtime.ts` = runtime objects and mutable state
-- `shared.ts` = reusable pure logic
-
-Do not mix them unless the plugin is tiny and the distinction truly adds no value.
-
-## Current Architectural Rules
-
-### Plugin `package.json`
-
-`plugins/<name>/package.json` is responsible for:
-- workspace metadata
-- dependency declaration
+- npm package name
+- version
+- description
+- `main`
 - `mioku.services`
 - `mioku.help`
 
-Do not use `mioku.skill` anymore.
-
-### Plugin `index.ts`
-
-`plugins/<name>/index.ts` is responsible for:
-- runtime setup
-- accessing `ctx.services`
-- registering config
-- event handlers
-- creating managers/controllers
-- writing runtime state into `runtime.ts`
-- cleanup
-
-Do not define help or skill metadata here.
-
-### Plugin `skills.ts`
-
-`plugins/<name>/skills.ts` is responsible for:
-- exporting `AISkill[]`
-- defining tool descriptions and parameter schemas
-- implementing tool handlers
-- reading runtime state through `runtime.ts` when needed
-
-### Services
-
-`src/services/<name>/index.ts` is responsible for:
-- exposing stable APIs to plugins
-- owning service lifecycle
-- not depending on plugin-local runtime state
-
-## Common Mistakes To Avoid
-
-- Do not manually call `aiService.registerSkill(...)` inside normal plugins
-- Do not manually call `helpService.registerHelp(...)` inside normal plugins
-- Do not put `skill` on the plugin object
-- Do not put `help` on the plugin object
-- Do not put runtime-only state directly into `skills.ts`
-- Do not make `skills.ts` depend on `setup()` local variables
-- Do not move pure rendering helpers into `runtime.ts`
-
-## Recommended Plugin Skeleton
-
-### `package.json`
+Example:
 
 ```json
 {
   "name": "mioku-plugin-example",
+  "version": "1.0.0",
+  "description": "Example plugin",
   "main": "index.ts",
   "mioku": {
-    "services": ["ai", "config"],
+    "services": ["config", "ai"],
     "help": {
       "title": "示例插件",
       "description": "示例说明",
@@ -384,54 +95,335 @@ Do not define help or skill metadata here.
 }
 ```
 
+Rules:
+
+- `mioku.services` declares required services
+- `mioku.help` is the only supported place for plugin help metadata
+- do not invent `mioku.skill`
+
 ### `index.ts`
 
+Use it for runtime behavior only:
+
+- service lookup via `ctx.services`
+- config registration
+- event handlers
+- scheduled jobs
+- runtime initialization
+- cleanup
+
+Use the real repository pattern:
+
 ```ts
-const examplePlugin: MiokuPlugin = {
+import { definePlugin } from "mioki";
+import type { ConfigService } from "../../src/services/config/tpyes";
+
+export default definePlugin({
   name: "example",
-  services: ["ai", "config"],
+  version: "1.0.0",
+  description: "Example plugin",
 
   async setup(ctx) {
     const configService = ctx.services?.config as ConfigService | undefined;
 
     if (configService) {
-      await configService.registerConfig("example", "base", BASE_CONFIG);
+      await configService.registerConfig("example", "base", {
+        enabled: true,
+      });
     }
 
-    setExampleRuntimeState({ ctx, configService });
+    ctx.handle("message", async (event) => {
+      const text = ctx.text(event).trim();
+      if (text !== "/example") {
+        return;
+      }
+      await event.reply("ok");
+    });
+
+    return () => {
+      ctx.logger.info("example unloaded");
+    };
   },
-};
+});
 ```
+
+Do not put these on the plugin object:
+
+- `help`
+- `skill`
 
 ### `skills.ts`
 
+Use it for global plugin AI tools.
+
+- default-export `AISkill[]`
+- keep handlers deterministic and small
+- use repository types from `src/core/types.ts` or `src/index.ts`
+- do not close over setup-local state
+
+Example:
+
 ```ts
-const exampleSkills: AISkill[] = [
+import type { AISkill } from "../../src";
+
+const skills: AISkill[] = [
   {
     name: "example",
-    description: "Example tools",
+    description: "Example plugin tools",
     tools: [
       {
-        name: "do_example",
-        description: "Run example action",
+        name: "ping",
+        description: "Return a simple status message",
         parameters: {
           type: "object",
-          properties: {}
+          properties: {},
+          required: [],
         },
         handler: async () => {
-          const { ctx } = getExampleRuntimeState();
-          return "ok";
-        }
-      }
-    ]
-  }
+          return { ok: true };
+        },
+      },
+    ],
+  },
 ];
+
+export default skills;
 ```
+
+Do not call `aiService.registerSkill(...)` from normal plugins. Mioku loads plugin skills automatically through `src/core/plugin-artifact-registry.ts`.
+
+### `runtime.ts`
+
+Use `runtime.ts` only when `skills.ts` needs access to state created during `setup()`.
+
+Why:
+
+- `skills.ts` is imported by the framework outside plugin `setup()`
+- it cannot safely depend on setup-local closures
+
+Pattern:
+
+```ts
+export interface ExampleRuntimeState {
+  ctx?: any;
+  cache?: Map<string, string>;
+}
+
+const runtimeState: ExampleRuntimeState = {};
+
+export function setExampleRuntimeState(next: ExampleRuntimeState) {
+  Object.assign(runtimeState, next);
+  return runtimeState;
+}
+
+export function getExampleRuntimeState() {
+  return runtimeState;
+}
+
+export function resetExampleRuntimeState() {
+  for (const key of Object.keys(runtimeState) as Array<
+    keyof ExampleRuntimeState
+  >) {
+    delete runtimeState[key];
+  }
+}
+```
+
+Use `shared.ts` or `utils.ts` for pure reusable logic. Keep mutable state in `runtime.ts`.
+
+## Help Contract
+
+Help is auto-loaded from `package.json -> mioku.help`.
+
+Command item role is:
+
+```ts
+type CommandRole = "master" | "admin" | "owner" | "member";
+```
+
+Do not call `helpService.registerHelp(...)` from normal plugins unless you are explicitly changing Mioku framework behavior.
+
+## Service Contract
+
+Services live under `src/services/<name>/`.
+
+Each service exports a `MiokuService`:
+
+```ts
+export interface MiokuService {
+  name: string;
+  version: string;
+  description?: string;
+  init(): Promise<void>;
+  api: Record<string, any>;
+  dispose?(): Promise<void>;
+}
+```
+
+Typical shape:
+
+```ts
+const demoService: MiokuService = {
+  name: "demo",
+  version: "1.0.0",
+  description: "Demo service",
+  api: {} as DemoServiceAPI,
+
+  async init() {
+    this.api = {
+      ping() {
+        return "pong";
+      },
+    };
+  },
+};
+
+export default demoService;
+```
+
+How services are consumed:
+
+1. Plugin declares dependency in `package.json -> mioku.services`
+2. Plugin reads API from `ctx.services?.<name>`
+
+Example:
+
+```ts
+import type { ScreenshotService } from "../../src/services/screenshot/types";
+
+const screenshotService = ctx.services?.screenshot as
+  | ScreenshotService
+  | undefined;
+```
+
+## Built-in Non-Legacy Services
+
+Current non-Minecraft services in this repository:
+
+- `ai`
+- `config`
+- `help`
+- `screenshot`
+- `webui`
+
+Ignore `plugins/minecraft` and `src/services/minecraft` unless the task explicitly targets them.
+
+### `ai`
+
+Primary capabilities:
+
+- create named AI instances
+- set/get default AI instance
+- register/query skills
+- register/get chat runtime
+- run `generateText(...)`, `generateMultimodal(...)`, `generateWithTools(...)`, and `complete(...)`
+
+Notes:
+
+- plugin skills are auto-loaded from `skills.ts`
+- `chat-runtime` is registered by the `chat` plugin
+- executable tool loops go through `complete({ executableTools })`
+
+### `config`
+
+Primary capabilities:
+
+- `registerConfig(...)`
+- `updateConfig(...)`
+- `getConfig(...)`
+- `getPluginConfigs(...)`
+- `onConfigChange(...)`
+
+Notes:
+
+- config files live under `config/<plugin>/<name>.json`
+- existing config is merged with defaults on registration
+- the current type file is actually named `src/services/config/tpyes.ts`
+
+### `help`
+
+Primary capabilities:
+
+- `registerHelp(...)`
+- `getHelp(...)`
+- `getAllHelp()`
+- `unregisterHelp(...)`
+
+Framework code uses it for automatic help registration. Normal plugins usually should not.
+
+### `screenshot`
+
+Primary capabilities:
+
+- `screenshot(html, options?)`
+- `screenshotFromUrl(url, options?)`
+- `cleanupTemp(olderThanMs?)`
+
+Notes:
+
+- temp screenshots live under `temp/screenshots`
+- HTML screenshots inject Tailwind via CDN
+- browser discovery differs by platform
+
+### `webui`
+
+Primary plugin-facing integration is usually `config.md`, not direct API calls.
+
+Public API exposed today:
+
+- `getSettings()`
+
+The WebUI service also parses plugin `config.md` files. Field keys must use:
+
+```text
+<configName>.<jsonPath>
+```
+
+Supported config-page field types currently include:
+
+- `text`
+- `textarea`
+- `number`
+- `switch`
+- `select`
+- `multi-select`
+- `secret`
+- `json`
+
+## Multi-Bot and Context Notes
+
+When a plugin may run with multiple bot connections:
+
+- avoid assuming `ctx.bot` is always the correct sender bot
+- prefer `ctx.pickBot(ctx.self_id)` for outbound actions tied to the current event
+
+Useful context members:
+
+- `ctx.handle(...)`
+- `ctx.text(event)`
+- `ctx.match(...)`
+- `ctx.segment`
+- `ctx.logger`
+- `ctx.cron(...)`
+- `ctx.pickBot(...)`
+- `ctx.isOwner(event)`
+- `ctx.isAdmin(event)`
+
+## Common Mistakes To Avoid
+
+- do not manually call `aiService.registerSkill(...)` inside normal plugins
+- do not manually call `helpService.registerHelp(...)` inside normal plugins
+- do not add `help` or `skill` to the plugin object
+- do not make `skills.ts` depend on setup-local variables
+- do not put mutable runtime state into `shared.ts`
+- do not treat legacy Minecraft code as the default service/plugin pattern
+- do not “fix” `src/services/config/tpyes.ts` imports accidentally unless the task includes that rename
 
 ## Validation
 
-When changing framework, plugin architecture, services, help rendering, or skill loading:
-- run `bun run build`
-- prefer checking the real startup path as well if behavior changed
+After meaningful changes:
 
-If you update plugin conventions, update this file and `AGENTS.md` together so future agents do not regress to the old architecture.
+1. run `bun run build`
+2. if behavior changed, test the affected startup path, command flow, or service interaction locally when practical
+
+If you change repository conventions, update both `AGENTS.md` and `CLAUDE.md` in the same change.
