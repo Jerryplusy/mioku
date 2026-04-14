@@ -2,6 +2,48 @@
 
 Mioki 框架提供的 API 和工具函数。
 
+## 插件运行时状态
+
+### getPluginRuntimeState
+
+获取指定插件的运行时状态对象。如果该插件尚未写入状态，会返回一个空对象。
+
+> - `pluginName`: 插件名
+    >   返回: `T` - 插件运行时状态对象
+
+### setPluginRuntimeState
+
+向指定插件的运行时状态对象写入字段，适合在 `setup()` 中把队列、缓存、长连接客户端等对象挂进去。
+
+> - `pluginName`: 插件名
+> - `nextState`: 需要合并写入的状态
+    >   返回: `T` - 合并后的运行时状态对象
+
+### resetPluginRuntimeState
+
+清空指定插件的运行时状态，适合在插件卸载时调用。
+
+> - `pluginName`: 插件名
+    >   返回: `void`
+
+<details>
+<summary>点击展开完整类型定义</summary>
+
+```typescript
+function getPluginRuntimeState<T extends Record<string, any>>(
+  pluginName: string,
+): T;
+
+function setPluginRuntimeState<T extends Record<string, any>>(
+  pluginName: string,
+  nextState: Partial<T>,
+): T;
+
+function resetPluginRuntimeState(pluginName: string): void;
+```
+
+</details>
+
 ## 工具函数 (Utils)
 
 ### 日志

@@ -405,6 +405,7 @@ export default helpSkills;
 
 - `skills.ts` 默认导出的是 `AISkill[]`
 - 工具处理函数可以通过 `runtimeCtx?.ctx` 访问当前上下文
+- 如果需要读取 `setup()` 创建的可变对象，不要依赖模块局部变量，使用 `runtime.ts` + Mioku runtime registry
 
 注册后，工具会以 `skillName.toolName` 的形式被识别
 
@@ -423,34 +424,46 @@ export default helpSkills;
 
 问题在于：`skills.ts` 不是在插件 `setup()` 内执行的，它会被框架单独导入
 
-所以它不能直接引用 `setup()` 里的局部变量，这时就需要 `runtime.ts` 做桥接
+所以它不能直接引用 `setup()` 里的局部变量，这时就需要 `runtime.ts` 做桥接。
+
+> [!IMPORTANT]
+> 不要把 `runtime.ts` 写成模块内局部变量单例，例如 `const runtimeState = {}`
+>
+> 原因有两个：
+>
+> - `skills.ts` 和插件本体可能通过不同加载路径被导入
+> - `mioki` 当前内部使用的 `jiti` 明确关闭了 `moduleCache`
+>
+> 这意味着同一个 `runtime.ts` 文件可能被执行多次，模块级变量不会稳定共享
+>
+> 在 Mioku 里，推荐使用 `src/core/plugin-runtime-state.ts` 提供的全局 runtime registry
 
 ```ts
 // runtime.ts 示例
 import type { QueueManager } from "./queue-manager";
+import {
+  getPluginRuntimeState,
+  resetPluginRuntimeState,
+  setPluginRuntimeState,
+} from "../../src";
 
 export interface NoticeRuntimeState {
   queue?: QueueManager;
   webhookUrl?: string;
 }
 
-const runtimeState: NoticeRuntimeState = {};
+const PLUGIN_NAME = "notice-center";
 
 export function setNoticeRuntimeState(nextState: NoticeRuntimeState) {
-  Object.assign(runtimeState, nextState);
-  return runtimeState;
+  return setPluginRuntimeState<NoticeRuntimeState>(PLUGIN_NAME, nextState);
 }
 
 export function getNoticeRuntimeState(): NoticeRuntimeState {
-  return runtimeState;
+  return getPluginRuntimeState<NoticeRuntimeState>(PLUGIN_NAME);
 }
 
 export function resetNoticeRuntimeState(): void {
-  for (const key of Object.keys(runtimeState) as Array<
-    keyof NoticeRuntimeState
-  >) {
-    delete runtimeState[key];
-  }
+  resetPluginRuntimeState(PLUGIN_NAME);
 }
 ```
 
@@ -524,4 +537,4 @@ const noticeSkills: AISkill[] = [
 ];
 ```
 
-这样 `skills.ts` 既不会依赖 `setup()` 的局部闭包，又能拿到真正的运行时对象
+这样 `skills.ts` 既不会依赖 `setup()` 的局部闭包，又能稳定拿到真正的运行时对象。
