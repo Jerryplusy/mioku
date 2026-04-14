@@ -1,6 +1,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import { logger, type MiokiContext } from "mioki";
+import { botConfig, logger, type MiokiContext } from "mioki";
 import type { AIService } from "../services/ai/types";
 import type { HelpService } from "../services/help/types";
 import type { AISkill } from "./types";
@@ -67,7 +67,9 @@ async function resolveSkillsEntry(pluginPath: string): Promise<string | null> {
 export async function registerPluginArtifacts(
   ctx: MiokiContext,
 ): Promise<void> {
-  const enabledPlugins = new Set<string>((ctx as any).botConfig?.plugins ?? []);
+  const enabledPlugins = new Set<string>(
+    Array.isArray(botConfig?.plugins) ? botConfig.plugins : [],
+  );
   const pluginMetadata = pluginManager
     .getAllMetadata()
     .filter((metadata) =>

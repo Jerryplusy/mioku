@@ -35,3 +35,4 @@ export async function start(options: MiokuStartOptions = {}): Promise<void> {
 }
 
 export * from "./core/types";
+export * from "./core/plugin-runtime-state";
