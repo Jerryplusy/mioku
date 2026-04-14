@@ -555,6 +555,7 @@ export function generateHelpHtml(
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: ${isCompact ? "12px" : "14px"};
+        align-items: start;
       }
 
       .help-plugin {
