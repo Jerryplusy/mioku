@@ -111,7 +111,7 @@ export default defineConfig({
       ],
     },
     socialLinks: [
-      { icon: "github", link: "https://github.com/Jerryplusy/mioku" },
+      { icon: "github", link: "https://github.com/mioku-lab/mioku" },
     ],
     outline: {
       level: [2, 3],
