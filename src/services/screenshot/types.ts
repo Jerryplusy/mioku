@@ -16,12 +16,22 @@ export interface ScreenshotOptions {
   waitTime?: number;
 }
 
+export interface MarkdownScreenshotOptions extends ScreenshotOptions {
+  // 主题模式，默认 auto（按时间自动切换）
+  themeMode?: "auto" | "light" | "dark";
+}
+
 /**
  * 截图服务接口
  */
 export interface ScreenshotService {
   // 截图
   screenshot(htmlContent: string, options?: ScreenshotOptions): Promise<string>;
+  // 从 Markdown 渲染截图
+  screenshotMarkdown(
+    markdownContent: string,
+    options?: MarkdownScreenshotOptions,
+  ): Promise<string>;
   // 从URL截图
   screenshotFromUrl(url: string, options?: ScreenshotOptions): Promise<string>;
   // 清除缓存

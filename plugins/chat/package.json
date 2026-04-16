@@ -29,9 +29,6 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",
-    "highlight.js": "^11.11.1",
-    "katex": "^0.16.25",
-    "markdown-it": "^14.1.0",
     "openai": "^4.0.0",
     "sharp": "^0.34.5"
   },

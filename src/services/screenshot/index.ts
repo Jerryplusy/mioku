@@ -4,7 +4,11 @@ import puppeteer, { Browser } from "puppeteer";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { ScreenshotOptions, ScreenshotService } from "./types";
+import {
+  MarkdownScreenshotOptions,
+  ScreenshotOptions,
+  ScreenshotService,
+} from "./types";
 
 /**
  * 截图服务实现
@@ -186,6 +190,19 @@ class ScreenshotServiceImpl implements ScreenshotService {
     } finally {
       await page.close();
     }
+  }
+
+  /**
+   * 从 Markdown 内容生成截图
+   */
+  async screenshotMarkdown(
+    markdownContent: string,
+    options?: MarkdownScreenshotOptions,
+  ): Promise<string> {
+    const { buildMarkdownScreenshotOptions } = await import("./markdown");
+    const { html, options: screenshotOptions } =
+      buildMarkdownScreenshotOptions(markdownContent, options);
+    return this.screenshot(html, screenshotOptions);
   }
 
   /**
