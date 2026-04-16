@@ -18,7 +18,7 @@
 > 推荐使用bun管理依赖，也可使用npm/pnpm :)
 
 ```bash
-git clone https://github.com/Jerryplusy/mioku.git
+git clone https://github.com/mioku-lab/mioku.git
 
 cd mioku
 
@@ -62,7 +62,7 @@ bun run mioku-install service <repo-url>
 ### Docker Compose(推荐)
 
 ```bash
-git clone https://github.com/Jerryplusy/mioku.git
+git clone https://github.com/mioku-lab/mioku.git
 cd mioku
 docker compose build
 docker compose run --rm --service-ports mioku
@@ -92,7 +92,7 @@ docker compose up -d
 ## Docker
 
 ```bash
-git clone https://github.com/Jerryplusy/mioku.git
+git clone https://github.com/mioku-lab/mioku.git
 
 cd mioku
 

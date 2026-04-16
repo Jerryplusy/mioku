@@ -13,7 +13,6 @@ import type { ScreenshotService } from "../../../src/services/screenshot/types";
 import { synthesizeAudioBase64 } from "./audio";
 import {
   extractStandaloneMarkdownBlock,
-  renderMarkdownScreenshot,
   splitOutgoingUnits,
   summarizeMarkdown,
   MARKDOWN_OPEN_TAG,
@@ -559,7 +558,7 @@ async function buildMarkdownImage(
   }
 
   try {
-    return await renderMarkdownScreenshot(markdownContent, screenshotService);
+    return await screenshotService.screenshotMarkdown(markdownContent);
   } catch (error) {
     ctx.logger.error(`[MarkdownRender] failed: ${error}`);
     return null;

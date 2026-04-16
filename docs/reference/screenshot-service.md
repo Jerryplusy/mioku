@@ -1,6 +1,6 @@
 # Screenshot Service
 
-网页截图服务，使用 Puppeteer 进行网页截图。
+网页截图服务，使用 Puppeteer 进行网页截图，支持 HTML 与 Markdown 渲染
 
 ## ScreenshotService
 
@@ -28,6 +28,18 @@ screenshotFromUrl(url, options?): Promise<string>
 
 > - `url`: 网页 URL
 > - `options?`: ScreenshotOptions 对象
+>   返回: `string` - 截图文件路径
+
+### screenshotMarkdown
+
+> 从 Markdown 内容渲染并生成截图
+
+```typescript
+screenshotMarkdown(markdownContent, options?): Promise<string>
+```
+
+> - `markdownContent`: Markdown 文本内容
+> - `options?`: MarkdownScreenshotOptions 对象
 >   返回: `string` - 截图文件路径
 
 ### cleanupTemp
@@ -65,12 +77,28 @@ interface ScreenshotOptions {
 > - `type?`: 输出图片格式，默认 png
 > - `waitTime?`: 超时时间（毫秒）
 
+## MarkdownScreenshotOptions
+
+> Markdown 截图选项，继承 ScreenshotOptions
+
+```typescript
+interface MarkdownScreenshotOptions extends ScreenshotOptions {
+  themeMode?: "auto" | "light" | "dark";
+}
+```
+
+> - `themeMode?`: 主题模式，默认 `auto`
+
 <details>
 <summary>点击展开完整类型定义</summary>
 
 ```typescript
 interface ScreenshotService {
   screenshot(htmlContent: string, options?: ScreenshotOptions): Promise<string>;
+  screenshotMarkdown(
+    markdownContent: string,
+    options?: MarkdownScreenshotOptions
+  ): Promise<string>;
   screenshotFromUrl(url: string, options?: ScreenshotOptions): Promise<string>;
   cleanupTemp(olderThanMs?: number): Promise<number>;
 }

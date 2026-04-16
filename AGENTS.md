@@ -24,11 +24,13 @@ Current plugin contract:
 - `skills.ts` is the only place to add plugin AI skills/tools
 - do not define `help` or `skill` on the plugin object
 - do not call `helpService.registerHelp(...)` or `aiService.registerSkill(...)` from normal plugins unless changing framework internals
+- simple plugins/services can stay in one focused file
+- as complexity grows, split by responsibility into small files instead of growing one large `index.ts` or one large shared helper file
 
 `runtime.ts` convention:
 - use `runtime.ts` when `skills.ts` needs mutable state created during `setup()`
 - `skills.ts` is imported outside plugin `setup()`, so it cannot depend on setup-local closures
-- keep pure reusable logic in `shared.ts` or `utils.ts`
+- `shared.ts` / `utils.ts` are optional names for pure reusable logic, not mandatory files
 - keep mutable process state in `runtime.ts`
 
 Service contract:

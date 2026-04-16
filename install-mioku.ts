@@ -16,8 +16,8 @@ import { execSync } from "node:child_process";
 const ROOT_DIR = cwd();
 const DEFAULT_PM = process.env.MIOKU_PM || "bun";
 const DEFAULT_WEBUI_SERVICE_REPO =
-  "https://github.com/Jerryplusy/mioku-service-webui.git";
-const DEFAULT_WEBUI_REPO = "https://github.com/Jerryplusy/mioku-webui.git";
+  "https://github.com/mioku-lab/mioku-service-webui.git";
+const DEFAULT_WEBUI_REPO = "https://github.com/mioku-lab/mioku-webui.git";
 
 let TMP_DIR = "";
 

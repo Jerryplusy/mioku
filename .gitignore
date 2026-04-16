@@ -158,3 +158,8 @@ vite.config.ts.timestamp-*
 /data/
 /webui/
 /mioku-webui/
+/.agents/
+/.trae/
+/.claude/
+/.cursor/
+/skills-lock.json

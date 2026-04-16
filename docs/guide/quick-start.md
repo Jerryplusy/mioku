@@ -23,7 +23,7 @@
 以手动安装为例，也支持使用 [Docker / Docker Compose](/guide/deployment) 进行安装
 
 ```bash
-git clone https://github.com/Jerryplusy/mioku.git
+git clone https://github.com/mioku-lab/mioku.git
 cd mioku
 bun install
 ```

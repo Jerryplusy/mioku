@@ -12,12 +12,12 @@ bun run mioku-install webui
 
 ```bash
 # 安装 WebUI 服务
-git clone https://github.com/Jerryplusy/mioku-service-webui.git src/services/webui
+git clone https://github.com/mioku-lab/mioku-service-webui.git src/services/webui
 # 安装依赖
 bun install
 ```
 
-从[WebUI Release](https://github.com/Jerryplusy/mioku-webui/releases)下载最新的dist预构建文件
+从[WebUI Release](https://github.com/mioku-lab/mioku-webui/releases)下载最新的dist预构建文件
 
 并解压到`src/services/webui/`目录
 
@@ -86,9 +86,9 @@ config/webui/settings.json
 
 ## 关于 WebUI
 
-[WebUI仓库地址](https://github.com/Jerryplusy/mioku-webui.git)
+[WebUI仓库地址](https://github.com/mioku-lab/mioku-webui.git)
 
-[WebUI服务地址](https://github.com/Jerryplusy/mioku-service-webui.git)
+[WebUI服务地址](https://github.com/mioku-lab/mioku-service-webui.git)
 
 使用 MIT 协议开源
 
@@ -101,7 +101,7 @@ config/webui/settings.json
 开发：
 
 ```bash
-git clone https://github.com/Jerryplusy/mioku-webui.git
+git clone https://github.com/mioku-lab/mioku-webui.git
 cd mioku-webui
 bun install
 bun run dev # 开发模式
