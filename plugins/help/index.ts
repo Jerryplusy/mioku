@@ -1,4 +1,3 @@
-import type { AIService } from "../../src/services/ai/types";
 import type { ConfigService } from "../../src/services/config/tpyes";
 import type { HelpService } from "../../src/services/help/types";
 import type { ScreenshotService } from "../../src/services/screenshot/types";
@@ -10,6 +9,7 @@ import {
   getPackageVersion,
   replyWithImage,
   resolveHelpBotProfile,
+  resolveHelpImageIntent,
 } from "./shared";
 import { resetHelpRuntimeState, setHelpRuntimeState } from "./runtime";
 
@@ -56,14 +56,19 @@ const helpPlugin = definePlugin({
         return;
       }
 
-      const trimmed = text.trim().toLowerCase();
-      const isHelpCommand = /^[#/]?(help|帮助)$/.test(trimmed);
-      if (!isHelpCommand) {
+      const allHelp = helpService.getAllHelp();
+      const intent = resolveHelpImageIntent(text, allHelp);
+      if (intent.type === "none") {
         return;
       }
 
       if (!screenshotService) {
         await event.reply("screenshot 服务未加载，无法生成帮助图片");
+        return;
+      }
+
+      if (intent.type === "unknown") {
+        await event.reply(`没有找到插件 ${intent.keyword} 的帮助`);
         return;
       }
 
@@ -76,6 +81,8 @@ const helpPlugin = definePlugin({
           miokuVersion,
           botNickname,
           botAvatarUrl,
+          targetPluginName:
+            intent.type === "detail" ? intent.pluginName : undefined,
         });
 
         if (!imagePath) {
