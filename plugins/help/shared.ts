@@ -606,10 +606,8 @@ export function generateHelpHtml(
       }
 
       .help-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
-        align-items: start;
+        column-count: 2;
+        column-gap: 12px;
       }
 
       .help-detail {
@@ -625,6 +623,8 @@ export function generateHelpHtml(
         background: ${theme.panelBg};
         box-shadow: ${theme.panelShadow};
         overflow: hidden;
+        break-inside: avoid;
+        margin-bottom: 12px;
       }
 
       .help-plugin__head {
