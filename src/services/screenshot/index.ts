@@ -115,18 +115,40 @@ class ScreenshotServiceImpl implements ScreenshotService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private createHtmlPage(htmlContent: string): string {
+  private isNightMode(themeMode?: "auto" | "light" | "dark"): boolean {
+    if (themeMode === "dark") return true;
+    if (themeMode === "light") return false;
+    const hour = new Date().getHours();
+    return hour >= 18 || hour < 6;
+  }
+
+  private createHtmlPage(
+    htmlContent: string,
+    themeMode?: "auto" | "light" | "dark",
+  ): string {
+    const isDark = this.isNightMode(themeMode);
+    const themeClass = isDark ? "dark" : "";
+    const colorScheme = isDark ? "dark" : "light";
+
     return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="${themeClass}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class'
+    }
+  </script>
   <style>
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
+    }
+    html {
+      color-scheme: ${colorScheme};
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -157,7 +179,7 @@ class ScreenshotServiceImpl implements ScreenshotService {
       const height = options?.height || 1080;
       await page.setViewport({ width, height });
 
-      const fullHtml = this.createHtmlPage(htmlContent);
+      const fullHtml = this.createHtmlPage(htmlContent, options?.themeMode);
       const htmlId = this.generateId();
       const htmlPath = path.join(this.tempDir, `${htmlId}.html`);
       await fs.promises.writeFile(htmlPath, fullHtml, "utf-8");
@@ -200,8 +222,10 @@ class ScreenshotServiceImpl implements ScreenshotService {
     options?: MarkdownScreenshotOptions,
   ): Promise<string> {
     const { buildMarkdownScreenshotOptions } = await import("./markdown");
-    const { html, options: screenshotOptions } =
-      buildMarkdownScreenshotOptions(markdownContent, options);
+    const { html, options: screenshotOptions } = buildMarkdownScreenshotOptions(
+      markdownContent,
+      options,
+    );
     return this.screenshot(html, screenshotOptions);
   }
 

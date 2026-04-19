@@ -14,6 +14,8 @@ export interface ScreenshotOptions {
   type?: "png" | "jpeg" | "webp";
   // 超时时间
   waitTime?: number;
+  // 主题模式，默认 auto（按时间自动切换）
+  themeMode?: "auto" | "light" | "dark";
 }
 
 export interface MarkdownScreenshotOptions extends ScreenshotOptions {
