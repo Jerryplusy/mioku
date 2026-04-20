@@ -67,6 +67,7 @@ interface ScreenshotOptions {
   quality?: number;
   type?: "png" | "jpeg" | "webp";
   waitTime?: number;
+  themeMode?: "auto" | "light" | "dark";
 }
 ```
 
@@ -76,6 +77,10 @@ interface ScreenshotOptions {
 > - `quality?`: 图片质量 1-100，仅 jpeg/webp
 > - `type?`: 输出图片格式，默认 png
 > - `waitTime?`: 超时时间（毫秒）
+> - `themeMode?`: 主题模式，默认 `auto`
+>   - `auto`: 根据当前时间自动切换
+>   - `light`: 强制使用白天模式
+>   - `dark`: 强制使用夜间模式
 
 ## MarkdownScreenshotOptions
 

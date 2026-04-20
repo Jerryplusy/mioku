@@ -140,11 +140,10 @@ function buildInjectedSections(
     return [];
   }
 
-  return injections
-    .map((injection, index) => {
-      const title = injection.title || `Runtime Instruction ${index + 1}`;
-      return `## ${title}\n${injection.content}`;
-    });
+  return injections.map((injection, index) => {
+    const title = injection.title || `Runtime Instruction ${index + 1}`;
+    return `## ${title}\n${injection.content}`;
+  });
 }
 
 function normalizeConstraintStrength(value: unknown): ConstraintStrength {
@@ -587,6 +586,7 @@ function buildResponseFormatSection(
 ### Optional Voice Message Format
 - You MAY optionally send one voice message by writing [audio:content]
 - Audio is OPTIONAL. Do NOT use it in every reply
+The voice message function sends plain text and cannot be used for singing. If a user needs you to sing, other skills should be considered first.
 - Put [audio:...] on its own line when you want it sent as a separate message in sequence
 - Example: "[audio:おはようー]"
 ${audioModeLine}`);

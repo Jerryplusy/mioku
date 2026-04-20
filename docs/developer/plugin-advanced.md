@@ -401,6 +401,40 @@ export function buildDashboardHtml(data: {
 
 :::
 
+### 主题模式切换
+
+截图服务支持根据时间自动切换白天/夜间模式，也可以在调用时手动指定主题
+
+```ts
+const imagePath = await screenshotService.screenshot(html, {
+  width: 960,
+  height: 560,
+  type: "png",
+  themeMode: "auto", // auto | light | dark
+});
+```
+
+- `auto`（默认）：根据当前时间自动切换
+- `light`：强制使用白天模式
+- `dark`：强制使用夜间模式
+
+在 HTML 模板中使用 Tailwind 的 `dark:` 前缀来实现主题适配：
+
+```ts
+export function buildCardHtml(): string {
+  return `
+    <div class="bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100 p-8">
+      <h1 class="text-2xl font-bold text-teal-700 dark:text-teal-300">
+        标题
+      </h1>
+      <p class="text-slate-600 dark:text-slate-400">
+        内容文本
+      </p>
+    </div>
+  `;
+}
+```
+
 ### 截图网页
 
 如果你已经有一个可访问的网页，也可以直接截图
