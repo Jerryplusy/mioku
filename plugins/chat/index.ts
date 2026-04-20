@@ -338,6 +338,7 @@ const chatPlugin = definePlugin({
         message_type: isGroup ? "group" : "private",
         group_id: options.groupId,
         user_id: userId,
+        message: [],
         group_name: undefined,
         sender: {
           user_id: userId,
