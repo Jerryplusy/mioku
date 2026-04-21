@@ -186,13 +186,13 @@ export async function runChat(
     logger.info("[chat-engine] === End Raw AI Reply ===");
   }
 
-  if (response.reasoning) {
+  const allToolCalls = response.allToolCalls || [];
+
+  if (toolCtx.config.debug && response.reasoning) {
     logger.info(`[chat-engine] AI reasoning: ${response.reasoning}`);
   }
 
-  const allToolCalls = response.allToolCalls || [];
-
-  if (allToolCalls.length > 0) {
+  if (toolCtx.config.debug && allToolCalls.length > 0) {
     for (const toolCall of allToolCalls) {
       const resultPreview = JSON.stringify(toolCall.result);
       logger.info(
@@ -261,14 +261,6 @@ export async function runChat(
     (unit) => unit.trim() && unit.trim() !== "---",
   );
 
-  if (toolCtx.config.debug) {
-    logger.info("[chat-engine] === Final AI Reply ===");
-    logger.info(
-      finalMessages.length > 0 ? finalMessages.join("\n---\n") : "(empty)",
-    );
-    logger.info("[chat-engine] === End Final AI Reply ===");
-  }
-
   logger.info(
     `[chat-engine] Session ${toolCtx.sessionId} done | ${finalMessages.length} msg(s), ${allToolCalls.length} tool call(s)`,
   );
@@ -282,7 +274,7 @@ export async function runChat(
   );
 
   return {
-    messages: finalMessages,
+    messages: streamEnabled ? [] : finalMessages,
     pendingAt: [],
     pendingPoke: [],
     pendingQuote: undefined,
