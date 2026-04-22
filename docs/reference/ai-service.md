@@ -499,10 +499,20 @@ interface AITool {
 interface AISkill {
   name: string;
   description: string;
+  permission?: SkillPermissionRole;
   tools: AITool[];
 }
 ```
 
 > - `name`: Skill 名称
 > - `description`: Skill 描述
+> - `permission?`: Skill 权限，默认 `member`
 > - `tools`: 工具列表
+
+```typescript
+type SkillPermissionRole = "owner" | "admin" | "member";
+```
+
+> - `owner`: mioki 主人
+> - `admin`: mioki 管理 + 群管 + 群主
+> - `member`: 普通成员
