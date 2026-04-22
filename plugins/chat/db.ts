@@ -29,6 +29,12 @@ export interface ChatDatabase {
     sessionId?: string,
     limit?: number,
   ): ChatMessage[];
+  getAllMessagesByUser(userId: number, sessionId?: string): ChatMessage[];
+  getMessagesByTimeRange(
+    sessionId: string,
+    startTimestamp: number,
+    endTimestamp: number,
+  ): ChatMessage[];
   searchMessages(
     sessionId: string,
     keyword: string,
@@ -169,8 +175,19 @@ export async function initDatabase(): Promise<ChatDatabase> {
     getMessagesByUser: db.prepare(`
       SELECT * FROM messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?
     `),
+    getAllMessagesByUser: db.prepare(`
+      SELECT * FROM messages WHERE user_id = ? ORDER BY timestamp DESC, id DESC
+    `),
     getMessagesByUserInSession: db.prepare(`
       SELECT * FROM messages WHERE user_id = ? AND session_id = ? ORDER BY timestamp DESC LIMIT ?
+    `),
+    getAllMessagesByUserInSession: db.prepare(`
+      SELECT * FROM messages WHERE user_id = ? AND session_id = ? ORDER BY timestamp DESC, id DESC
+    `),
+    getMessagesByTimeRange: db.prepare(`
+      SELECT * FROM messages
+      WHERE session_id = ? AND timestamp >= ? AND timestamp < ?
+      ORDER BY timestamp ASC, id ASC
     `),
     updateCompressedContext: db.prepare(`
       UPDATE sessions SET compressed_context = ?, updated_at = ? WHERE id = ?
@@ -341,6 +358,55 @@ export async function initDatabase(): Promise<ChatDatabase> {
           messageId: row.message_id,
         }))
         .reverse();
+    },
+
+    getAllMessagesByUser(userId: number, sessionId?: string): ChatMessage[] {
+      const rows = sessionId
+        ? (stmts.getAllMessagesByUserInSession.all(userId, sessionId) as any[])
+        : (stmts.getAllMessagesByUser.all(userId) as any[]);
+
+      return rows
+        .map((row) => ({
+          id: row.id,
+          sessionId: row.session_id,
+          role: row.role,
+          content: row.content,
+          userId: row.user_id,
+          userName: row.user_name,
+          userRole: row.user_role,
+          userTitle: row.user_title,
+          groupId: row.group_id,
+          groupName: row.group_name,
+          timestamp: row.timestamp,
+          messageId: row.message_id,
+        }))
+        .reverse();
+    },
+
+    getMessagesByTimeRange(
+      sessionId: string,
+      startTimestamp: number,
+      endTimestamp: number,
+    ): ChatMessage[] {
+      const rows = stmts.getMessagesByTimeRange.all(
+        sessionId,
+        startTimestamp,
+        endTimestamp,
+      ) as any[];
+      return rows.map((row) => ({
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role,
+        content: row.content,
+        userId: row.user_id,
+        userName: row.user_name,
+        userRole: row.user_role,
+        userTitle: row.user_title,
+        groupId: row.group_id,
+        groupName: row.group_name,
+        timestamp: row.timestamp,
+        messageId: row.message_id,
+      }));
     },
 
     updateCompressedContext(sessionId: string, context: string): void {

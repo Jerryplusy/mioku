@@ -732,19 +732,16 @@ export async function getHumanizeContexts(
   userName: string,
   history: ChatMessage[],
 ): Promise<HumanizeContextsResult> {
-  const memoryContext = await humanize.memoryRetrieval.retrieve(
-    groupSessionId,
-    content,
-    userName,
-    history,
-  );
+  void content;
+  void userName;
+  void history;
 
   const topicContext = humanize.topicTracker.getTopicContext(groupSessionId);
   const expressionContext =
     humanize.expressionLearner.getExpressionContext(groupSessionId);
 
   return {
-    memoryContext: memoryContext || undefined,
+    memoryContext: undefined,
     topicContext: topicContext || undefined,
     expressionContext: expressionContext || undefined,
   };

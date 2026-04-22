@@ -629,6 +629,15 @@ ${markdownModeLine}
 - Use tools only when strictly necessary.`);
   }
 
+  if (ctx.config.memory?.enabled) {
+    lines.push(`
+### Memory Recall Tools
+- recall_memory: Delegate recall to a memory worker model. Pass a clear recall question and let the worker search historical logs.
+- Use recall_memory ONLY when there is explicit need to recall past content and required information is clearly missing from current context.
+- Do NOT call recall_memory for every question.
+- The worker returns historical logs with timestamps; treat them as past records, not newly sent messages.`);
+  }
+
   const emojiAgent = ctx.emojiAgent;
   if (emojiAgent && ctx.config.emoji?.enabled) {
     const configChars = ctx.config.emoji.characters || [];

@@ -30,10 +30,10 @@ export interface ReplyStyleConfig {
  */
 export interface MemoryConfig {
   enabled: boolean;
-  // ReAct 最大迭代次数
-  maxIterations: number;
-  // 检索超时
-  timeoutMs: number;
+  // 回忆时拉取的群聊历史条数（通过 message_id 分页）
+  groupHistoryLimit: number;
+  // 回忆时每个用户历史的默认条数
+  userHistoryLimit: number;
 }
 
 /**

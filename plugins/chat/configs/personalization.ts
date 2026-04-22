@@ -55,8 +55,8 @@ export const PERSONALIZATION_CONFIG: {
 
   memory: {
     enabled: true,
-    maxIterations: 3,
-    timeoutMs: 15000,
+    groupHistoryLimit: 300,
+    userHistoryLimit: 100,
   },
 
   topic: {
