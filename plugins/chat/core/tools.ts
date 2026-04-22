@@ -5,7 +5,9 @@ import { searchWebWithSearxng } from "./searxng";
 import { readWebPage } from "./web-reader";
 import {
   filterAllowedExternalSkills,
+  getSkillRequiredPermissionRole,
   isExternalSkillAllowed,
+  hasSkillPermission,
 } from "./external-skills";
 
 interface CreateToolsResult {
@@ -52,7 +54,11 @@ export function createTools(
   if (toolCtx.config.enableExternalSkills) {
     const allSkills = toolCtx.aiService.getAllSkills?.();
     const allowedSkills = allSkills
-      ? filterAllowedExternalSkills(toolCtx.config, [...allSkills.values()])
+      ? filterAllowedExternalSkills(
+          toolCtx.config,
+          [...allSkills.values()],
+          toolCtx.triggerSkillRole,
+        )
       : [];
 
     if (allowedSkills.length > 0) {
@@ -523,7 +529,11 @@ function createLoadSkillTool(
       if (!isExternalSkillAllowed(toolCtx.config, args.skill_name)) {
         const allSkills = toolCtx.aiService.getAllSkills?.();
         const allowedSkills = allSkills
-          ? filterAllowedExternalSkills(toolCtx.config, [...allSkills.values()])
+          ? filterAllowedExternalSkills(
+              toolCtx.config,
+              [...allSkills.values()],
+              toolCtx.triggerSkillRole,
+            )
           : [];
         const allowedNames = allowedSkills.map((skill) => skill.name);
 
@@ -539,12 +549,14 @@ function createLoadSkillTool(
       if (!skill) {
         return { error: `Skill "${args.skill_name}" does not exist` };
       }
+      const requiredRole = getSkillRequiredPermissionRole(skill);
+      if (!hasSkillPermission(toolCtx.triggerSkillRole, requiredRole)) {
+        return {
+          error: `Permission denied: loading skill "${skill.name}" requires role "${requiredRole}", current role is "${toolCtx.triggerSkillRole}"`,
+        };
+      }
 
-      const session = skillManager.loadSkill(
-        toolCtx.sessionId,
-        skill.name,
-        skill.tools,
-      );
+      skillManager.loadSkill(toolCtx.sessionId, skill.name, skill.tools);
 
       const loadedTools = skill.tools.map((t) => ({
         name: `${skill.name}.${t.name}`,

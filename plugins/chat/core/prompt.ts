@@ -1,4 +1,5 @@
 import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
+import type { SkillPermissionRole } from "../../../src";
 import type { AIService } from "../../../src/services/ai/types";
 import type { ChatRuntimePromptInjection } from "../../../src/services/ai/types";
 import { pickPersonalityState, pickReplyStyle } from "../humanize";
@@ -11,6 +12,7 @@ export interface PromptContext {
   memberCount?: number;
   botNickname: string;
   botRole: "owner" | "admin" | "member";
+  triggerSkillRole?: SkillPermissionRole;
   aiService: AIService;
   isGroup: boolean;
   // Humanize context (computed once per processChat)
@@ -715,7 +717,11 @@ Admin rules:
   if (ctx.config.enableExternalSkills) {
     const skillsMap = ctx.aiService.getAllSkills?.();
     const skillEntries = skillsMap
-      ? filterAllowedExternalSkills(ctx.config, [...skillsMap.values()])
+      ? filterAllowedExternalSkills(
+          ctx.config,
+          [...skillsMap.values()],
+          ctx.triggerSkillRole ?? "member",
+        )
       : [];
     const skillList =
       skillEntries.length > 0

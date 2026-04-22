@@ -1,4 +1,4 @@
-import type { AISkill } from "../../../src";
+import type { AISkill, SkillPermissionRole } from "../../../src";
 import type { ChatConfig } from "../types";
 
 function normalizeSkillName(name: unknown): string {
@@ -29,16 +29,66 @@ export function isExternalSkillAllowed(
   return allowedSkillNames.has(normalizeSkillName(skillName));
 }
 
+const SKILL_PERMISSION_RANK: Record<SkillPermissionRole, number> = {
+  member: 0,
+  admin: 1,
+  owner: 2,
+};
+
+export function normalizeSkillPermissionRole(
+  role: unknown,
+): SkillPermissionRole {
+  const normalized = String(role || "")
+    .trim()
+    .toLowerCase();
+  if (
+    normalized === "member" ||
+    normalized === "admin" ||
+    normalized === "owner"
+  ) {
+    return normalized;
+  }
+  return "member";
+}
+
+export function getSkillRequiredPermissionRole(
+  skill: AISkill | undefined,
+): SkillPermissionRole {
+  if (!skill) {
+    return "member";
+  }
+  return normalizeSkillPermissionRole(skill.permission);
+}
+
+export function hasSkillPermission(
+  triggerRole: SkillPermissionRole,
+  requiredRole: SkillPermissionRole,
+): boolean {
+  return (
+    SKILL_PERMISSION_RANK[triggerRole] >= SKILL_PERMISSION_RANK[requiredRole]
+  );
+}
+
+export function isSkillAllowedForRole(
+  skill: AISkill | undefined,
+  triggerRole: SkillPermissionRole,
+): boolean {
+  return hasSkillPermission(triggerRole, getSkillRequiredPermissionRole(skill));
+}
+
 export function filterAllowedExternalSkills(
   config: ChatConfig,
   skills: AISkill[],
+  triggerRole?: SkillPermissionRole,
 ): AISkill[] {
   const allowedSkillNames = getAllowedExternalSkillNameSet(config);
-  if (!allowedSkillNames) {
-    return skills;
-  }
-
-  return skills.filter((skill) =>
-    allowedSkillNames.has(normalizeSkillName(skill.name)),
-  );
+  return skills.filter((skill) => {
+    if (
+      allowedSkillNames &&
+      !allowedSkillNames.has(normalizeSkillName(skill.name))
+    ) {
+      return false;
+    }
+    return !(triggerRole && !isSkillAllowedForRole(skill, triggerRole));
+  });
 }

@@ -19,9 +19,19 @@ export interface AITool {
 export interface AISkill {
   name: string;
   description: string;
+  // skill 权限，默认 member
+  permission?: SkillPermissionRole;
   // skill 下的工具列表
   tools: AITool[];
 }
+
+/**
+ * AI Skill 权限级别
+ * owner: mioki 主人
+ * admin: mioki 管理 + 群管 + 群主
+ * member: 普通成员
+ */
+export type SkillPermissionRole = "owner" | "admin" | "member";
 
 /**
  * 指令权限级别

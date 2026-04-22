@@ -15,7 +15,7 @@ import type { PromptContext } from "./prompt";
 import type { SkillSessionManager } from "./tools";
 import { createTools } from "./tools";
 import { buildSystemPrompt } from "./prompt";
-import { isExternalSkillAllowed } from "./external-skills";
+import { isExternalSkillAllowed, isSkillAllowedForRole } from "./external-skills";
 import {
   consumeCompleteStreamUnits,
   splitOutgoingUnits,
@@ -58,12 +58,20 @@ export async function runChat(
   const skillTools = skillManager.getTools(toolCtx.sessionId);
   const activeSkillsInfo = skillManager.getActiveSkillsInfo(
     toolCtx.sessionId,
-    (skillName) =>
-      toolCtx.config.enableExternalSkills &&
-      isExternalSkillAllowed(toolCtx.config, skillName),
+    (skillName) => {
+      if (
+        !toolCtx.config.enableExternalSkills ||
+        !isExternalSkillAllowed(toolCtx.config, skillName)
+      ) {
+        return false;
+      }
+      const skill = toolCtx.aiService.getSkill(skillName);
+      return isSkillAllowedForRole(skill, toolCtx.triggerSkillRole);
+    },
   );
   const prompt = buildSystemPrompt({
     ...promptCtx,
+    triggerSkillRole: toolCtx.triggerSkillRole,
     activeSkillsInfo: activeSkillsInfo || undefined,
     chatHistory: history,
     targetMessage,
@@ -361,9 +369,11 @@ function buildSessionTools(
 
   for (const [name, tool] of skillTools) {
     const skillName = name.split(".")[0] || "";
+    const skill = toolCtx.aiService.getSkill(skillName);
     if (
       !toolCtx.config.enableExternalSkills ||
-      !isExternalSkillAllowed(toolCtx.config, skillName)
+      !isExternalSkillAllowed(toolCtx.config, skillName) ||
+      !isSkillAllowedForRole(skill, toolCtx.triggerSkillRole)
     ) {
       continue;
     }
@@ -387,6 +397,7 @@ function createExternalSkillRuntimeContext(toolCtx: ToolContext): any {
     event: rawEvent,
     rawEvent,
     session_id: toolCtx.sessionId,
+    trigger_role: toolCtx.triggerSkillRole,
   };
 }
 

@@ -1,4 +1,5 @@
 import type { MiokiContext } from "mioki";
+import type { SkillPermissionRole } from "../../../src";
 import type {
   ChatConfig,
   ChatMessage,
@@ -765,6 +766,35 @@ export interface BuildToolContextOptions {
   targetMessage: TargetMessage;
 }
 
+function resolveTriggerSkillRole(
+  ctx: MiokiContext,
+  event: any,
+): SkillPermissionRole {
+  const userId = event?.user_id || event?.sender?.user_id;
+  if (!userId) {
+    return "member";
+  }
+
+  try {
+    if (ctx.isOwner?.(event)) {
+      return "owner";
+    }
+  } catch {}
+
+  const senderRole = String(event?.sender?.role || "").toLowerCase();
+  if (senderRole === "owner" || senderRole === "admin") {
+    return "admin";
+  }
+
+  try {
+    if (ctx.isAdmin?.(event)) {
+      return "admin";
+    }
+  } catch {}
+
+  return "member";
+}
+
 export function buildToolContext(
   options: BuildToolContextOptions,
 ): ToolContext {
@@ -790,6 +820,7 @@ export function buildToolContext(
     sessionId: groupSessionId,
     groupId,
     userId,
+    triggerSkillRole: resolveTriggerSkillRole(ctx, event),
     config,
     aiService,
     db,

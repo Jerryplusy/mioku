@@ -1,6 +1,6 @@
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import type { MiokiContext } from "mioki";
-import type { AITool } from "../../src";
+import type { AITool, SkillPermissionRole } from "../../src";
 import type { ChatDatabase } from "./db";
 
 /**
@@ -271,6 +271,7 @@ export interface ToolContext {
   sessionId: string;
   groupId?: number;
   userId: number;
+  triggerSkillRole: SkillPermissionRole;
   config: ChatConfig;
   aiService: AIService;
   db: ChatDatabase;
