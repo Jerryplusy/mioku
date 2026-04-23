@@ -1250,7 +1250,7 @@ function normalizeForMatch(value: string): string {
 
 function estimateOverviewHeight(helpMap: Map<string, PluginHelp>): number {
   const entries = Array.from(helpMap.values());
-  const pluginCount = entries.length;
+  const pluginCount = Math.max(entries.length, 3);
   const totalCommandCount = entries.reduce(
     (acc, help) =>
       acc + (Array.isArray(help.commands) ? help.commands.length : 0),
