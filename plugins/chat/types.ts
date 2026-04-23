@@ -89,9 +89,9 @@ export interface EmojiConfig {
  */
 export interface ExpressionConfig {
   enabled: boolean;
-  // 最大学习表达数
-  maxExpressions: number;
-  // 每次注入 prompt 的表达数
+  // 单个用户累积多少条消息后触发表达学习
+  learnAfterMessages: number;
+  // 单个用户最多保留/注入的表达习惯条数
   sampleSize: number;
 }
 

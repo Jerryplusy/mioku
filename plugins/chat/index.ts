@@ -443,6 +443,7 @@ const chatPlugin = definePlugin({
         targetContent,
         senderName,
         history,
+        userId,
       );
 
       const targetMessage: TargetMessage = {
@@ -798,6 +799,7 @@ const chatPlugin = definePlugin({
           mergedContent,
           targetMessage.userName,
           history,
+          targetMessage.userId,
         );
 
         const result = await runChat(
@@ -1117,6 +1119,7 @@ const chatPlugin = definePlugin({
           mergedContent,
           targetMessage.userName,
           history,
+          targetMessage.userId,
         );
 
         const result = await runChat(
@@ -1286,6 +1289,7 @@ const chatPlugin = definePlugin({
             mergedContent,
             targetMessage.userName,
             history,
+            targetMessage.userId,
           );
 
           const plannerThoughts = `After you spoke, the following messages were sent in the group. Use this context to respond naturally.
@@ -1688,6 +1692,7 @@ Suggestion:
           targetMessage.content,
           targetMessage.userName,
           history,
+          targetMessage.userId,
         );
 
         const { groupName, memberCount } = await getGroupInfoData(
@@ -1955,6 +1960,7 @@ Suggestion:
           text,
           senderName,
           history,
+          userId,
         );
 
         const targetMessage: TargetMessage = {

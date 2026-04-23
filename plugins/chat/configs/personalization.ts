@@ -87,7 +87,7 @@ export const PERSONALIZATION_CONFIG: {
 
   expression: {
     enabled: true,
-    maxExpressions: 100,
-    sampleSize: 8,
+    learnAfterMessages: 100,
+    sampleSize: 3,
   },
 };

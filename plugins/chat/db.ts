@@ -56,6 +56,14 @@ export interface ChatDatabase {
   // 表达学习
   saveExpression(expr: ExpressionRecord): void;
   getExpressions(sessionId: string, limit?: number): ExpressionRecord[];
+  getExpressionsByUser(userId: number, limit?: number): ExpressionRecord[];
+  replaceExpressionsByUser(
+    userId: number,
+    userName: string,
+    expressions: Array<
+      Pick<ExpressionRecord, "situation" | "style" | "example">
+    >,
+  ): void;
   getExpressionCount(sessionId: string): number;
   deleteOldestExpressions(sessionId: string, keepCount: number): void;
   // 图片记录
@@ -133,6 +141,7 @@ export async function initDatabase(): Promise<ChatDatabase> {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_expressions_session ON expressions(session_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_expressions_user ON expressions(user_id, created_at);
 
     CREATE TABLE IF NOT EXISTS images (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -224,8 +233,14 @@ export async function initDatabase(): Promise<ChatDatabase> {
     getExpressions: db.prepare(`
       SELECT * FROM expressions WHERE session_id = ? ORDER BY created_at DESC LIMIT ?
     `),
+    getExpressionsByUser: db.prepare(`
+      SELECT * FROM expressions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?
+    `),
     getExpressionCount: db.prepare(`
       SELECT COUNT(*) as count FROM expressions WHERE session_id = ?
+    `),
+    deleteExpressionsByUser: db.prepare(`
+      DELETE FROM expressions WHERE user_id = ?
     `),
     deleteOldestExpressions: db.prepare(`
       DELETE FROM expressions WHERE session_id = ? AND id NOT IN (
@@ -521,6 +536,57 @@ export async function initDatabase(): Promise<ChatDatabase> {
         example: row.example,
         createdAt: row.created_at,
       }));
+    },
+
+    getExpressionsByUser(
+      userId: number,
+      limit: number = 50,
+    ): ExpressionRecord[] {
+      const rows = stmts.getExpressionsByUser.all(userId, limit) as any[];
+      return rows.map((row) => ({
+        id: row.id,
+        sessionId: row.session_id,
+        userId: row.user_id,
+        userName: row.user_name,
+        situation: row.situation,
+        style: row.style,
+        example: row.example,
+        createdAt: row.created_at,
+      }));
+    },
+
+    replaceExpressionsByUser(
+      userId: number,
+      userName: string,
+      expressions: Array<
+        Pick<ExpressionRecord, "situation" | "style" | "example">
+      >,
+    ): void {
+      const now = Date.now();
+      const tx = db.transaction(
+        (
+          targetUserId: number,
+          targetUserName: string,
+          rows: Array<
+            Pick<ExpressionRecord, "situation" | "style" | "example">
+          >,
+        ) => {
+          stmts.deleteExpressionsByUser.run(targetUserId);
+          for (const row of rows) {
+            stmts.insertExpression.run({
+              sessionId: `user:${targetUserId}`,
+              userId: targetUserId,
+              userName: targetUserName,
+              situation: row.situation,
+              style: row.style,
+              example: row.example,
+              createdAt: now,
+            });
+          }
+        },
+      );
+
+      tx(userId, userName, expressions);
     },
 
     getExpressionCount(sessionId: string): number {

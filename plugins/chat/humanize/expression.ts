@@ -7,8 +7,8 @@ export class ExpressionLearner {
   private ai: AIInstance;
   private config: ChatConfig;
   private db: ChatDatabase;
-  private pendingMessages: Map<string, ChatMessage[]> = new Map();
-  private readonly BATCH_SIZE = 30;
+  private pendingMessagesByUser: Map<number, ChatMessage[]> = new Map();
+  private learningUsers: Set<number> = new Set();
 
   constructor(ai: AIInstance, config: ChatConfig, db: ChatDatabase) {
     this.ai = ai;
@@ -16,114 +16,131 @@ export class ExpressionLearner {
     this.db = db;
   }
 
-  async onMessage(sessionId: string, message: ChatMessage): Promise<void> {
+  async onMessage(_sessionId: string, message: ChatMessage): Promise<void> {
     if (!this.config.expression?.enabled) return;
     if (message.role !== "user") return;
     if (!message.content || message.content.length < 4) return;
+    if (!message.userId) return;
 
-    const pending = this.pendingMessages.get(sessionId) ?? [];
+    const pending = this.pendingMessagesByUser.get(message.userId) ?? [];
     pending.push(message);
-    this.pendingMessages.set(sessionId, pending);
+    this.pendingMessagesByUser.set(message.userId, pending);
 
-    if (pending.length >= this.BATCH_SIZE) {
-      this.pendingMessages.set(sessionId, []);
-      this.learn(sessionId, pending).catch((err) =>
-        logger.warn(`[ExpressionLearner] Learning failed: ${err}`),
-      );
-    }
+    await this.tryLearn(message.userId);
   }
 
-  getExpressionContext(sessionId: string): string {
-    const sampleSize = this.config.expression?.sampleSize ?? 8;
-    const expressions = this.db.getExpressions(sessionId, sampleSize * 3);
-    if (expressions.length === 0) return "";
+  getExpressionContextForUser(userId: number, userName: string): string {
+    if (!this.config.expression?.enabled) return "";
 
-    const shuffled = expressions.sort(() => Math.random() - 0.5);
-    const selected = shuffled.slice(0, sampleSize);
+    const sampleSize = this.config.expression?.sampleSize ?? 8;
+    const expressions = this.db.getExpressionsByUser(userId, sampleSize);
+    if (expressions.length === 0) return "";
+    const selected = expressions.slice(0, sampleSize);
 
     const habits = selected.map(
       (expr) =>
         `- When ${expr.situation}: ${expr.style} (e.g. "${expr.example}")`,
     );
 
-    return `## Expression Habits\nExpression habits learned from chat members. You may reference these in your replies:\n${habits.join("\n")}`;
+    return `## Expression Habits\nExpression habits learned from ${userName}. If you are replying to this user, you may naturally reference these habits:\n${habits.join("\n")}`;
   }
 
-  private async learn(
-    sessionId: string,
+  private async tryLearn(userId: number): Promise<void> {
+    if (this.learningUsers.has(userId)) return;
+
+    const threshold = Math.max(
+      1,
+      this.config.expression?.learnAfterMessages ?? 100,
+    );
+    const pending = this.pendingMessagesByUser.get(userId) ?? [];
+    if (pending.length < threshold) return;
+
+    this.learningUsers.add(userId);
+    try {
+      while (true) {
+        const current = this.pendingMessagesByUser.get(userId) ?? [];
+        if (current.length < threshold) break;
+
+        const batch = current.slice(0, threshold);
+        this.pendingMessagesByUser.set(userId, current.slice(threshold));
+        await this.learnForUser(userId, batch);
+      }
+    } catch (err) {
+      logger.warn(`[ExpressionLearner] Learning failed for user ${userId}: ${err}`);
+    } finally {
+      this.learningUsers.delete(userId);
+    }
+  }
+
+  private async learnForUser(
+    userId: number,
     messages: ChatMessage[],
   ): Promise<void> {
-    const byUser = new Map<number, ChatMessage[]>();
-    for (const msg of messages) {
-      if (!msg.userId) continue;
-      const list = byUser.get(msg.userId) ?? [];
-      list.push(msg);
-      byUser.set(msg.userId, list);
-    }
+    if (messages.length === 0) return;
 
-    for (const [userId, userMsgs] of byUser) {
-      if (userMsgs.length < 3) continue;
+    const maxHabits = Math.max(1, this.config.expression?.sampleSize ?? 8);
+    const userName = messages[messages.length - 1].userName || `User${userId}`;
+    const msgTexts = messages.map((m) => m.content).join("\n");
 
-      const userName = userMsgs[0].userName || `User${userId}`;
-      const msgTexts = userMsgs.map((m) => m.content).join("\n");
+    const previousExpressions = this.db.getExpressionsByUser(userId, maxHabits);
+    const previousText =
+      previousExpressions.length > 0
+        ? previousExpressions
+            .map(
+              (expr, idx) =>
+                `${idx + 1}. situation=${expr.situation}; style=${expr.style}; example=${expr.example}`,
+            )
+            .join("\n")
+        : "None";
 
-      try {
-        const content = await this.ai.generateText({
-          prompt: `Analyze the following chat messages from user "${userName}" and extract their speaking style and expression habits.
+    const content = await this.ai.generateText({
+      prompt: `You are refining expression habits for a single user named "${userName}".
 
-Messages:
+New messages from this user:
 ${msgTexts}
 
-Extract 2-4 representative expression habits, each containing:
-- situation: usage context (e.g. "expressing agreement", "complaining", "happy")
-- style: style description (e.g. "likes using '6' to mean 'awesome'", "often ends sentences with 'haha'")
-- example: an example from the original messages
+Previously learned habits:
+${previousText}
 
-IMPORTANT: Output situation, style, and example in the SAME LANGUAGE as the chat messages.
+Task:
+1. Merge previous habits and new evidence.
+2. Remove weak or duplicated habits.
+3. Output a revised list with at most ${maxHabits} habits.
+4. situation/style/example must be in the SAME LANGUAGE as this user's messages.
 
-Output strictly in JSON format:
-{"expressions": [{"situation": "...", "style": "...", "example": "..."}]}
+Output strictly in JSON:
+{"expressions":[{"situation":"...","style":"...","example":"..."}]}
 
-If the messages are too generic with no distinctive features, output {"expressions": []}`,
-          messages: [],
-          model: this.config.workingModel || this.config.model,
-          temperature: 0.3,
-          max_tokens: 500,
-        });
+If nothing reliable can be extracted, keep stable previous habits when possible. If still nothing, output {"expressions":[]}.`,
+      messages: [],
+      model: this.config.workingModel || this.config.model,
+      temperature: 0.2,
+      max_tokens: 600,
+    });
 
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) continue;
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return;
 
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (!parsed.expressions || !Array.isArray(parsed.expressions)) continue;
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (!parsed.expressions || !Array.isArray(parsed.expressions)) return;
 
-        const now = Date.now();
-        for (const expr of parsed.expressions) {
-          if (!expr.situation || !expr.style || !expr.example) continue;
+    const normalized = parsed.expressions
+      .map((expr: any) => ({
+        situation: String(expr?.situation ?? "").trim(),
+        style: String(expr?.style ?? "").trim(),
+        example: String(expr?.example ?? "").trim(),
+      }))
+      .filter(
+        (expr: { situation: string; style: string; example: string }) =>
+          Boolean(expr.situation && expr.style && expr.example),
+      )
+      .slice(0, maxHabits);
 
-          this.db.saveExpression({
-            sessionId,
-            userId,
-            userName,
-            situation: expr.situation,
-            style: expr.style,
-            example: expr.example,
-            createdAt: now,
-          });
-        }
+    if (normalized.length === 0) return;
 
-        const maxExpr = this.config.expression?.maxExpressions ?? 100;
-        const count = this.db.getExpressionCount(sessionId);
-        if (count > maxExpr) {
-          this.db.deleteOldestExpressions(sessionId, maxExpr);
-        }
-
-        logger.info(
-          `[ExpressionLearner] Learned ${parsed.expressions.length} habits from ${userName}`,
-        );
-      } catch (err) {
-        logger.warn(`[ExpressionLearner] Analysis failed: ${err}`);
-      }
-    }
+    this.db.replaceExpressionsByUser(userId, userName, normalized);
+    logger.info(
+      `[ExpressionLearner] Updated ${normalized.length} habits for ${userName} (${userId})`,
+    );
   }
 }
