@@ -1,4 +1,5 @@
 import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
+import type { SkillPermissionRole } from "../../../src";
 import type { AIService } from "../../../src/services/ai/types";
 import type { ChatRuntimePromptInjection } from "../../../src/services/ai/types";
 import { pickPersonalityState, pickReplyStyle } from "../humanize";
@@ -11,6 +12,7 @@ export interface PromptContext {
   memberCount?: number;
   botNickname: string;
   botRole: "owner" | "admin" | "member";
+  triggerSkillRole?: SkillPermissionRole;
   aiService: AIService;
   isGroup: boolean;
   // Humanize context (computed once per processChat)
@@ -76,22 +78,27 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     );
   }
 
-  // 4. Slang Dictionary (placeholder)
+  // 4. Background Topics Outside Visible History
+  if (ctx.topicContext) {
+    sections.push(ctx.topicContext);
+  }
+
+  // 5. Slang Dictionary (placeholder)
   // TODO: slang dictionary injection
 
-  // 5. Current Time & Environment
+  // 6. Current Time & Environment
   sections.push(buildEnvironmentSection(ctx));
 
-  // 6. Chat History
+  // 7. Chat History
   sections.push(buildChatHistorySection(ctx));
 
-  // 7. Target Message
+  // 8. Target Message
   sections.push(
     buildTargetMessageSection(ctx.targetMessage, ctx.reviewMessages),
   );
   sections.push(...buildInjectedSections(ctx.promptInjections));
 
-  // 8. Reply Context - tells AI what kind of reply this is
+  // 9. Reply Context - tells AI what kind of reply this is
   if (ctx.replyContext) {
     sections.push(
       buildReplyContextSection(
@@ -103,18 +110,18 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     );
   }
 
-  // 9. Planner's Thoughts
+  // 10. Planner's Thoughts
   if (ctx.plannerThoughts) {
     sections.push(`## Planner's Analysis\n${ctx.plannerThoughts}`);
   }
 
-  // 10. Persona
+  // 11. Persona
   sections.push(buildPersonaSection(ctx));
 
-  // 11. Reply Style + Behavior + Self-Protection
+  // 12. Reply Style + Behavior + Self-Protection
   sections.push(buildReplyStyleSection(ctx, lengthStrength));
 
-  // 12. Available Tools & Response Format
+  // 13. Available Tools & Response Format
   sections.push(
     buildResponseFormatSection(
       ctx,
@@ -627,6 +634,15 @@ ${markdownModeLine}
 - Use tools only when strictly necessary.`);
   }
 
+  if (ctx.config.memory?.enabled) {
+    lines.push(`
+### Memory Recall Tools
+- recall_memory: Delegate recall to a memory worker model. Pass a clear recall question and let the worker search historical logs.
+- Use recall_memory ONLY when there is explicit need to recall past content and required information is clearly missing from current context.
+- Do NOT call recall_memory for every question.
+- The worker returns historical logs with timestamps; treat them as past records, not newly sent messages.`);
+  }
+
   const emojiAgent = ctx.emojiAgent;
   if (emojiAgent && ctx.config.emoji?.enabled) {
     const configChars = ctx.config.emoji.characters || [];
@@ -715,7 +731,11 @@ Admin rules:
   if (ctx.config.enableExternalSkills) {
     const skillsMap = ctx.aiService.getAllSkills?.();
     const skillEntries = skillsMap
-      ? filterAllowedExternalSkills(ctx.config, [...skillsMap.values()])
+      ? filterAllowedExternalSkills(
+          ctx.config,
+          [...skillsMap.values()],
+          ctx.triggerSkillRole ?? "member",
+        )
       : [];
     const skillList =
       skillEntries.length > 0

@@ -55,15 +55,14 @@ export const PERSONALIZATION_CONFIG: {
 
   memory: {
     enabled: true,
-    maxIterations: 3,
-    timeoutMs: 15000,
+    groupHistoryLimit: 300,
+    userHistoryLimit: 100,
   },
 
   topic: {
     enabled: true,
-    messageThreshold: 50,
-    timeThresholdMs: 8 * 3600_000,
-    maxTopicsPerSession: 20,
+    windowHours: 5,
+    historyWindowCount: 3,
   },
 
   planner: {
@@ -87,7 +86,7 @@ export const PERSONALIZATION_CONFIG: {
 
   expression: {
     enabled: true,
-    maxExpressions: 100,
-    sampleSize: 8,
+    learnAfterMessages: 100,
+    sampleSize: 3,
   },
 };

@@ -1,6 +1,6 @@
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import type { MiokiContext } from "mioki";
-import type { AITool } from "../../src";
+import type { AITool, SkillPermissionRole } from "../../src";
 import type { ChatDatabase } from "./db";
 
 /**
@@ -30,10 +30,10 @@ export interface ReplyStyleConfig {
  */
 export interface MemoryConfig {
   enabled: boolean;
-  // ReAct 最大迭代次数
-  maxIterations: number;
-  // 检索超时
-  timeoutMs: number;
+  // 回忆时拉取的群聊历史条数（通过 message_id 分页）
+  groupHistoryLimit: number;
+  // 回忆时每个用户历史的默认条数
+  userHistoryLimit: number;
 }
 
 /**
@@ -41,12 +41,10 @@ export interface MemoryConfig {
  */
 export interface TopicConfig {
   enabled: boolean;
-  // 触发话题检查的消息数
-  messageThreshold: number;
-  // 触发话题检查的时间间隔
-  timeThresholdMs: number;
-  // 一个会话最大的Topic数量
-  maxTopicsPerSession: number;
+  // 话题窗口长度（小时），同时也是每个群的检查周期
+  windowHours: number;
+  // 在提示词中回填多少个历史窗口
+  historyWindowCount: number;
 }
 
 /**
@@ -89,9 +87,9 @@ export interface EmojiConfig {
  */
 export interface ExpressionConfig {
   enabled: boolean;
-  // 最大学习表达数
-  maxExpressions: number;
-  // 每次注入 prompt 的表达数
+  // 单个用户累积多少条消息后触发表达学习
+  learnAfterMessages: number;
+  // 单个用户最多保留/注入的表达习惯条数
   sampleSize: number;
 }
 
@@ -271,6 +269,7 @@ export interface ToolContext {
   sessionId: string;
   groupId?: number;
   userId: number;
+  triggerSkillRole: SkillPermissionRole;
   config: ChatConfig;
   aiService: AIService;
   db: ChatDatabase;
@@ -317,6 +316,8 @@ export interface TopicRecord {
   keywords: string; // JSON array
   summary: string;
   messageCount: number;
+  windowStartAt?: number;
+  windowEndAt?: number;
   createdAt: number;
   updatedAt: number;
 }

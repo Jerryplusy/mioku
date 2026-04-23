@@ -377,6 +377,7 @@ const helpSkills: AISkill[] = [
   {
     name: "help",
     description: "帮助系统，获取插件帮助信息和发送帮助图片",
+    permission: "member",
     tools: [
       {
         name: "get_help_info",
@@ -404,12 +405,18 @@ export default helpSkills;
 ```
 
 - `skills.ts` 默认导出的是 `AISkill[]`
+- `AISkill.permission` 可选，支持 `member` / `admin` / `owner`，未填写默认 `member`
+- 权限含义：`owner`=mioki 主人；`admin`=mioki 管理 + 群管 + 群主；`member`=普通成员
 - 工具处理函数可以通过 `runtimeCtx?.ctx` 访问当前上下文
 - 如果需要读取 `setup()` 创建的可变对象，不要依赖模块局部变量，使用 `runtime.ts` + Mioku runtime registry
 
 注册后，工具会以 `skillName.toolName` 的形式被识别
 
-如果 `chat` 插件启用了外部技能，它就可以把这些工具加载到会话里
+如果 `chat` 插件启用了外部技能，它会在三处做权限校验：
+
+- 提示词中的“已加载外部技能”列表会按触发用户权限过滤
+- `load_skill` 时会检查触发用户是否满足 `AISkill.permission`
+- 技能工具实际调用时会再次校验，权限不足会拒绝执行
 
 ## 使用 `runtime.ts` 解决 `index.ts` 闭包
 

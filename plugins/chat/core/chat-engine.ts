@@ -15,7 +15,7 @@ import type { PromptContext } from "./prompt";
 import type { SkillSessionManager } from "./tools";
 import { createTools } from "./tools";
 import { buildSystemPrompt } from "./prompt";
-import { isExternalSkillAllowed } from "./external-skills";
+import { isExternalSkillAllowed, isSkillAllowedForRole } from "./external-skills";
 import {
   consumeCompleteStreamUnits,
   splitOutgoingUnits,
@@ -58,12 +58,20 @@ export async function runChat(
   const skillTools = skillManager.getTools(toolCtx.sessionId);
   const activeSkillsInfo = skillManager.getActiveSkillsInfo(
     toolCtx.sessionId,
-    (skillName) =>
-      toolCtx.config.enableExternalSkills &&
-      isExternalSkillAllowed(toolCtx.config, skillName),
+    (skillName) => {
+      if (
+        !toolCtx.config.enableExternalSkills ||
+        !isExternalSkillAllowed(toolCtx.config, skillName)
+      ) {
+        return false;
+      }
+      const skill = toolCtx.aiService.getSkill(skillName);
+      return isSkillAllowedForRole(skill, toolCtx.triggerSkillRole);
+    },
   );
   const prompt = buildSystemPrompt({
     ...promptCtx,
+    triggerSkillRole: toolCtx.triggerSkillRole,
     activeSkillsInfo: activeSkillsInfo || undefined,
     chatHistory: history,
     targetMessage,
@@ -186,13 +194,13 @@ export async function runChat(
     logger.info("[chat-engine] === End Raw AI Reply ===");
   }
 
-  if (response.reasoning) {
+  const allToolCalls = response.allToolCalls || [];
+
+  if (toolCtx.config.debug && response.reasoning) {
     logger.info(`[chat-engine] AI reasoning: ${response.reasoning}`);
   }
 
-  const allToolCalls = response.allToolCalls || [];
-
-  if (allToolCalls.length > 0) {
+  if (toolCtx.config.debug && allToolCalls.length > 0) {
     for (const toolCall of allToolCalls) {
       const resultPreview = JSON.stringify(toolCall.result);
       logger.info(
@@ -261,14 +269,6 @@ export async function runChat(
     (unit) => unit.trim() && unit.trim() !== "---",
   );
 
-  if (toolCtx.config.debug) {
-    logger.info("[chat-engine] === Final AI Reply ===");
-    logger.info(
-      finalMessages.length > 0 ? finalMessages.join("\n---\n") : "(empty)",
-    );
-    logger.info("[chat-engine] === End Final AI Reply ===");
-  }
-
   logger.info(
     `[chat-engine] Session ${toolCtx.sessionId} done | ${finalMessages.length} msg(s), ${allToolCalls.length} tool call(s)`,
   );
@@ -282,7 +282,7 @@ export async function runChat(
   );
 
   return {
-    messages: finalMessages,
+    messages: streamEnabled ? [] : finalMessages,
     pendingAt: [],
     pendingPoke: [],
     pendingQuote: undefined,
@@ -369,9 +369,11 @@ function buildSessionTools(
 
   for (const [name, tool] of skillTools) {
     const skillName = name.split(".")[0] || "";
+    const skill = toolCtx.aiService.getSkill(skillName);
     if (
       !toolCtx.config.enableExternalSkills ||
-      !isExternalSkillAllowed(toolCtx.config, skillName)
+      !isExternalSkillAllowed(toolCtx.config, skillName) ||
+      !isSkillAllowedForRole(skill, toolCtx.triggerSkillRole)
     ) {
       continue;
     }
@@ -395,6 +397,7 @@ function createExternalSkillRuntimeContext(toolCtx: ToolContext): any {
     event: rawEvent,
     rawEvent,
     session_id: toolCtx.sessionId,
+    trigger_role: toolCtx.triggerSkillRole,
   };
 }
 

@@ -7,8 +7,7 @@ export class TopicTracker {
   private ai: AIInstance;
   private config: ChatConfig;
   private db: ChatDatabase;
-  private messageCounters: Map<string, number> = new Map();
-  private lastCheckTime: Map<string, number> = new Map();
+  private lastAnalyzedWindowEnd: Map<string, number> = new Map();
 
   constructor(ai: AIInstance, config: ChatConfig, db: ChatDatabase) {
     this.ai = ai;
@@ -18,140 +17,189 @@ export class TopicTracker {
 
   async onMessage(sessionId: string): Promise<void> {
     if (!this.config.topic?.enabled) return;
+    if (!sessionId.startsWith("group:")) return;
 
-    const count = (this.messageCounters.get(sessionId) ?? 0) + 1;
-    this.messageCounters.set(sessionId, count);
+    const windowMs = this.getWindowMs();
+    const completedWindowEnd = Math.floor(Date.now() / windowMs) * windowMs;
+    if (completedWindowEnd <= 0) return;
 
-    const threshold = this.config.topic.messageThreshold ?? 50;
-    const timeThreshold = this.config.topic.timeThresholdMs ?? 8 * 3600_000;
-    const lastCheck = this.lastCheckTime.get(sessionId) ?? 0;
-    const now = Date.now();
+    const lastAnalyzedEnd = this.lastAnalyzedWindowEnd.get(sessionId) ?? 0;
+    if (completedWindowEnd <= lastAnalyzedEnd) {
+      return;
+    }
 
-    const shouldCheck =
-      count >= threshold || (now - lastCheck > timeThreshold && count >= 15);
+    this.lastAnalyzedWindowEnd.set(sessionId, completedWindowEnd);
+    const windowStartAt = completedWindowEnd - windowMs;
 
-    if (shouldCheck) {
-      this.messageCounters.set(sessionId, 0);
-      this.lastCheckTime.set(sessionId, now);
-      this.analyzeTopics(sessionId).catch((err) =>
-        logger.warn(`[TopicTracker] Analysis failed: ${err}`),
+    this.analyzeWindow(sessionId, windowStartAt, completedWindowEnd).catch(
+      (err) => logger.warn(`[TopicTracker] Analysis failed: ${err}`),
+    );
+  }
+
+  getTopicContext(sessionId: string, historyStartAt?: number): string {
+    if (!this.config.topic?.enabled) return "";
+    if (!sessionId.startsWith("group:")) return "";
+    if (!historyStartAt) return "";
+
+    const windowMs = this.getWindowMs();
+    const windowCount = this.getHistoryWindowCount();
+    const firstWindowEnd = Math.floor(historyStartAt / windowMs) * windowMs;
+    if (firstWindowEnd <= 0) return "";
+
+    const lines: string[] = [];
+    for (let i = 0; i < windowCount; i++) {
+      const windowEndAt = firstWindowEnd - i * windowMs;
+      const windowStartAt = windowEndAt - windowMs;
+      if (windowStartAt <= 0) break;
+
+      const topic = this.db.getTopicByWindow(sessionId, windowStartAt, windowEndAt);
+      if (!topic?.summary) continue;
+
+      const keywords = this.parseKeywords(topic.keywords);
+      const timeRange = `${this.formatTime(windowStartAt)} ~ ${this.formatTime(windowEndAt)}`;
+      const keywordsLine =
+        keywords.length > 0 ? ` | 关键词: ${keywords.join(", ")}` : "";
+      lines.push(
+        `- ${timeRange}: ${topic.summary.trim()}${keywordsLine}`,
       );
     }
+
+    if (lines.length === 0) return "";
+
+    return [
+      "## Background Topics Outside Visible History (Reference Only)",
+      "These summaries are rough references about older group discussions.",
+      "Do not proactively bring them up unless users explicitly ask.",
+      ...lines,
+    ].join("\n");
   }
 
-  getTopicContext(sessionId: string): string {
-    const topics = this.db.getTopics(
-      sessionId,
-      this.config.topic?.maxTopicsPerSession ?? 5,
-    );
-    if (topics.length === 0) return "";
+  private async analyzeWindow(
+    sessionId: string,
+    windowStartAt: number,
+    windowEndAt: number,
+  ): Promise<void> {
+    if (windowEndAt <= windowStartAt) return;
 
-    const lines = topics.map((t) => {
-      const time = new Date(t.updatedAt).toLocaleString("zh-CN");
-      let keywords: string[] = [];
-      try {
-        keywords = JSON.parse(t.keywords);
-      } catch {}
-      return `- ${t.title} (${time}) Keywords: ${keywords.join(", ")}\n  ${t.summary}`;
-    });
+    const userMessages = this.db
+      .getMessagesByTimeRange(sessionId, windowStartAt, windowEndAt)
+      .filter((message) => message.role === "user" && message.content.trim());
 
-    return `## Recent Topics\n${lines.join("\n")}`;
-  }
+    if (userMessages.length < 5) return;
 
-  private async analyzeTopics(sessionId: string): Promise<void> {
-    const messages = this.db.getMessages(sessionId, 80);
-    if (messages.length < 10) return;
-
-    const existingTopics = this.db.getTopics(sessionId, 20);
-    const historyTopicTitles = existingTopics.map((t) => t.title).join("\n");
-
-    const messagesBlock = messages
-      .map((m, i) => `[${i + 1}] ${m.userName || "unknown"}: ${m.content}`)
+    const existing = this.db.getTopicByWindow(sessionId, windowStartAt, windowEndAt);
+    const messagesBlock = userMessages
+      .map((message, index) => {
+        const time = this.formatTime(message.timestamp);
+        return `[${index + 1}][${time}] ${message.userName || "unknown"}: ${message.content}`;
+      })
       .join("\n");
 
     try {
       const content = await this.ai.generateText({
-        prompt: `You are a topic analysis assistant. Analyze the topics in the following chat log.
+        prompt: `You are a concise topic summarization assistant.
 
-Existing topic titles:
-${historyTopicTitles || "(none)"}
+Only summarize the provided chat log within this exact time window:
+${this.formatTime(windowStartAt)} ~ ${this.formatTime(windowEndAt)}
+
+Rules:
+1. Use ONLY messages from this log. Do not infer anything outside this 5-hour window.
+2. The topic must be high-level, abstract, and concise.
+3. The summary must be brief, not detailed.
+4. Keep the output in the same language as the chat log.
 
 Chat log:
 ${messagesBlock}
 
-Tasks:
-1. Identify ongoing topics in the chat log
-2. Determine if any existing topics are continuing in this chat
-3. Extract keywords and summarize each topic
-
 Output strictly in JSON format:
 {
-  "topics": [
-    {
-      "title": "Topic title (use the chat's language)",
-      "keywords": ["keyword1", "keyword2"],
-      "summary": "50-200 character summary (use the chat's language)",
-      "is_continuation": false
-    }
-  ]
+  "title": "short topic title",
+  "keywords": ["keyword1", "keyword2"],
+  "summary": "one concise abstract summary sentence"
 }`,
         messages: [],
         model: this.config.workingModel || this.config.model,
-        temperature: 0.3,
-        max_tokens: 1000,
+        temperature: 0.2,
+        max_tokens: 300,
       });
 
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return;
 
       const parsed = JSON.parse(jsonMatch[0]);
-      if (!parsed.topics || !Array.isArray(parsed.topics)) return;
+      const summary = String(parsed.summary || "").trim();
+      if (!summary) return;
 
-      const now = Date.now();
-      for (const topic of parsed.topics) {
-        if (!topic.title || !topic.summary) continue;
+      const keywords = this.normalizeKeywords(parsed.keywords);
+      const title =
+        String(parsed.title || "").trim() ||
+        `${this.formatTime(windowStartAt)} 话题概览`;
 
-        const existing = existingTopics.find(
-          (t) =>
-            t.title === topic.title || this.isSimilar(t.title, topic.title),
-        );
-
-        if (existing && existing.id) {
-          this.db.updateTopic(existing.id, {
-            summary: topic.summary,
-            keywords: JSON.stringify(topic.keywords || []),
-            messageCount: (existing.messageCount || 0) + messages.length,
-            updatedAt: now,
-          });
-        } else {
-          this.db.saveTopic({
-            sessionId,
-            title: topic.title,
-            keywords: JSON.stringify(topic.keywords || []),
-            summary: topic.summary,
-            messageCount: messages.length,
-            createdAt: now,
-            updatedAt: now,
-          });
-        }
+      if (existing?.id) {
+        this.db.updateTopic(existing.id, {
+          summary,
+          keywords: JSON.stringify(keywords),
+          messageCount: userMessages.length,
+          updatedAt: windowEndAt,
+        });
+      } else {
+        this.db.saveTopic({
+          sessionId,
+          title,
+          keywords: JSON.stringify(keywords),
+          summary,
+          messageCount: userMessages.length,
+          windowStartAt,
+          windowEndAt,
+          createdAt: windowEndAt,
+          updatedAt: windowEndAt,
+        });
       }
 
       logger.info(
-        `[TopicTracker] Session ${sessionId}: identified ${parsed.topics.length} topics`,
+        `[TopicTracker] Session ${sessionId}: summarized window ${this.formatTime(windowStartAt)} ~ ${this.formatTime(windowEndAt)} (${userMessages.length} user messages)`,
       );
     } catch (err) {
       logger.warn(`[TopicTracker] Analysis failed: ${err}`);
     }
   }
 
-  private isSimilar(a: string, b: string): boolean {
-    const setA = new Set(a);
-    const setB = new Set(b);
-    let common = 0;
-    for (const c of setA) {
-      if (setB.has(c)) common++;
+  private getWindowMs(): number {
+    const hours = Number(this.config.topic?.windowHours);
+    const safeHours = Number.isFinite(hours) && hours > 0 ? hours : 5;
+    return Math.max(1, Math.floor(safeHours)) * 3600_000;
+  }
+
+  private getHistoryWindowCount(): number {
+    const count = Number(this.config.topic?.historyWindowCount);
+    if (!Number.isFinite(count) || count <= 0) return 3;
+    return Math.max(1, Math.floor(count));
+  }
+
+  private normalizeKeywords(input: unknown): string[] {
+    if (!Array.isArray(input)) return [];
+    const cleaned = input
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+    return [...new Set(cleaned)].slice(0, 8);
+  }
+
+  private parseKeywords(raw: string): string[] {
+    try {
+      const parsed = JSON.parse(raw);
+      return this.normalizeKeywords(parsed);
+    } catch {
+      return [];
     }
-    const similarity = (common * 2) / (setA.size + setB.size);
-    return similarity > 0.7;
+  }
+
+  private formatTime(timestamp: number): string {
+    const date = new Date(timestamp);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hour = String(date.getHours()).padStart(2, "0");
+    const minute = String(date.getMinutes()).padStart(2, "0");
+    return `${year}-${month}-${day} ${hour}:${minute}`;
   }
 }

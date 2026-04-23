@@ -13,6 +13,7 @@ const helpSkills: AISkill[] = [
   {
     name: "help",
     description: "帮助系统，获取插件帮助信息和发送帮助图片",
+    permission: "member",
     tools: [
       {
         name: "get_help_info",

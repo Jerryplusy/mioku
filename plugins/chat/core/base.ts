@@ -1,4 +1,5 @@
 import type { MiokiContext } from "mioki";
+import type { SkillPermissionRole } from "../../../src";
 import type {
   ChatConfig,
   ChatMessage,
@@ -730,20 +731,24 @@ export async function getHumanizeContexts(
   content: string,
   userName: string,
   history: ChatMessage[],
+  triggerUserId?: number,
 ): Promise<HumanizeContextsResult> {
-  const memoryContext = await humanize.memoryRetrieval.retrieve(
-    groupSessionId,
-    content,
-    userName,
-    history,
-  );
+  void content;
+  const historyStartAt = history.length > 0 ? history[0].timestamp : undefined;
 
-  const topicContext = humanize.topicTracker.getTopicContext(groupSessionId);
-  const expressionContext =
-    humanize.expressionLearner.getExpressionContext(groupSessionId);
+  const topicContext = humanize.topicTracker.getTopicContext(
+    groupSessionId,
+    historyStartAt,
+  );
+  const expressionContext = triggerUserId
+    ? humanize.expressionLearner.getExpressionContextForUser(
+        triggerUserId,
+        userName,
+      )
+    : "";
 
   return {
-    memoryContext: memoryContext || undefined,
+    memoryContext: undefined,
     topicContext: topicContext || undefined,
     expressionContext: expressionContext || undefined,
   };
@@ -763,6 +768,35 @@ export interface BuildToolContextOptions {
   pendingImageUrls?: string[];
   humanize: HumanizeEngine;
   targetMessage: TargetMessage;
+}
+
+function resolveTriggerSkillRole(
+  ctx: MiokiContext,
+  event: any,
+): SkillPermissionRole {
+  const userId = event?.user_id || event?.sender?.user_id;
+  if (!userId) {
+    return "member";
+  }
+
+  try {
+    if (ctx.isOwner?.(event)) {
+      return "owner";
+    }
+  } catch {}
+
+  const senderRole = String(event?.sender?.role || "").toLowerCase();
+  if (senderRole === "owner" || senderRole === "admin") {
+    return "admin";
+  }
+
+  try {
+    if (ctx.isAdmin?.(event)) {
+      return "admin";
+    }
+  } catch {}
+
+  return "member";
 }
 
 export function buildToolContext(
@@ -790,6 +824,7 @@ export function buildToolContext(
     sessionId: groupSessionId,
     groupId,
     userId,
+    triggerSkillRole: resolveTriggerSkillRole(ctx, event),
     config,
     aiService,
     db,
