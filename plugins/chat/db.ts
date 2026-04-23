@@ -47,6 +47,11 @@ export interface ChatDatabase {
   // 话题
   saveTopic(topic: TopicRecord): number;
   getTopics(sessionId: string, limit?: number): TopicRecord[];
+  getTopicByWindow(
+    sessionId: string,
+    windowStartAt: number,
+    windowEndAt: number,
+  ): TopicRecord | null;
   updateTopic(
     id: number,
     updates: Partial<
@@ -125,6 +130,8 @@ export async function initDatabase(): Promise<ChatDatabase> {
       keywords TEXT NOT NULL DEFAULT '[]',
       summary TEXT NOT NULL,
       message_count INTEGER NOT NULL DEFAULT 0,
+      window_start_at INTEGER,
+      window_end_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -157,6 +164,25 @@ export async function initDatabase(): Promise<ChatDatabase> {
     CREATE INDEX IF NOT EXISTS idx_images_hash ON images(hash);
     CREATE INDEX IF NOT EXISTS idx_images_type ON images(type);
   `);
+
+  const topicColumns = db
+    .prepare("PRAGMA table_info(topics)")
+    .all() as Array<{ name: string }>;
+  const hasWindowStartAt = topicColumns.some(
+    (column) => column.name === "window_start_at",
+  );
+  const hasWindowEndAt = topicColumns.some(
+    (column) => column.name === "window_end_at",
+  );
+  if (!hasWindowStartAt) {
+    db.exec("ALTER TABLE topics ADD COLUMN window_start_at INTEGER");
+  }
+  if (!hasWindowEndAt) {
+    db.exec("ALTER TABLE topics ADD COLUMN window_end_at INTEGER");
+  }
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_topics_session_window ON topics(session_id, window_end_at)",
+  );
 
   // 预编译语句
   const stmts = {
@@ -216,11 +242,17 @@ export async function initDatabase(): Promise<ChatDatabase> {
     `),
     // 话题
     insertTopic: db.prepare(`
-      INSERT INTO topics (session_id, title, keywords, summary, message_count, created_at, updated_at)
-      VALUES (@sessionId, @title, @keywords, @summary, @messageCount, @createdAt, @updatedAt)
+      INSERT INTO topics (session_id, title, keywords, summary, message_count, window_start_at, window_end_at, created_at, updated_at)
+      VALUES (@sessionId, @title, @keywords, @summary, @messageCount, @windowStartAt, @windowEndAt, @createdAt, @updatedAt)
     `),
     getTopics: db.prepare(`
       SELECT * FROM topics WHERE session_id = ? ORDER BY updated_at DESC LIMIT ?
+    `),
+    getTopicByWindow: db.prepare(`
+      SELECT * FROM topics
+      WHERE session_id = ? AND window_start_at = ? AND window_end_at = ?
+      ORDER BY id DESC
+      LIMIT 1
     `),
     updateTopic: db.prepare(`
       UPDATE topics SET summary = @summary, keywords = @keywords, message_count = @messageCount, updated_at = @updatedAt WHERE id = @id
@@ -472,6 +504,8 @@ export async function initDatabase(): Promise<ChatDatabase> {
         keywords: topic.keywords,
         summary: topic.summary,
         messageCount: topic.messageCount,
+        windowStartAt: topic.windowStartAt ?? null,
+        windowEndAt: topic.windowEndAt ?? null,
         createdAt: topic.createdAt,
         updatedAt: topic.updatedAt,
       });
@@ -487,9 +521,36 @@ export async function initDatabase(): Promise<ChatDatabase> {
         keywords: row.keywords,
         summary: row.summary,
         messageCount: row.message_count,
+        windowStartAt: row.window_start_at ?? undefined,
+        windowEndAt: row.window_end_at ?? undefined,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       }));
+    },
+
+    getTopicByWindow(
+      sessionId: string,
+      windowStartAt: number,
+      windowEndAt: number,
+    ): TopicRecord | null {
+      const row = stmts.getTopicByWindow.get(
+        sessionId,
+        windowStartAt,
+        windowEndAt,
+      ) as any;
+      if (!row) return null;
+      return {
+        id: row.id,
+        sessionId: row.session_id,
+        title: row.title,
+        keywords: row.keywords,
+        summary: row.summary,
+        messageCount: row.message_count,
+        windowStartAt: row.window_start_at ?? undefined,
+        windowEndAt: row.window_end_at ?? undefined,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
     },
 
     updateTopic(

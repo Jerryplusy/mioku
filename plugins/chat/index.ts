@@ -1386,7 +1386,7 @@ Planned reason: ${planResult.reason}`;
       10 * 60_000,
     );
 
-    // 群是否正在处理（用于空闲检测避免并发）
+    // 群是否正在处理
     const idleCheckProcessing = new Set<string>();
     // 群最后一次空闲检查时间
     const groupLastIdleCheckTime = new Map<string, number>();
@@ -1793,9 +1793,6 @@ Suggestion:
         : `personal:${userId}`;
       const personalSessionId = `personal:${userId}`;
 
-      // 防止并发处理（已在调用方处理）
-      // 如果 appendToActive 为 true，说明是追加模式，不添加 processingSet
-
       try {
         // 获取/创建会话
         sessionManager.getOrCreate(
@@ -1871,14 +1868,13 @@ Suggestion:
           messageId: e.message_id,
         };
 
+        db.saveMessage(userMsg);
+
         // 表达学习
         humanize.expressionLearner.onMessage(groupSessionId, userMsg).then();
 
         // 话题跟踪
         humanize.topicTracker.onMessage(groupSessionId).then();
-
-        // 图片分析 (由 image-analyzer.ts 处理，会自动保存 meme 到 data/chat/meme/{character}/{emotion}/)
-        // 旧的表情包收集功能已由 image-analyzer 替代
 
         // 加载群聊历史消息
         const rawHistory = groupId
@@ -1898,7 +1894,7 @@ Suggestion:
           messageId: msg.messageId,
         }));
 
-        // 动作规划器
+        // 动作规划
         const botNickname =
           cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
 

@@ -41,12 +41,10 @@ export interface MemoryConfig {
  */
 export interface TopicConfig {
   enabled: boolean;
-  // 触发话题检查的消息数
-  messageThreshold: number;
-  // 触发话题检查的时间间隔
-  timeThresholdMs: number;
-  // 一个会话最大的Topic数量
-  maxTopicsPerSession: number;
+  // 话题窗口长度（小时），同时也是每个群的检查周期
+  windowHours: number;
+  // 在提示词中回填多少个历史窗口
+  historyWindowCount: number;
 }
 
 /**
@@ -318,6 +316,8 @@ export interface TopicRecord {
   keywords: string; // JSON array
   summary: string;
   messageCount: number;
+  windowStartAt?: number;
+  windowEndAt?: number;
   createdAt: number;
   updatedAt: number;
 }

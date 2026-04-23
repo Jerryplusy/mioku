@@ -61,9 +61,8 @@ export const PERSONALIZATION_CONFIG: {
 
   topic: {
     enabled: true,
-    messageThreshold: 50,
-    timeThresholdMs: 8 * 3600_000,
-    maxTopicsPerSession: 20,
+    windowHours: 5,
+    historyWindowCount: 3,
   },
 
   planner: {

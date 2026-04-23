@@ -734,9 +734,12 @@ export async function getHumanizeContexts(
   triggerUserId?: number,
 ): Promise<HumanizeContextsResult> {
   void content;
-  void history;
+  const historyStartAt = history.length > 0 ? history[0].timestamp : undefined;
 
-  const topicContext = humanize.topicTracker.getTopicContext(groupSessionId);
+  const topicContext = humanize.topicTracker.getTopicContext(
+    groupSessionId,
+    historyStartAt,
+  );
   const expressionContext = triggerUserId
     ? humanize.expressionLearner.getExpressionContextForUser(
         triggerUserId,
