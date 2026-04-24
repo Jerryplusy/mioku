@@ -315,15 +315,9 @@ export async function generateHelpImage(options: {
     hasTarget ? targetPluginName : undefined,
   );
 
-  const estimatedHeight = hasTarget
-    ? estimateDetailHeight(
-        allHelp.get(String(targetPluginName))?.commands?.length || 0,
-      )
-    : estimateOverviewHeight(allHelp);
-
   return screenshotService.screenshot(htmlContent, {
     width: 760,
-    height: estimatedHeight,
+    height: 120,
     fullPage: true,
     type: "png",
   });
@@ -449,7 +443,6 @@ export function generateHelpHtml(
   return `
     <style>
       .help-sheet {
-        min-height: 100vh;
         padding: 18px;
         display: flex;
         flex-direction: column;
@@ -510,9 +503,7 @@ export function generateHelpHtml(
         z-index: 1;
         display: flex;
         flex-direction: column;
-        flex: 1;
         gap: 14px;
-        min-height: calc(100vh - 36px);
         border-radius: 30px;
         border: 1px solid ${theme.shellBorder};
         box-shadow: ${theme.shellShadow};
@@ -776,7 +767,6 @@ export function generateHelpHtml(
         display: flex;
         align-items: stretch;
         gap: 0;
-        margin-top: auto;
         border-radius: 20px;
         border: 1px solid ${theme.footerBorder};
         background: ${theme.footerBg};
@@ -1246,29 +1236,6 @@ function normalizeForMatch(value: string): string {
     .match(/[a-z0-9\u4e00-\u9fa5]+/gi);
 
   return parts ? parts.join("") : "";
-}
-
-function estimateOverviewHeight(helpMap: Map<string, PluginHelp>): number {
-  const entries = Array.from(helpMap.values());
-  const pluginCount = Math.max(entries.length, 3);
-  const totalCommandCount = entries.reduce(
-    (acc, help) =>
-      acc + (Array.isArray(help.commands) ? help.commands.length : 0),
-    0,
-  );
-  const rows = Math.max(1, Math.ceil(pluginCount / 2));
-
-  const baseHeight = 640 + rows * 180 + totalCommandCount * 14;
-  return clamp(baseHeight, 900, 5200);
-}
-
-function estimateDetailHeight(commandCount: number): number {
-  const baseHeight = 560 + commandCount * 120;
-  return clamp(baseHeight, 820, 4600);
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
 }
 
 function escapeHtml(text: string): string {
