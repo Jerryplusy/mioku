@@ -127,7 +127,6 @@ dist
 !src/services/webui
 !plugins/boot
 !plugins/help
-bun.lock
 
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
