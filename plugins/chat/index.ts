@@ -99,6 +99,15 @@ function buildStructuredUserInputFromTarget(
   });
 }
 
+function normalizeIdList(input: unknown): number[] {
+  if (!Array.isArray(input)) return [];
+  const ids = input
+    .map((item) => Number(item))
+    .filter((id) => Number.isFinite(id) && id > 0)
+    .map((id) => Math.floor(id));
+  return Array.from(new Set(ids));
+}
+
 type RuntimeReplyContextType =
   | "reply"
   | "comment"
@@ -200,6 +209,11 @@ const chatPlugin = definePlugin({
           warnedMarkdownScreenshotUnavailable = true;
         }
       }
+      merged.whitelistGroups = normalizeIdList(merged.whitelistGroups);
+      merged.blacklistGroups = normalizeIdList(merged.blacklistGroups);
+      merged.imageAnalysisBlacklistUsers = normalizeIdList(
+        merged.imageAnalysisBlacklistUsers,
+      );
 
       return merged as ChatConfig;
     };
