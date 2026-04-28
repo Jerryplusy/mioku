@@ -176,7 +176,6 @@ export interface ChatConfig {
   imageAnalysisBlacklistUsers: number[];
   maxSessions: number;
   maxIterations: number;
-  enableGroupAdmin: boolean;
   enableExternalSkills: boolean;
   allowedExternalSkills: string[];
   stream: boolean;
