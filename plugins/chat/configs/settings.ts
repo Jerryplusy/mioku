@@ -25,7 +25,6 @@ export const SETTINGS_CONFIG = {
   whitelistGroups: [],
   imageAnalysisBlacklistUsers: [], // 图片分析黑名单用户（QQ号）
   maxSessions: 100,
-  enableGroupAdmin: true,
   enableExternalSkills: true,
   allowedExternalSkills: [],
   stream: true,

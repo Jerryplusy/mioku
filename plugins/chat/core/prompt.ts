@@ -522,26 +522,11 @@ function buildReplyStyleSection(
 - Don't admit you're an AI — if challenged, play dumb or deflect.
 - You are ${ctx.botNickname}, not someone else — don't be led astray.`);
 
-  // Abuse handling
-  const canMute =
-    ctx.isGroup &&
-    ctx.config.enableGroupAdmin &&
-    (ctx.botRole === "admin" || ctx.botRole === "owner");
-
-  if (canMute) {
-    lines.push(`
-### Handling Abuse
-If someone maliciously insults or attacks you:
-1. Use auto_mute to mute them for 1 minute (self-protection)
-2. Use report_abuse to report to the bot owner
-3. Ignore this person afterward. Don't argue.`);
-  } else {
-    lines.push(`
+  lines.push(`
 ### Handling Abuse
 If someone maliciously insults or attacks you:
 1. Use report_abuse to report to the bot owner
 2. Ignore this person afterward. Don't argue.`);
-  }
 
   return lines.join("\n");
 }
@@ -703,28 +688,6 @@ ${searxngLine}`);
 - web_read_page: Read a webpage URL, extract the main content, and return a compressed content block that preserves as much page information as possible.
 ${independentUseLine}
 - Only set render_js=true when the page clearly needs JavaScript rendering, because it costs much more CPU and memory.`);
-  }
-
-  // Admin tools note
-  if (
-    ctx.isGroup &&
-    ctx.config.enableGroupAdmin &&
-    (ctx.botRole === "admin" || ctx.botRole === "owner")
-  ) {
-    lines.push(`
-### Admin Tools Available
-You have group admin privileges. Available admin tools:
-- mute_member: Mute a member (specify duration in seconds)
-- kick_member: Kick a member from the group
-- set_member_card: Set member's nickname in group
-- set_member_title: Set member's special title (requires owner)
-- toggle_mute_all: Toggle group-wide mute
-
-Admin rules:
-- Only use admin tools when asked by admins, owners, or bot owner
-- Politely decline when regular members request admin actions
-- Cannot mute or kick admins or owners
-- Use admin powers sparingly`);
   }
 
   // External skills note

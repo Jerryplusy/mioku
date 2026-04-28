@@ -95,7 +95,9 @@ export class MessageQueueManager {
  * 例如 "[[[reply:1]]]文字A[[[reply:2]]]文字B" → ["[[[reply:1]]]文字A", "[[[reply:2]]]文字B"]
  */
 export function splitByReplyMarkers(line: string): string[] {
-  const parts = line.split(/(?=\[\[\[reply:\d+\]\]\]|\(\(\(reply:\d+\)\)\))/);
+  const parts = line.split(
+    /(?=\[\[\[reply:-?\d+\]\]\]|\(\(\(reply:-?\d+\)\)\))/,
+  );
   return parts.filter((p) => p.trim());
 }
 
@@ -146,8 +148,8 @@ export function parseLineMarkers(
   // 提取引用标记（仅在允许时）
   if (quoteMode !== "skip") {
     const replyPatterns = [
-      /\[\[\[reply:(\d+)\]\]\]/g,
-      /\(\(\(reply:(\d+)\)\)\)/g,
+      /\[\[\[reply:(-?\d+)\]\]\]/g,
+      /\(\(\(reply:(-?\d+)\)\)\)/g,
     ];
     for (const pattern of replyPatterns) {
       const matches = [...line.matchAll(pattern)];
@@ -175,8 +177,8 @@ export function parseLineMarkers(
     .replace(/\(\(\(\d+\)\)\)/g, "")
     .replace(/\[\[\[poke:\d+\]\]\]/g, "")
     .replace(/\(\(\(poke:\d+\)\)\)/g, "")
-    .replace(/\[\[\[reply:\d+\]\]\]/g, "")
-    .replace(/\(\(\(reply:\d+\)\)\)/g, "")
+    .replace(/\[\[\[reply:-?\d+\]\]\]/g, "")
+    .replace(/\(\(\(reply:-?\d+\)\)\)/g, "")
     .replace(/\[audio:[^\]]+\]/gi, "")
     .trim();
 

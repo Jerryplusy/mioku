@@ -543,7 +543,7 @@ function expandOutgoingLines(
 
 function normalizeActionLineBreaks(text: string): string {
   return String(text || "").replace(
-    /\\\s*(?=(?:\[meme:[^\]]+\]|\[audio:[^\]]+\]|\[\[\[reply:\d+\]\]\]|\(\(\(reply:\d+\)\)\)))/gi,
+    /\\\s*(?=(?:\[meme:[^\]]+\]|\[audio:[^\]]+\]|\[\[\[reply:-?\d+\]\]\]|\(\(\(reply:-?\d+\)\)\)))/gi,
     "\n",
   );
 }
