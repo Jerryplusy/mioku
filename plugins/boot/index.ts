@@ -315,7 +315,7 @@ async function buildWelcomeMessage(options: {
 
     return "";
   } catch (error) {
-    ctx.logger.warn(`boot welcome chat-runtime 生成失败: ${error}`);
+    ctx.logger.error(`boot welcome chat-runtime 生成失败: ${error}`);
     return fallbackText;
   }
 }
