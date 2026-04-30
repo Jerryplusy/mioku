@@ -236,20 +236,18 @@ export async function runChat(
     };
   }
 
+  const failedToolCalls = allToolCalls.filter((toolCall) =>
+    isToolErrorResult(toolCall.result),
+  );
   let cleanedText = cleanMarkers(response.content || "");
-  if (!cleanedText) {
-    const failedToolCalls = allToolCalls.filter((toolCall) =>
-      isToolErrorResult(toolCall.result),
+  if (failedToolCalls.length > 0) {
+    cleanedText = await generateToolFailureReply(
+      ai,
+      toolCtx,
+      prompt,
+      targetMessage,
+      failedToolCalls,
     );
-    if (failedToolCalls.length > 0) {
-      cleanedText = await generateToolFailureReply(
-        ai,
-        toolCtx,
-        prompt,
-        targetMessage,
-        failedToolCalls,
-      );
-    }
   }
 
   let emojiPath: string | null = null;
@@ -479,7 +477,6 @@ async function generateToolFailureReply(
   targetMessage: TargetMessage,
   failedToolCalls: Array<{ name: string; result: any }>,
 ): Promise<string> {
-  const failedToolNames = [...new Set(failedToolCalls.map((t) => t.name))];
   const failedSummary = failedToolCalls
     .map((item) => {
       const raw =

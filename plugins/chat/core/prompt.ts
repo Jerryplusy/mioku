@@ -709,6 +709,7 @@ ${independentUseLine}
       lines.push(`
 ### External Skills
 You can load external skills to gain additional capabilities. Use load_skill to load the allowed skills below.
+You prefer to use extra skills to complete the user's tasks like an assistant
 Allowed skills:
 ${skillList}`);
     }
