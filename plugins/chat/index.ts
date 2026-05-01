@@ -1,5 +1,6 @@
 import type { AITool } from "../../src";
 import type {
+  AIInstance,
   AIService,
   ChatRuntime,
   ChatRuntimeCollectedInfo,
@@ -50,6 +51,13 @@ import {
   saveBotMessages,
   sendEmoji,
 } from "./core/base";
+import {
+  summarizeGroupNotice,
+  summarizeHistoryCard,
+  summarizeHistoryForward,
+  summarizeHistoryVideo,
+  type HistoryMediaProcessingOptions,
+} from "./core/media/history-media";
 
 function buildStructuredUserInput(
   params: StructuredUserInput,
@@ -62,6 +70,42 @@ function buildStructuredUserInput(
     content: params.content,
     messageId: params.messageId,
     timestamp: params.timestamp,
+  };
+}
+
+function buildHistoryMediaOptions(ai: AIInstance, config: ChatConfig) {
+  return {
+    ai,
+    workingModel: config.workingModel || config.model,
+    multimodalWorkingModel: config.multimodalWorkingModel || config.model,
+  };
+}
+
+function buildHistoryMediaProcessingOptions(
+  ai: AIInstance,
+  config: ChatConfig,
+  db: {
+    getMediaSummary?(key: string): any;
+    saveMediaSummary?(summary: any): void;
+  },
+  bot: {
+    api<T = any>(action: string, params?: Record<string, any>): Promise<T>;
+  },
+  groupId: number,
+  log: HistoryMediaProcessingOptions["logger"],
+): HistoryMediaProcessingOptions {
+  return {
+    ...buildHistoryMediaOptions(ai, config),
+    db:
+      db.getMediaSummary && db.saveMediaSummary
+        ? {
+            getMediaSummary: db.getMediaSummary.bind(db),
+            saveMediaSummary: db.saveMediaSummary.bind(db),
+          }
+        : undefined,
+    logger: log,
+    bot,
+    groupId,
   };
 }
 
@@ -83,6 +127,59 @@ function buildStructuredUserInputFromEvent(
     timestamp:
       typeof event?.time === "number" ? event.time * 1000 : fallbackTimestamp,
   });
+}
+
+function getSegmentUrl(seg: any): string | null {
+  const url = seg?.url || seg?.data?.url;
+  return typeof url === "string" && url.trim() ? url.trim() : null;
+}
+
+function getSegmentSourceCandidates(seg: any): string[] {
+  return Array.from(
+    new Set(
+      [
+        seg?.file,
+        seg?.data?.file,
+        seg?.path,
+        seg?.data?.path,
+        seg?.url,
+        seg?.data?.url,
+      ]
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+}
+
+async function getVideoSourceCandidatesFromMessage(
+  bot: { api<T = any>(action: string, params?: Record<string, any>): Promise<T> },
+  messageId: number | string | undefined,
+): Promise<string[]> {
+  if (messageId == null) return [];
+  const result = await bot.api("get_msg", { message_id: messageId });
+  const segments = result?.message || result?.data?.message || [];
+  if (!Array.isArray(segments)) return [];
+
+  const candidates: string[] = [];
+  for (const seg of segments) {
+    if (seg?.type !== "video") continue;
+    candidates.push(...getSegmentSourceCandidates(seg));
+  }
+  return candidates;
+}
+
+function getForwardId(seg: any): string | null {
+  return seg?.id || seg?.data?.id || null;
+}
+
+function getCardData(seg: any): string | null {
+  const data = seg?.data?.data || seg?.data?.xml || seg?.data || seg?.xml;
+  if (!data) return null;
+  return typeof data === "string" ? data : JSON.stringify(data);
+}
+
+function isMediaAnalysisBlocked(config: ChatConfig, userId: number): boolean {
+  return Boolean(config.mediaAnalysisBlacklistUsers?.includes(userId));
 }
 
 function buildStructuredUserInputFromTarget(
@@ -211,9 +308,11 @@ const chatPlugin = definePlugin({
       }
       merged.whitelistGroups = normalizeIdList(merged.whitelistGroups);
       merged.blacklistGroups = normalizeIdList(merged.blacklistGroups);
-      merged.imageAnalysisBlacklistUsers = normalizeIdList(
-        merged.imageAnalysisBlacklistUsers,
+      merged.mediaAnalysisBlacklistUsers = normalizeIdList(
+        merged.mediaAnalysisBlacklistUsers ??
+          merged.imageAnalysisBlacklistUsers,
       );
+      delete merged.imageAnalysisBlacklistUsers;
 
       return merged as ChatConfig;
     };
@@ -416,7 +515,14 @@ const chatPlugin = definePlugin({
       }
 
       const rawHistory = groupId
-        ? await getGroupHistory(groupId, ctx, cfg.historyCount, selfId, db)
+        ? await getGroupHistory(
+            groupId,
+            ctx,
+            cfg.historyCount,
+            selfId,
+            db,
+            buildHistoryMediaOptions(aiInstance, cfg),
+          )
         : [];
       const history: ChatMessage[] = rawHistory.map((msg) => ({
         sessionId,
@@ -788,6 +894,7 @@ const chatPlugin = definePlugin({
           cfg.historyCount,
           db,
           selfId,
+          buildHistoryMediaOptions(aiInstance, cfg),
         );
 
         const toolCtx: ToolContext = buildToolContext({
@@ -1100,6 +1207,7 @@ const chatPlugin = definePlugin({
           cfg.historyCount,
           db,
           selfId,
+          buildHistoryMediaOptions(aiInstance, cfg),
         );
 
         const botNickname =
@@ -1251,6 +1359,7 @@ const chatPlugin = definePlugin({
           cfg.historyCount,
           db,
           selfId,
+          buildHistoryMediaOptions(aiInstance, cfg),
         );
 
         const botNickname =
@@ -1480,6 +1589,7 @@ Planned reason: ${planResult.reason}`;
               cfg.historyCount,
               db,
               selfId,
+              buildHistoryMediaOptions(aiInstance, cfg),
             );
 
             const botNickname =
@@ -1698,6 +1808,7 @@ Suggestion:
           cfg.historyCount,
           db,
           selfId,
+          buildHistoryMediaOptions(aiInstance, cfg),
         );
 
         const contexts = await getHumanizeContexts(
@@ -1892,7 +2003,14 @@ Suggestion:
 
         // 加载群聊历史消息
         const rawHistory = groupId
-          ? await getGroupHistory(groupId, ctx, cfg.historyCount, e.self_id, db)
+          ? await getGroupHistory(
+              groupId,
+              ctx,
+              cfg.historyCount,
+              e.self_id,
+              db,
+              buildHistoryMediaOptions(aiInstance, cfg),
+            )
           : [];
 
         // 转换为 ChatMessage 格式
@@ -2171,6 +2289,7 @@ Suggestion:
             cfg.historyCount,
             db,
             e.self_id,
+            buildHistoryMediaOptions(aiInstance, cfg),
           );
 
           // 使用 planner 进行空闲检测
@@ -2295,22 +2414,30 @@ Suggestion:
       // 群组黑白名单
       if (groupId && !isGroupAllowed(groupId, cfg)) return;
 
-      // 图片分析和收集（所有群消息中的图片）
-      if (isGroup && groupId && e.message && cfg.isMultimodal) {
-        // 检查用户是否在黑名单中
-        const isBlacklisted =
-          cfg.imageAnalysisBlacklistUsers &&
-          cfg.imageAnalysisBlacklistUsers.includes(userId);
+      // 媒体分析和收集（只处理新收到的群消息，不补扫历史）
+      if (
+        isGroup &&
+        groupId &&
+        e.message &&
+        !isMediaAnalysisBlocked(cfg, userId)
+      ) {
+        const ai = aiService!.getDefault();
+        const bot = ctx.pickBot(e.self_id) as any;
+        const mediaOptions = ai
+          ? buildHistoryMediaProcessingOptions(ai, cfg, db, bot, groupId, {
+              info: (message) => ctx.logger.info(message),
+              warn: (message) => ctx.logger.warn(message),
+              error: (message) => ctx.logger.error(message),
+            })
+          : undefined;
 
-        if (!isBlacklisted) {
-          const { processImage } = await import("./core/image-analyzer");
-          const ai = aiService!.getDefault();
+        if (ai && cfg.isMultimodal) {
+          const { processImage } = await import("./core/media/image-analyzer");
 
-          if (ai) {
-            for (const seg of e.message) {
-              if (seg.type === "image" && (seg.url || seg.data?.url)) {
-                const imageUrl = seg.url || seg.data.url;
-                // 异步处理，不阻塞主流程
+          for (const seg of e.message) {
+            if (seg.type === "image") {
+              const imageUrl = getSegmentUrl(seg);
+              if (imageUrl) {
                 processImage(
                   ai,
                   imageUrl,
@@ -2320,7 +2447,83 @@ Suggestion:
                   ctx.logger.warn(`[image-analyzer] Failed to process: ${err}`);
                 });
               }
+            } else if (seg.type === "video" && mediaOptions) {
+              const videoSources = [
+                ...getSegmentSourceCandidates(seg),
+                ...(await getVideoSourceCandidatesFromMessage(
+                  bot,
+                  e.message_id,
+                ).catch(
+                  (err) => {
+                    ctx.logger.warn(
+                      `[history-media] Failed to fetch video sources: ${err}`,
+                    );
+                    return [];
+                  },
+                )),
+              ];
+              if (videoSources.length > 0) {
+                summarizeHistoryVideo(videoSources, mediaOptions).catch((err) => {
+                  ctx.logger.warn(
+                    `[history-media] Failed to process video: ${err}`,
+                  );
+                });
+              } else {
+                ctx.logger.warn(
+                  `[history-media] Video message ${e.message_id ?? "unknown"} has no source`,
+                );
+              }
             }
+          }
+        }
+
+        if (mediaOptions) {
+          for (const seg of e.message) {
+            if (seg.type === "forward") {
+              const forwardId = getForwardId(seg);
+              if (forwardId) {
+                summarizeHistoryForward(forwardId, mediaOptions).catch(
+                  (err) => {
+                    ctx.logger.warn(
+                      `[history-media] Failed to process forward: ${err}`,
+                    );
+                  },
+                );
+              }
+            } else if (["xml", "json", "lightapp", "ark"].includes(seg.type)) {
+              const cardData = getCardData(seg);
+              if (cardData) {
+                summarizeHistoryCard(cardData, mediaOptions).catch((err) => {
+                  ctx.logger.warn(
+                    `[history-media] Failed to process card: ${err}`,
+                  );
+                });
+              }
+            }
+          }
+
+          if (e.sub_type === "notice") {
+            summarizeGroupNotice(e, mediaOptions)
+              .then((noticeMessage) => {
+                if (!noticeMessage) return;
+                db.saveMessage({
+                  sessionId: `group:${groupId}`,
+                  role: "user",
+                  content: noticeMessage.content,
+                  userId: noticeMessage.userId,
+                  userName: noticeMessage.userName,
+                  userRole: noticeMessage.userRole,
+                  groupId,
+                  groupName: e.group_name,
+                  timestamp: noticeMessage.timestamp,
+                  messageId: noticeMessage.messageId,
+                });
+              })
+              .catch((err) => {
+                ctx.logger.warn(
+                  `[history-media] Failed to process group notice: ${err}`,
+                );
+              });
           }
         }
       }
@@ -2451,6 +2654,7 @@ Suggestion:
             cfg.historyCount,
             db,
             e.self_id,
+            buildHistoryMediaOptions(aiInstance, cfg),
           );
           const botNickname =
             cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
@@ -2549,6 +2753,7 @@ Suggestion:
           cfg.historyCount,
           db,
           e.self_id,
+          buildHistoryMediaOptions(aiInstance, cfg),
         );
 
         const { groupName, memberCount } = await getGroupInfoData(

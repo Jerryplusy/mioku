@@ -23,7 +23,7 @@ export const SETTINGS_CONFIG = {
   },
   blacklistGroups: [],
   whitelistGroups: [],
-  imageAnalysisBlacklistUsers: [], // 图片分析黑名单用户（QQ号）
+  mediaAnalysisBlacklistUsers: [],
   maxSessions: 100,
   enableExternalSkills: true,
   allowedExternalSkills: [],

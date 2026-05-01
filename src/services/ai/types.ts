@@ -32,6 +32,16 @@ export interface MultimodalMessage {
   content: string | MultimodalContentItem[];
 }
 
+export const TOOL_RESULT_FOLLOWUP_KEY = "__miokuFollowup";
+
+export interface ToolResultFollowup {
+  text: string;
+  images: Array<{
+    url: string;
+    detail?: "auto" | "low" | "high";
+  }>;
+}
+
 /**
  * 工具调用记录
  */

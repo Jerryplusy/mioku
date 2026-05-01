@@ -15,11 +15,14 @@ import type { PromptContext } from "./prompt";
 import type { SkillSessionManager } from "./tools";
 import { createTools } from "./tools";
 import { buildSystemPrompt } from "./prompt";
-import { isExternalSkillAllowed, isSkillAllowedForRole } from "./external-skills";
+import {
+  isExternalSkillAllowed,
+  isSkillAllowedForRole,
+} from "./external-skills";
 import {
   consumeCompleteStreamUnits,
   splitOutgoingUnits,
-} from "./markdown-message";
+} from "./media/markdown-message";
 import {
   attachImagesToCurrentUserMessages,
   buildStructuredUserMessages,
@@ -100,6 +103,9 @@ export async function runChat(
   const currentUserMessages = hasStructuredHistory
     ? buildStructuredUserMessages(structuredHistory!.currentUserInputs)
     : [];
+  const directImageUrls = toolCtx.config.isMultimodal
+    ? toolCtx.pendingImageUrls
+    : undefined;
 
   if (hasStructuredHistory) {
     structuredHistory!.manager.touch(
@@ -164,7 +170,7 @@ export async function runChat(
       targetMessage,
       cachedHistory,
       currentUserMessages,
-      toolCtx.pendingImageUrls,
+      directImageUrls,
     ),
     executableToolsProvider: () =>
       buildSessionTools(
@@ -236,20 +242,18 @@ export async function runChat(
     };
   }
 
+  const failedToolCalls = allToolCalls.filter((toolCall) =>
+    isToolErrorResult(toolCall.result),
+  );
   let cleanedText = cleanMarkers(response.content || "");
-  if (!cleanedText) {
-    const failedToolCalls = allToolCalls.filter((toolCall) =>
-      isToolErrorResult(toolCall.result),
+  if (failedToolCalls.length > 0) {
+    cleanedText = await generateToolFailureReply(
+      ai,
+      toolCtx,
+      prompt,
+      targetMessage,
+      failedToolCalls,
     );
-    if (failedToolCalls.length > 0) {
-      cleanedText = await generateToolFailureReply(
-        ai,
-        toolCtx,
-        prompt,
-        targetMessage,
-        failedToolCalls,
-      );
-    }
   }
 
   let emojiPath: string | null = null;
@@ -479,7 +483,6 @@ async function generateToolFailureReply(
   targetMessage: TargetMessage,
   failedToolCalls: Array<{ name: string; result: any }>,
 ): Promise<string> {
-  const failedToolNames = [...new Set(failedToolCalls.map((t) => t.name))];
   const failedSummary = failedToolCalls
     .map((item) => {
       const raw =

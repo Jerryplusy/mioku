@@ -1,5 +1,6 @@
 import type { MiokiContext } from "mioki";
 import type { SkillPermissionRole } from "../../../src";
+import type { AIInstance } from "../../../src/services/ai/types";
 import type {
   ChatConfig,
   ChatMessage,
@@ -11,13 +12,13 @@ import type { HumanizeEngine } from "../humanize";
 import { parseLineMarkers, splitByReplyMarkers } from "../utils/queue";
 import { getGroupHistory } from "../utils";
 import type { ScreenshotService } from "../../../src/services/screenshot/types";
-import { synthesizeAudioBase64 } from "./audio";
+import { synthesizeAudioBase64 } from "./media/audio";
 import {
   extractStandaloneMarkdownBlock,
   splitOutgoingUnits,
   summarizeMarkdown,
   MARKDOWN_OPEN_TAG,
-} from "./markdown-message";
+} from "./media/markdown-message";
 
 export interface SendAIResponseOptions {
   ctx: MiokiContext;
@@ -671,6 +672,11 @@ export async function getGroupHistoryMessages(
   historyCount: number,
   db: ChatDatabase,
   selfId: number,
+  mediaOptions?: {
+    ai?: AIInstance;
+    workingModel?: string;
+    multimodalWorkingModel?: string;
+  },
 ): Promise<GroupHistoryResult> {
   const rawHistory = await getGroupHistory(
     groupId,
@@ -678,6 +684,7 @@ export async function getGroupHistoryMessages(
     historyCount,
     selfId,
     db,
+    mediaOptions,
   );
   const history: ChatMessage[] = rawHistory.map((msg) => ({
     sessionId: groupSessionId,

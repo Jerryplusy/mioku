@@ -421,7 +421,7 @@ Just the last few messages - don't overthink it or dig into old conversations:
 
 ${mergedLines.join("\n")}
 
-Note: Messages may contain image tags like [meme:描述] or [image:描述]. These are brief descriptions of images. If you need detailed information about an image, use the view_image tool with the message ID.
+Note: Messages may contain media tags like [meme:描述], [image:描述], [video:描述], [forward:摘要], [card:摘要], or [group_notice:摘要]. These are brief processed summaries. If you need detailed information about an image, use the view_image tool with the message ID.
 
 -- DON'T repeat yourself or bring up old topics - focus on what's being said right now. --`;
 }
@@ -709,6 +709,7 @@ ${independentUseLine}
       lines.push(`
 ### External Skills
 You can load external skills to gain additional capabilities. Use load_skill to load the allowed skills below.
+You prefer to use extra skills to complete the user's tasks like an assistant
 Allowed skills:
 ${skillList}`);
     }

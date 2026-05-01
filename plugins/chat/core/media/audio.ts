@@ -1,4 +1,4 @@
-import type { AudioConfig } from "../types";
+import type { AudioConfig } from "../../types";
 
 interface TTSResponse {
   audio_base64?: string;

@@ -3,8 +3,9 @@ import type { AITool } from "../../../src";
 import type { ChatMessage, SkillSession, ToolContext } from "../types";
 import type { MemoryUserHistoryChunk } from "../humanize/memory";
 import { MemoryRetrieval } from "../humanize";
-import { searchWebWithSearxng } from "./searxng";
-import { readWebPage } from "./web-reader";
+import { searchWebWithSearxng } from "./web/searxng";
+import { readWebPage } from "./web/web-reader";
+import { TOOL_RESULT_FOLLOWUP_KEY } from "../../../src/services/ai/types";
 import {
   filterAllowedExternalSkills,
   getSkillRequiredPermissionRole,
@@ -17,6 +18,43 @@ const DEFAULT_USER_HISTORY_LIMIT = 100;
 
 interface CreateToolsResult {
   tools: AITool[];
+}
+
+async function createImageFollowupResult(
+  imageUrl: string,
+  text: string,
+  note: string,
+): Promise<Record<string, any>> {
+  let imageUrls = [imageUrl];
+  let gifFrameNote = "";
+
+  try {
+    const { isGifUrl, extractGifFrames } =
+      await import("./media/gif-extractor");
+    if (await isGifUrl(imageUrl)) {
+      const result = await extractGifFrames(imageUrl);
+      if (result && result.frames.length > 0) {
+        imageUrls = result.frames;
+        gifFrameNote = ` The original image is an animated GIF; ${result.frames.length} extracted frame(s) are attached in order.`;
+      } else {
+        logger.warn(
+          "[view_image] Failed to extract GIF frames, attaching original image",
+        );
+      }
+    }
+  } catch (err) {
+    logger.warn(`[view_image] Failed to prepare image attachment: ${err}`);
+  }
+
+  return {
+    success: true,
+    image_attached: true,
+    note: `${note}${gifFrameNote}`,
+    [TOOL_RESULT_FOLLOWUP_KEY]: {
+      text: `${text}${gifFrameNote}`,
+      images: imageUrls.map((url) => ({ url, detail: "auto" })),
+    },
+  };
 }
 
 export interface SkillSessionManager {
@@ -312,7 +350,7 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
   }
 
   // 查看图片工具
-  if (toolCtx.config.isMultimodal) {
+  {
     tools.push({
       name: "view_image",
       description:
@@ -331,8 +369,7 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
       handler: async (args) => {
         try {
           // 通过 message_id 获取消息中的图片
-          const { describeImage, getImageUrlByMessageId } =
-            await import("./multimodal");
+          const { getImageUrlByMessageId } = await import("./multimodal");
           const imageUrl = await getImageUrlByMessageId(
             toolCtx.ctx,
             args.message_id,
@@ -343,11 +380,20 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
             return { error: "Image not found in the specified message" };
           }
 
-          // 使用多模态工作模型描述图片
+          if (toolCtx.config.isMultimodal) {
+            return await createImageFollowupResult(
+              imageUrl,
+              `The image from message #${args.message_id} is attached. Inspect it directly and answer the user's question from the visual content.`,
+              "The image has been attached to the next main model request. Inspect it directly instead of relying on a worker-model description.",
+            );
+          }
+
+          // 主模型不支持视觉时，使用多模态工作模型描述图片。
           const ai = toolCtx.aiService.getDefault();
           if (!ai) {
             return { error: "AI instance not available" };
           }
+          const { describeImage } = await import("./multimodal");
 
           const result = await describeImage(
             ai,
@@ -392,7 +438,15 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
 
           logger.info(`[view_member_avatar] Analyzing avatar: ${avatarUrl}`);
 
-          // 使用多模态工作模型描述头像
+          if (toolCtx.config.isMultimodal) {
+            return await createImageFollowupResult(
+              avatarUrl,
+              `User ${args.user_id}'s QQ avatar is attached. Inspect it directly and answer the user's question from the visual content.`,
+              "The avatar has been attached to the next main model request. Inspect it directly instead of relying on a worker-model description.",
+            );
+          }
+
+          // 主模型不支持视觉时，使用多模态工作模型描述头像。
           const { describeImage } = await import("./multimodal");
           const ai = toolCtx.aiService.getDefault();
           if (!ai) {
@@ -500,7 +554,8 @@ async function fetchGroupHistoryByMessageIdPaging(
       const errText = String(err);
       if (
         cursorMessageId > 0 &&
-        (errText.includes("不存在") || errText.toLowerCase().includes("not exist"))
+        (errText.includes("不存在") ||
+          errText.toLowerCase().includes("not exist"))
       ) {
         logger.info(
           `[recall_memory] get_group_msg_history stop at cursor ${cursorMessageId}: ${errText}`,

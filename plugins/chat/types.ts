@@ -173,7 +173,7 @@ export interface ChatConfig {
   historyCount: number;
   blacklistGroups: number[];
   whitelistGroups: number[];
-  imageAnalysisBlacklistUsers: number[];
+  mediaAnalysisBlacklistUsers: number[];
   maxSessions: number;
   maxIterations: number;
   enableExternalSkills: boolean;
@@ -359,6 +359,17 @@ export interface ImageRecord {
   emotion?: string; // 情感标签（仅表情包）
   character?: string; // 角色名称（仅表情包）
   filePath?: string; // 本地文件路径（仅表情包）
+  createdAt: number;
+}
+
+export type MediaSummaryKind = "video" | "forward" | "card" | "notice";
+
+export interface MediaSummaryRecord {
+  id?: number;
+  key: string;
+  kind: MediaSummaryKind;
+  source: string;
+  summary: string;
   createdAt: number;
 }
 

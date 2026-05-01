@@ -15,6 +15,8 @@ import {
   CompleteResponse,
   SessionToolDefinition,
   ToolCallRecord,
+  TOOL_RESULT_FOLLOWUP_KEY,
+  type ToolResultFollowup,
 } from "./types";
 
 /**
@@ -159,6 +161,7 @@ class AIInstanceImpl implements AIInstance {
         : (options.executableTools ?? []);
       const toolMap = new Map<string, AITool>();
       const tools: ChatCompletionTool[] = [];
+      const followupMessages: ChatCompletionMessageParam[] = [];
 
       for (const definition of currentDefinitions) {
         toolMap.set(definition.name, definition.tool);
@@ -227,24 +230,32 @@ class AIInstanceImpl implements AIInstance {
           }
         }
 
-        if (isToolErrorResult(result)) {
+        const normalizedResult = normalizeToolResult(result);
+
+        if (isToolErrorResult(normalizedResult.visibleResult)) {
           failedToolCallKeys.add(callKey);
         }
 
         allToolCalls.push({
           name: toolName,
           arguments: args,
-          result,
+          result: normalizedResult.visibleResult,
         });
 
         const toolMessage = {
           role: "tool",
-          content: JSON.stringify(result),
+          content: JSON.stringify(normalizedResult.visibleResult),
           tool_call_id: toolCall.id,
         } as ChatCompletionMessageParam;
 
         sessionMessages.push(toolMessage);
         turnMessages.push(toolMessage);
+        followupMessages.push(...normalizedResult.followupMessages);
+      }
+
+      if (followupMessages.length > 0) {
+        sessionMessages.push(...followupMessages);
+        turnMessages.push(...followupMessages);
       }
     }
 
@@ -701,6 +712,51 @@ function isToolErrorResult(result: any): boolean {
   if (!result || typeof result !== "object") return false;
   if (result.error) return true;
   return result.success === false;
+}
+
+function normalizeToolResult(result: any): {
+  visibleResult: any;
+  followupMessages: ChatCompletionMessageParam[];
+} {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return { visibleResult: result, followupMessages: [] };
+  }
+
+  const followup = result[TOOL_RESULT_FOLLOWUP_KEY] as
+    | ToolResultFollowup
+    | undefined;
+  if (
+    !followup ||
+    !Array.isArray(followup.images) ||
+    followup.images.length === 0
+  ) {
+    return { visibleResult: result, followupMessages: [] };
+  }
+
+  const { [TOOL_RESULT_FOLLOWUP_KEY]: _followup, ...visibleResult } = result;
+  const content = [
+    {
+      type: "text" as const,
+      text: followup.text || "Use the attached image to answer the request.",
+    },
+    ...followup.images.map((image) => ({
+      type: "image_url" as const,
+      image_url: {
+        url: image.url,
+        detail: image.detail ?? "auto",
+      },
+    })),
+  ];
+
+  return {
+    visibleResult,
+    followupMessages: [
+      {
+        role: "user",
+        content,
+      } as ChatCompletionMessageParam,
+    ],
+  };
 }
 
 function buildToolCallKey(name: string, args: any): string {

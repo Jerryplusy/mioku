@@ -1,4 +1,10 @@
-import { botConfig, definePlugin, logger, type MiokiContext, wait } from "mioki";
+import {
+  botConfig,
+  definePlugin,
+  logger,
+  type MiokiContext,
+  wait,
+} from "mioki";
 import type { AIService } from "../../src/services/ai/types";
 import type { ConfigService } from "../../src/services/config/tpyes";
 import { registerPluginArtifacts } from "../../src/core/plugin-artifact-registry";
@@ -315,7 +321,7 @@ async function buildWelcomeMessage(options: {
 
     return "";
   } catch (error) {
-    ctx.logger.warn(`boot welcome chat-runtime 生成失败: ${error}`);
+    ctx.logger.error(`boot welcome chat-runtime 生成失败: ${error}`);
     return fallbackText;
   }
 }
@@ -459,7 +465,7 @@ export default definePlugin({
 
       if (userId === selfId) {
         if (
-          event?.actions_type === "invite" &&
+          event?.action_type === "invite" &&
           isPrivilegedUser(event?.operator_id)
         ) {
           ctx.logger.info(

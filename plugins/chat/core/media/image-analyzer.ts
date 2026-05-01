@@ -1,6 +1,6 @@
-import type { AIInstance } from "../../../src/services/ai/types";
-import type { ChatDatabase } from "../db";
-import type { ImageRecord } from "../types";
+import type { AIInstance } from "../../../../src/services/ai/types";
+import type { ChatDatabase } from "../../db";
+import type { ImageRecord } from "../../types";
 import { logger } from "mioki";
 import * as crypto from "crypto";
 import * as path from "path";
@@ -22,6 +22,22 @@ export interface ImageAnalysisResult {
   character?: string; // 兼容旧版本
   gifBuffer?: Buffer; // GIF 原始 buffer
   error?: string;
+}
+
+function formatImageRecognitionLog(record: {
+  type: "meme" | "image";
+  description: string;
+  emotion?: string | null;
+  character?: string | null;
+  characters?: string[];
+}): string {
+  const characters =
+    record.characters && record.characters.length > 0
+      ? record.characters
+      : record.character
+        ? [record.character]
+        : [];
+  return `[image-analyzer] ${record.type}: ${record.description}${record.emotion ? ` [${record.emotion}]` : ""}${characters.length > 0 ? ` (${characters.join(", ")})` : ""}`;
 }
 
 /**
@@ -138,8 +154,6 @@ export async function analyzeImage(
   gifBuffer?: Buffer,
 ): Promise<ImageAnalysisResult> {
   try {
-    logger.info(`[image-analyzer] Analyzing image: ${imageUrl}`);
-
     // 检查是否为 GIF，如果是则提取三帧
     const { isGifUrl, extractGifFrames } = await import("./gif-extractor");
     let imageUrls: string[] = [imageUrl];
@@ -260,7 +274,12 @@ Response format (JSON):
         : undefined;
 
     logger.info(
-      `[image-analyzer] ✓ ${type === "meme" ? "Meme" : "Image"}: ${description}${emotion ? ` [${emotion}]` : ""}${characters && characters.length > 0 ? ` (${characters.join(", ")})` : ""}`,
+      formatImageRecognitionLog({
+        type,
+        description,
+        emotion,
+        characters,
+      }),
     );
 
     return {
@@ -297,7 +316,7 @@ export async function processImage(
     // 检查是否已存在
     const existing = db.getImageByHash(hash);
     if (existing) {
-      logger.info(`[image-analyzer] Exists: ${existing.description}`);
+      logger.info(formatImageRecognitionLog(existing));
       return existing;
     }
     const analysis = await analyzeImage(ai, imageUrl, model);
@@ -347,9 +366,6 @@ export async function processImage(
         if (analysis.gifBuffer) {
           try {
             await fs.writeFile(targetPath, analysis.gifBuffer);
-            logger.info(
-              `[image-analyzer] ✓ Saved GIF for ${character}: ${targetPath}`,
-            );
             return targetPath;
           } catch (err) {
             logger.warn(
@@ -361,9 +377,6 @@ export async function processImage(
           // 普通图片，下载
           const downloaded = await downloadImage(imageUrl, targetPath);
           if (downloaded) {
-            logger.info(
-              `[image-analyzer] ✓ Saved for ${character}: ${targetPath}`,
-            );
             return targetPath;
           } else {
             logger.warn(`[image-analyzer] Download failed for ${character}`);
@@ -389,7 +402,6 @@ export async function processImage(
     };
 
     db.saveImage(record);
-    logger.info(`[image-analyzer] Image record saved: ${hash}`);
 
     return record;
   } catch (err) {
