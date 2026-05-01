@@ -100,6 +100,9 @@ export async function runChat(
   const currentUserMessages = hasStructuredHistory
     ? buildStructuredUserMessages(structuredHistory!.currentUserInputs)
     : [];
+  const directImageUrls = toolCtx.config.isMultimodal
+    ? toolCtx.pendingImageUrls
+    : undefined;
 
   if (hasStructuredHistory) {
     structuredHistory!.manager.touch(
@@ -164,7 +167,7 @@ export async function runChat(
       targetMessage,
       cachedHistory,
       currentUserMessages,
-      toolCtx.pendingImageUrls,
+      directImageUrls,
     ),
     executableToolsProvider: () =>
       buildSessionTools(

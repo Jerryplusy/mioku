@@ -5,6 +5,7 @@ import type { MemoryUserHistoryChunk } from "../humanize/memory";
 import { MemoryRetrieval } from "../humanize";
 import { searchWebWithSearxng } from "./searxng";
 import { readWebPage } from "./web-reader";
+import { TOOL_RESULT_FOLLOWUP_KEY } from "../../../src/services/ai/types";
 import {
   filterAllowedExternalSkills,
   getSkillRequiredPermissionRole,
@@ -17,6 +18,22 @@ const DEFAULT_USER_HISTORY_LIMIT = 100;
 
 interface CreateToolsResult {
   tools: AITool[];
+}
+
+function createImageFollowupResult(
+  imageUrl: string,
+  text: string,
+  note: string,
+): Record<string, any> {
+  return {
+    success: true,
+    image_attached: true,
+    note,
+    [TOOL_RESULT_FOLLOWUP_KEY]: {
+      text,
+      images: [{ url: imageUrl, detail: "auto" }],
+    },
+  };
 }
 
 export interface SkillSessionManager {
@@ -312,7 +329,7 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
   }
 
   // 查看图片工具
-  if (toolCtx.config.isMultimodal) {
+  {
     tools.push({
       name: "view_image",
       description:
@@ -331,8 +348,7 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
       handler: async (args) => {
         try {
           // 通过 message_id 获取消息中的图片
-          const { describeImage, getImageUrlByMessageId } =
-            await import("./multimodal");
+          const { getImageUrlByMessageId } = await import("./multimodal");
           const imageUrl = await getImageUrlByMessageId(
             toolCtx.ctx,
             args.message_id,
@@ -343,11 +359,20 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
             return { error: "Image not found in the specified message" };
           }
 
-          // 使用多模态工作模型描述图片
+          if (toolCtx.config.isMultimodal) {
+            return createImageFollowupResult(
+              imageUrl,
+              `The image from message #${args.message_id} is attached. Inspect it directly and answer the user's question from the visual content.`,
+              "The image has been attached to the next main model request. Inspect it directly instead of relying on a worker-model description.",
+            );
+          }
+
+          // 主模型不支持视觉时，使用多模态工作模型描述图片。
           const ai = toolCtx.aiService.getDefault();
           if (!ai) {
             return { error: "AI instance not available" };
           }
+          const { describeImage } = await import("./multimodal");
 
           const result = await describeImage(
             ai,
@@ -392,7 +417,15 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
 
           logger.info(`[view_member_avatar] Analyzing avatar: ${avatarUrl}`);
 
-          // 使用多模态工作模型描述头像
+          if (toolCtx.config.isMultimodal) {
+            return createImageFollowupResult(
+              avatarUrl,
+              `User ${args.user_id}'s QQ avatar is attached. Inspect it directly and answer the user's question from the visual content.`,
+              "The avatar has been attached to the next main model request. Inspect it directly instead of relying on a worker-model description.",
+            );
+          }
+
+          // 主模型不支持视觉时，使用多模态工作模型描述头像。
           const { describeImage } = await import("./multimodal");
           const ai = toolCtx.aiService.getDefault();
           if (!ai) {
