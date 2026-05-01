@@ -20,18 +20,38 @@ interface CreateToolsResult {
   tools: AITool[];
 }
 
-function createImageFollowupResult(
+async function createImageFollowupResult(
   imageUrl: string,
   text: string,
   note: string,
-): Record<string, any> {
+): Promise<Record<string, any>> {
+  let imageUrls = [imageUrl];
+  let gifFrameNote = "";
+
+  try {
+    const { isGifUrl, extractGifFrames } = await import("./gif-extractor");
+    if (await isGifUrl(imageUrl)) {
+      const result = await extractGifFrames(imageUrl);
+      if (result && result.frames.length > 0) {
+        imageUrls = result.frames;
+        gifFrameNote = ` The original image is an animated GIF; ${result.frames.length} extracted frame(s) are attached in order.`;
+      } else {
+        logger.warn(
+          "[view_image] Failed to extract GIF frames, attaching original image",
+        );
+      }
+    }
+  } catch (err) {
+    logger.warn(`[view_image] Failed to prepare image attachment: ${err}`);
+  }
+
   return {
     success: true,
     image_attached: true,
-    note,
+    note: `${note}${gifFrameNote}`,
     [TOOL_RESULT_FOLLOWUP_KEY]: {
-      text,
-      images: [{ url: imageUrl, detail: "auto" }],
+      text: `${text}${gifFrameNote}`,
+      images: imageUrls.map((url) => ({ url, detail: "auto" })),
     },
   };
 }
@@ -360,7 +380,7 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
           }
 
           if (toolCtx.config.isMultimodal) {
-            return createImageFollowupResult(
+            return await createImageFollowupResult(
               imageUrl,
               `The image from message #${args.message_id} is attached. Inspect it directly and answer the user's question from the visual content.`,
               "The image has been attached to the next main model request. Inspect it directly instead of relying on a worker-model description.",
@@ -418,7 +438,7 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
           logger.info(`[view_member_avatar] Analyzing avatar: ${avatarUrl}`);
 
           if (toolCtx.config.isMultimodal) {
-            return createImageFollowupResult(
+            return await createImageFollowupResult(
               avatarUrl,
               `User ${args.user_id}'s QQ avatar is attached. Inspect it directly and answer the user's question from the visual content.`,
               "The avatar has been attached to the next main model request. Inspect it directly instead of relying on a worker-model description.",
