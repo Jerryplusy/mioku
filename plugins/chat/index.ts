@@ -134,6 +134,40 @@ function getSegmentUrl(seg: any): string | null {
   return typeof url === "string" && url.trim() ? url.trim() : null;
 }
 
+function getSegmentSourceCandidates(seg: any): string[] {
+  return Array.from(
+    new Set(
+      [
+        seg?.file,
+        seg?.data?.file,
+        seg?.path,
+        seg?.data?.path,
+        seg?.url,
+        seg?.data?.url,
+      ]
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+}
+
+async function getVideoSourceCandidatesFromMessage(
+  bot: { api<T = any>(action: string, params?: Record<string, any>): Promise<T> },
+  messageId: number | string | undefined,
+): Promise<string[]> {
+  if (messageId == null) return [];
+  const result = await bot.api("get_msg", { message_id: messageId });
+  const segments = result?.message || result?.data?.message || [];
+  if (!Array.isArray(segments)) return [];
+
+  const candidates: string[] = [];
+  for (const seg of segments) {
+    if (seg?.type !== "video") continue;
+    candidates.push(...getSegmentSourceCandidates(seg));
+  }
+  return candidates;
+}
+
 function getForwardId(seg: any): string | null {
   return seg?.id || seg?.data?.id || null;
 }
@@ -2414,13 +2448,30 @@ Suggestion:
                 });
               }
             } else if (seg.type === "video" && mediaOptions) {
-              const videoUrl = getSegmentUrl(seg);
-              if (videoUrl) {
-                summarizeHistoryVideo(videoUrl, mediaOptions).catch((err) => {
+              const videoSources = [
+                ...getSegmentSourceCandidates(seg),
+                ...(await getVideoSourceCandidatesFromMessage(
+                  bot,
+                  e.message_id,
+                ).catch(
+                  (err) => {
+                    ctx.logger.warn(
+                      `[history-media] Failed to fetch video sources: ${err}`,
+                    );
+                    return [];
+                  },
+                )),
+              ];
+              if (videoSources.length > 0) {
+                summarizeHistoryVideo(videoSources, mediaOptions).catch((err) => {
                   ctx.logger.warn(
                     `[history-media] Failed to process video: ${err}`,
                   );
                 });
+              } else {
+                ctx.logger.warn(
+                  `[history-media] Video message ${e.message_id ?? "unknown"} has no source`,
+                );
               }
             }
           }

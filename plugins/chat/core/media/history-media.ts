@@ -48,19 +48,19 @@ export interface GroupNoticeHistorySummary {
 }
 
 export async function summarizeHistoryVideo(
-  videoUrl: string,
+  videoSource: string | string[],
   options: HistoryMediaProcessingOptions,
 ): Promise<string> {
-  const source = videoUrl.trim();
-  if (!source || !options.ai || !options.multimodalWorkingModel) {
+  const sources = normalizeVideoSources(videoSource);
+  if (sources.length === 0 || !options.ai || !options.multimodalWorkingModel) {
     return "[video]";
   }
 
-  const videoFile = await downloadVideoForAnalysis(source);
+  const videoFile = await downloadVideoForAnalysis(sources, options);
   try {
     const result = await getOrCreateSummary(
       "video",
-      source,
+      videoFile.source,
       videoFile.contentHash,
       options,
       async () => {
@@ -115,13 +115,13 @@ export async function summarizeHistoryVideo(
 }
 
 export async function getCachedHistoryVideoTag(
-  videoUrl: string,
+  videoSource: string | string[],
   options: HistoryMediaProcessingOptions,
 ): Promise<string> {
-  const source = videoUrl.trim();
-  if (!source) return "[video]";
+  const sources = normalizeVideoSources(videoSource);
+  if (sources.length === 0) return "[video]";
   try {
-    const videoFile = await downloadVideoForAnalysis(source);
+    const videoFile = await downloadVideoForAnalysis(sources, options);
     try {
       const summary = getCachedSummaryByHash(
         "video",
@@ -220,13 +220,18 @@ export async function summarizeHistoryCard(
     source,
     hashSource(normalized),
     options,
-    () =>
-      summarizeTextContent(
+    () => {
+      const promptContent = extractCardPrompt(source);
+      if (promptContent && promptContent.length < 100) {
+        return Promise.resolve(promptContent);
+      }
+      return summarizeTextContent(
         "XML/JSON 卡片消息",
-        source,
+        promptContent || source,
         options.ai!,
         options.workingModel!,
-      ),
+      );
+    },
   );
 
   logMediaSummary(options, "card", result.summary);
@@ -585,18 +590,45 @@ function truncateText(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }
 
-async function downloadVideoForAnalysis(source: string): Promise<{
+async function downloadVideoForAnalysis(
+  sources: string | string[],
+  options: HistoryMediaProcessingOptions,
+): Promise<{
   path: string;
+  source: string;
   contentHash: string;
   cleanup: () => Promise<void>;
 }> {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "mioku-video-src-"));
-  const filePath = path.join(tempDir, "video");
+  const candidates = normalizeVideoSources(sources);
+  let lastError: unknown;
 
-  try {
-    if (!/^https?:\/\//i.test(source)) {
-      throw new Error(`video url must be http(s): ${source}`);
+  for (const source of candidates) {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "mioku-video-src-"));
+    const filePath = path.join(tempDir, "video");
+
+    try {
+      const buffer = await readVideoSource(source);
+      await fs.writeFile(filePath, buffer);
+      return {
+        path: filePath,
+        source,
+        contentHash: hashSource(buffer),
+        cleanup: () => fs.rm(tempDir, { recursive: true, force: true }),
+      };
+    } catch (err) {
+      lastError = err;
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      getHistoryMediaLogger(options).warn(
+        `[history-media] Failed to read video source ${source}: ${err}`,
+      );
     }
+  }
+
+  throw lastError || new Error("no video source available");
+}
+
+async function readVideoSource(source: string): Promise<Buffer> {
+  if (source.startsWith("http://") || source.startsWith("https://")) {
     const response = await fetch(source, {
       headers: {
         "User-Agent":
@@ -609,18 +641,28 @@ async function downloadVideoForAnalysis(source: string): Promise<{
         `download failed: ${response.status} ${response.statusText}`,
       );
     }
-    const buffer = Buffer.from(await response.arrayBuffer());
-
-    await fs.writeFile(filePath, buffer);
-    return {
-      path: filePath,
-      contentHash: hashSource(buffer),
-      cleanup: () => fs.rm(tempDir, { recursive: true, force: true }),
-    };
-  } catch (err) {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-    throw err;
+    return Buffer.from(await response.arrayBuffer());
   }
+
+  if (source.startsWith("file://")) {
+    const url = new URL(source);
+    return fs.readFile(
+      decodeURIComponent(url.pathname).replace(/^\/([a-z]:[\\/])/i, "$1"),
+    );
+  }
+
+  return fs.readFile(source);
+}
+
+function normalizeVideoSources(input: string | string[]): string[] {
+  const raw = Array.isArray(input) ? input : [input];
+  return Array.from(
+    new Set(
+      raw
+        .map((source) => String(source || "").trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 function normalizeContentForHash(value: string): string {
@@ -633,6 +675,13 @@ function normalizeContentForHash(value: string): string {
   }
 
   return trimmed.replace(/\s+/g, " ");
+}
+
+function extractCardPrompt(source: string): string | null {
+  const parsed = tryParseJson(source);
+  if (!parsed.parsed) return null;
+  const prompt = parsed.value?.prompt;
+  return typeof prompt === "string" && prompt.trim() ? prompt.trim() : null;
 }
 
 function tryParseJson(
