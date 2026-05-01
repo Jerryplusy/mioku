@@ -31,10 +31,9 @@ export async function describeImage(
   context?: string,
 ): Promise<ImageDescriptionResult> {
   try {
-    logger.info(`[multimodal] Describing image: ${imageUrl}`);
-
     // 检查是否为 GIF，如果是则提取三帧
-    const { isGifUrl, extractGifFrames } = await import("./gif-extractor");
+    const { isGifUrl, extractGifFrames } =
+      await import("./media/gif-extractor");
     let imageUrls: string[] = [imageUrl];
 
     if (await isGifUrl(imageUrl)) {
@@ -96,7 +95,7 @@ ${context ? `\nUser context: ${context}` : ""}`;
       };
     }
 
-    logger.info(`[multimodal] Image description: ${response.content}`);
+    logger.info(`[multimodal] image: ${response.content}`);
 
     return {
       success: true,

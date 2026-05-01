@@ -15,11 +15,14 @@ import type { PromptContext } from "./prompt";
 import type { SkillSessionManager } from "./tools";
 import { createTools } from "./tools";
 import { buildSystemPrompt } from "./prompt";
-import { isExternalSkillAllowed, isSkillAllowedForRole } from "./external-skills";
+import {
+  isExternalSkillAllowed,
+  isSkillAllowedForRole,
+} from "./external-skills";
 import {
   consumeCompleteStreamUnits,
   splitOutgoingUnits,
-} from "./markdown-message";
+} from "./media/markdown-message";
 import {
   attachImagesToCurrentUserMessages,
   buildStructuredUserMessages,

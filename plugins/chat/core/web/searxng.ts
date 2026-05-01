@@ -1,5 +1,5 @@
 import { logger } from "mioki";
-import type { SearxngConfig } from "../types";
+import type { SearxngConfig } from "../../types";
 
 type TimeRange = "day" | "month" | "year";
 
@@ -29,9 +29,7 @@ interface WebSearchResult {
 
 function normalizeArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => String(item || "").trim())
-    .filter(Boolean);
+  return value.map((item) => String(item || "").trim()).filter(Boolean);
 }
 
 function clampLimit(limit: unknown, cfg: SearxngConfig): number {

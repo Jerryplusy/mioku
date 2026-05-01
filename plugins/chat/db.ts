@@ -8,6 +8,7 @@ import type {
   TopicRecord,
   ExpressionRecord,
   ImageRecord,
+  MediaSummaryRecord,
 } from "./types";
 
 /**
@@ -24,6 +25,7 @@ export interface ChatDatabase {
   ): ChatMessage[];
   // 获取 bot 发送的消息
   getBotMessages(groupId: number, limit?: number): ChatMessage[];
+  getStoredGroupNoticeMessages(groupId: number, limit?: number): ChatMessage[];
   getMessagesByUser(
     userId: number,
     sessionId?: string,
@@ -74,7 +76,13 @@ export interface ChatDatabase {
   // 图片记录
   saveImage(image: ImageRecord): void;
   getImageByHash(hash: string): ImageRecord | null;
+  getImageByUrl(url: string): ImageRecord | null;
   getAllImages(): ImageRecord[];
+  // 媒体/卡片摘要缓存
+  saveMediaSummary(summary: MediaSummaryRecord): void;
+  getMediaSummary(key: string): MediaSummaryRecord | null;
+  saveMediaSummarySource(sourceKey: string, summaryKey: string): void;
+  getMediaSummaryBySource(sourceKey: string): MediaSummaryRecord | null;
   close(): void;
 }
 
@@ -163,6 +171,24 @@ export async function initDatabase(): Promise<ChatDatabase> {
     );
     CREATE INDEX IF NOT EXISTS idx_images_hash ON images(hash);
     CREATE INDEX IF NOT EXISTS idx_images_type ON images(type);
+
+    CREATE TABLE IF NOT EXISTS media_summaries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL,
+      source TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_media_summaries_key ON media_summaries(key);
+    CREATE INDEX IF NOT EXISTS idx_media_summaries_kind ON media_summaries(kind);
+
+    CREATE TABLE IF NOT EXISTS media_summary_sources (
+      source_key TEXT PRIMARY KEY,
+      summary_key TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_media_summary_sources_summary ON media_summary_sources(summary_key);
   `);
 
   const topicColumns = db
@@ -206,6 +232,11 @@ export async function initDatabase(): Promise<ChatDatabase> {
     `),
     getBotMessages: db.prepare(`
       SELECT * FROM messages WHERE group_id = ? AND role = 'assistant' ORDER BY timestamp DESC LIMIT ?
+    `),
+    getStoredGroupNoticeMessages: db.prepare(`
+      SELECT * FROM messages
+      WHERE group_id = ? AND role = 'user' AND content LIKE '发布了一条群公告：%'
+      ORDER BY timestamp DESC LIMIT ?
     `),
     getMessagesByUser: db.prepare(`
       SELECT * FROM messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?
@@ -285,7 +316,30 @@ export async function initDatabase(): Promise<ChatDatabase> {
       VALUES (@hash, @url, @type, @description, @emotion, @character, @filePath, @createdAt)
     `),
     getImageByHash: db.prepare(`SELECT * FROM images WHERE hash = ?`),
+    getImageByUrl: db.prepare(`SELECT * FROM images WHERE url = ?`),
     getAllImages: db.prepare(`SELECT * FROM images ORDER BY created_at DESC`),
+    upsertMediaSummary: db.prepare(`
+      INSERT INTO media_summaries (key, kind, source, summary, created_at)
+      VALUES (@key, @kind, @source, @summary, @createdAt)
+      ON CONFLICT(key) DO UPDATE SET
+        summary = @summary,
+        source = @source,
+        created_at = @createdAt
+    `),
+    getMediaSummary: db.prepare(`SELECT * FROM media_summaries WHERE key = ?`),
+    upsertMediaSummarySource: db.prepare(`
+      INSERT INTO media_summary_sources (source_key, summary_key, created_at)
+      VALUES (@sourceKey, @summaryKey, @createdAt)
+      ON CONFLICT(source_key) DO UPDATE SET
+        summary_key = @summaryKey,
+        created_at = @createdAt
+    `),
+    getMediaSummaryBySource: db.prepare(`
+      SELECT s.*
+      FROM media_summary_sources src
+      JOIN media_summaries s ON s.key = src.summary_key
+      WHERE src.source_key = ?
+    `),
   };
 
   return {
@@ -374,6 +428,32 @@ export async function initDatabase(): Promise<ChatDatabase> {
           messageId: row.message_id,
         }))
         .reverse(); // 按时间正序
+    },
+
+    getStoredGroupNoticeMessages(
+      groupId: number,
+      limit: number = 20,
+    ): ChatMessage[] {
+      const rows = stmts.getStoredGroupNoticeMessages.all(
+        groupId,
+        limit,
+      ) as any[];
+      return rows
+        .map((row) => ({
+          id: row.id,
+          sessionId: row.session_id,
+          role: row.role,
+          content: row.content,
+          userId: row.user_id,
+          userName: row.user_name,
+          userRole: row.user_role,
+          userTitle: row.user_title,
+          groupId: row.group_id,
+          groupName: row.group_name,
+          timestamp: row.timestamp,
+          messageId: row.message_id,
+        }))
+        .reverse();
     },
 
     getMessagesByUser(
@@ -688,6 +768,22 @@ export async function initDatabase(): Promise<ChatDatabase> {
       };
     },
 
+    getImageByUrl(url: string): ImageRecord | null {
+      const row = stmts.getImageByUrl.get(url) as any;
+      if (!row) return null;
+      return {
+        id: row.id,
+        hash: row.hash,
+        url: row.url,
+        type: row.type,
+        description: row.description,
+        emotion: row.emotion,
+        character: row.character,
+        filePath: row.file_path,
+        createdAt: row.created_at,
+      };
+    },
+
     getAllImages(): ImageRecord[] {
       const rows = stmts.getAllImages.all() as any[];
       return rows.map((row) => ({
@@ -701,6 +797,50 @@ export async function initDatabase(): Promise<ChatDatabase> {
         filePath: row.file_path,
         createdAt: row.created_at,
       }));
+    },
+
+    saveMediaSummary(summary: MediaSummaryRecord): void {
+      stmts.upsertMediaSummary.run({
+        key: summary.key,
+        kind: summary.kind,
+        source: summary.source,
+        summary: summary.summary,
+        createdAt: summary.createdAt,
+      });
+    },
+
+    getMediaSummary(key: string): MediaSummaryRecord | null {
+      const row = stmts.getMediaSummary.get(key) as any;
+      if (!row) return null;
+      return {
+        id: row.id,
+        key: row.key,
+        kind: row.kind,
+        source: row.source,
+        summary: row.summary,
+        createdAt: row.created_at,
+      };
+    },
+
+    saveMediaSummarySource(sourceKey: string, summaryKey: string): void {
+      stmts.upsertMediaSummarySource.run({
+        sourceKey,
+        summaryKey,
+        createdAt: Date.now(),
+      });
+    },
+
+    getMediaSummaryBySource(sourceKey: string): MediaSummaryRecord | null {
+      const row = stmts.getMediaSummaryBySource.get(sourceKey) as any;
+      if (!row) return null;
+      return {
+        id: row.id,
+        key: row.key,
+        kind: row.kind,
+        source: row.source,
+        summary: row.summary,
+        createdAt: row.created_at,
+      };
     },
 
     close(): void {

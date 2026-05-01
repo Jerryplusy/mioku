@@ -3,8 +3,8 @@ import type { AITool } from "../../../src";
 import type { ChatMessage, SkillSession, ToolContext } from "../types";
 import type { MemoryUserHistoryChunk } from "../humanize/memory";
 import { MemoryRetrieval } from "../humanize";
-import { searchWebWithSearxng } from "./searxng";
-import { readWebPage } from "./web-reader";
+import { searchWebWithSearxng } from "./web/searxng";
+import { readWebPage } from "./web/web-reader";
 import { TOOL_RESULT_FOLLOWUP_KEY } from "../../../src/services/ai/types";
 import {
   filterAllowedExternalSkills,
@@ -29,7 +29,8 @@ async function createImageFollowupResult(
   let gifFrameNote = "";
 
   try {
-    const { isGifUrl, extractGifFrames } = await import("./gif-extractor");
+    const { isGifUrl, extractGifFrames } =
+      await import("./media/gif-extractor");
     if (await isGifUrl(imageUrl)) {
       const result = await extractGifFrames(imageUrl);
       if (result && result.frames.length > 0) {
@@ -553,7 +554,8 @@ async function fetchGroupHistoryByMessageIdPaging(
       const errText = String(err);
       if (
         cursorMessageId > 0 &&
-        (errText.includes("不存在") || errText.toLowerCase().includes("not exist"))
+        (errText.includes("不存在") ||
+          errText.toLowerCase().includes("not exist"))
       ) {
         logger.info(
           `[recall_memory] get_group_msg_history stop at cursor ${cursorMessageId}: ${errText}`,

@@ -1,7 +1,7 @@
 import { logger } from "mioki";
 import puppeteer from "puppeteer";
-import type { AIInstance } from "../../../src/services/ai/types";
-import type { WebReaderConfig } from "../types";
+import type { AIInstance } from "../../../../src/services/ai/types";
+import type { WebReaderConfig } from "../../types";
 
 type ReadMode = "fetch" | "browser";
 
