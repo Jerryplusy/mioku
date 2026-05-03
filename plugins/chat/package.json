@@ -3,6 +3,9 @@
   "version": "2.0.0",
   "description": "AI 智能聊天插件",
   "main": "index.ts",
+  "keywords": [
+    "mioku"
+  ],
   "mioku": {
     "services": [
       "ai",

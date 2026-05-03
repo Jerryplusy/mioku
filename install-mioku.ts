@@ -96,6 +96,20 @@ function safeRepoName(repo: string): string {
   return clean;
 }
 
+function normalizePluginName(name: string): string {
+  if (name.startsWith("mioku-plugin-")) {
+    return name.slice("mioku-plugin-".length);
+  }
+  return name;
+}
+
+function normalizeServiceName(name: string): string {
+  if (name.startsWith("mioku-service-")) {
+    return name.slice("mioku-service-".length);
+  }
+  return name;
+}
+
 function cloneOrPull(repoUrl: string, destDir: string) {
   if (!commandExists("git")) {
     die("未安装 git");
@@ -338,6 +352,7 @@ function installPlugin(
     name = safeRepoName(repoUrl);
   }
 
+  name = normalizePluginName(name);
   const target = join(ROOT_DIR, "plugins", name);
   cloneOrPull(repoUrl, target);
   installDeps(target, pm);
@@ -357,6 +372,7 @@ function installService(
     name = safeRepoName(repoUrl);
   }
 
+  name = normalizeServiceName(name);
   const target = join(ROOT_DIR, "src", "services", name);
   cloneOrPull(repoUrl, target);
   installDeps(target, pm);

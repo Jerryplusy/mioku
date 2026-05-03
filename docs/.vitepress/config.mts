@@ -77,6 +77,7 @@ export default defineConfig({
             { text: "插件入门", link: "/developer/plugin-start" },
             { text: "插件进阶", link: "/developer/plugin-advanced" },
             { text: "在插件中使用AI", link: "/developer/plugin-ai" },
+            { text: "插件发布", link: "/developer/plugin-publish" },
           ],
         },
         {

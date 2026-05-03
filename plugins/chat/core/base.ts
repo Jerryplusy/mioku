@@ -418,8 +418,8 @@ export async function sendMessage(
             if (beforeAt) {
               // 清理 reply 和 poke 标记残留
               const cleaned = beforeAt
-                .replace(/\[\[\[reply:\d+\]\]\]/g, "")
-                .replace(/\(\(\(reply:\d+\)\)\)/g, "")
+                .replace(/\[\[\[reply:-?\d+\]\]\]/g, "")
+                .replace(/\(\(\(reply:-?\d+\)\)\)/g, "")
                 .replace(/\[\[\[poke:\d+\]\]\]/g, "")
                 .replace(/\(\(\(poke:\d+\)\)\)/g, "")
                 .replace(/\[audio:[^\]]+\]/gi, "")
@@ -443,8 +443,8 @@ export async function sendMessage(
         const afterAt = remaining.slice(lastIndex);
         if (afterAt) {
           const cleaned = afterAt
-            .replace(/\[\[\[reply:\d+\]\]\]/g, "")
-            .replace(/\(\(\(reply:\d+\)\)\)/g, "")
+            .replace(/\[\[\[reply:-?\d+\]\]\]/g, "")
+            .replace(/\(\(\(reply:-?\d+\)\)\)/g, "")
             .replace(/\[\[\[poke:\d+\]\]\]/g, "")
             .replace(/\(\(\(poke:\d+\)\)\)/g, "")
             .replace(/\[audio:[^\]]+\]/gi, "")
