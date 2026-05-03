@@ -86,10 +86,10 @@
         {{ searchQuery ? '没有匹配的结果' : '暂无插件或服务' }}
       </p>
 
-      <div v-if="hasMore" class="store-pagination">
+      <div v-if="totalPages > 1" class="store-pagination">
         <button class="store-page-btn" :disabled="page <= 1" @click="prevPage">上一页</button>
         <span class="store-page-info">{{ page }} / {{ totalPages }}</span>
-        <button class="store-page-btn" @click="nextPage">下一页</button>
+        <button class="store-page-btn" :disabled="page >= totalPages" @click="nextPage">下一页</button>
       </div>
     </template>
   </div>
@@ -158,7 +158,7 @@ async function loadStore() {
       loadNpmPackages(),
     ])
 
-    allPackages.value = mergeResults(officialRegistry, npmResults)
+    allPackages.value = await mergeResults(officialRegistry, npmResults)
   } catch (e) {
     error.value = e.message
   } finally {
@@ -223,7 +223,9 @@ async function mergeResults(officialRegistry, npmObjects) {
 
   const { plugins: officialPlugins = {}, services: officialServices = {} } = officialRegistry
 
-  const mergeMap = async (entries, type) => {
+  const builtinTasks = []
+
+  const processEntries = (entries, type) => {
     for (const [key, entry] of Object.entries(entries)) {
       const isBuiltin = Boolean(entry.builtin)
       const npm = isBuiltin ? `mioku-${type === 'plugin' ? 'plugin' : 'service'}-${key}` : entry.npm
@@ -233,36 +235,39 @@ async function mergeResults(officialRegistry, npmObjects) {
         const existing = seen.get(npm)
         existing.official = true
         existing.builtin = isBuiltin
-      } else {
-        let description = ''
-        let version = ''
-        if (isBuiltin) {
-          const pkgJson = await fetchBuiltinPkgJson(type, key)
-          if (pkgJson) {
-            description = String(pkgJson.description || '').trim()
-            version = String(pkgJson.version || '').trim()
-          }
-        }
-
+      } else if (isBuiltin) {
         seen.set(npm, {
           name: key,
           npm,
           type,
-          description,
-          version,
+          description: '',
+          version: '',
           keywords: ['mioku'],
           tags: [],
           official: true,
-          builtin: isBuiltin,
+          builtin: true,
           repo: `https://github.com/mioku-lab/mioku/tree/main/${type === 'plugin' ? 'plugins' : 'src/services'}/${key}`,
           npmUrl: `https://www.npmjs.com/package/${npm}`,
         })
+
+        const task = fetchBuiltinPkgJson(type, key).then(pkgJson => {
+          if (pkgJson) {
+            const existing = seen.get(npm)
+            if (existing) {
+              existing.description = String(pkgJson.description || '').trim()
+              existing.version = String(pkgJson.version || '').trim()
+            }
+          }
+        })
+        builtinTasks.push(task)
       }
     }
   }
 
-  await mergeMap(officialPlugins, 'plugin')
-  await mergeMap(officialServices, 'service')
+  processEntries(officialPlugins, 'plugin')
+  processEntries(officialServices, 'service')
+
+  await Promise.all(builtinTasks)
 
   return Array.from(seen.values())
 }
@@ -344,7 +349,7 @@ onMounted(() => {
 
 <style scoped>
 .mioku-store {
-  margin-top: 1.5rem;
+  margin-top: 0.5rem;
 }
 
 .store-toolbar {
@@ -352,7 +357,7 @@ onMounted(() => {
   gap: 0.75rem;
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0.75rem;
 }
 
 .store-tabs {
