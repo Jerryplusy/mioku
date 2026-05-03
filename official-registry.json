@@ -1,0 +1,21 @@
+{
+  "plugins": {
+    "60s": { "npm": "mioku-plugin-60s" },
+    "meme": { "npm": "mioku-plugin-meme" },
+    "music": { "npm": "mioku-plugin-music" },
+    "admin": { "npm": "mioku-plugin-admin" },
+    "media": { "npm": "mioku-plugin-media" },
+    "chat": { "builtin": true },
+    "help": { "builtin": true },
+    "boot": { "builtin": true }
+  },
+  "services": {
+    "60s": { "npm": "mioku-service-60s" },
+    "webui": { "npm": "mioku-service-webui" },
+    "applemusic": { "npm": "mioku-service-applemusic" },
+    "ai": { "builtin": true },
+    "config": { "builtin": true },
+    "screenshot": { "builtin": true },
+    "help": { "builtin": true }
+  }
+}
