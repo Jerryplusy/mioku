@@ -36,6 +36,7 @@ export interface HistoryMediaProcessingOptions {
     api<T = any>(action: string, params?: Record<string, any>): Promise<T>;
   };
   groupId?: number;
+  runAIRequest?<T>(request: () => Promise<T>): Promise<T | null>;
 }
 
 export interface GroupNoticeHistorySummary {
@@ -45,6 +46,13 @@ export interface GroupNoticeHistorySummary {
   content: string;
   timestamp: number;
   messageId: number;
+}
+
+function runHistoryMediaAIRequest<T>(
+  options: HistoryMediaProcessingOptions,
+  request: () => Promise<T>,
+): Promise<T | null> {
+  return options.runAIRequest ? options.runAIRequest(request) : request();
 }
 
 export async function summarizeHistoryVideo(
@@ -87,21 +95,26 @@ export async function summarizeHistoryVideo(
           })),
         ];
 
-        const response = await options.ai!.complete({
-          model: options.multimodalWorkingModel,
-          messages: [
-            {
-              role: "system",
-              content:
-                "You summarize video frames for a chat history. Be factual and concise. If frames are ambiguous, say so.",
-            },
-            {
-              role: "user",
-              content,
-            },
-          ],
-          temperature: 0.3,
-        });
+        const response = await runHistoryMediaAIRequest(options, () =>
+          options.ai!.complete({
+            model: options.multimodalWorkingModel,
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You summarize video frames for a chat history. Be factual and concise. If frames are ambiguous, say so.",
+              },
+              {
+                role: "user",
+                content,
+              },
+            ],
+            temperature: 0.3,
+          }),
+        );
+        if (!response) {
+          return "";
+        }
 
         return normalizeSummary(response.content);
       },
@@ -174,6 +187,7 @@ export async function summarizeHistoryForward(
         text,
         options.ai!,
         options.workingModel!,
+        options,
       ),
   );
 
@@ -230,6 +244,7 @@ export async function summarizeHistoryCard(
         promptContent || source,
         options.ai!,
         options.workingModel!,
+        options,
       );
     },
   );
@@ -275,6 +290,7 @@ export async function summarizeGroupNotice(
           text,
           options.ai!,
           options.workingModel!,
+          options,
         ),
     )
   ).summary;
@@ -374,22 +390,26 @@ async function summarizeTextContent(
   text: string,
   ai: AIInstance,
   model: string,
+  options: HistoryMediaProcessingOptions,
 ): Promise<string> {
-  const response = await ai.complete({
-    model,
-    messages: [
-      {
-        role: "system",
-        content:
-          "You summarize non-plain chat content for recent chat history. Output Chinese only, concise and factual. Keep key names, titles, links, amounts, and actions if present.",
-      },
-      {
-        role: "user",
-        content: `${label}原始内容：\n${truncateText(text, 8000)}\n\n请概括成一句适合放进聊天历史的中文摘要。`,
-      },
-    ],
-    temperature: 0.3,
-  });
+  const response = await runHistoryMediaAIRequest(options, () =>
+    ai.complete({
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You summarize non-plain chat content for recent chat history. Output Chinese only, concise and factual. Keep key names, titles, links, amounts, and actions if present.",
+        },
+        {
+          role: "user",
+          content: `${label}原始内容：\n${truncateText(text, 8000)}\n\n请概括成一句适合放进聊天历史的中文摘要。`,
+        },
+      ],
+      temperature: 0.3,
+    }),
+  );
+  if (!response) return "";
   return normalizeSummary(response.content);
 }
 

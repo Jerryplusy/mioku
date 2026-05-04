@@ -24,6 +24,10 @@ export interface ImageAnalysisResult {
   error?: string;
 }
 
+export interface ImageAnalysisOptions {
+  runAIRequest?<T>(request: () => Promise<T>): Promise<T | null>;
+}
+
 function formatImageRecognitionLog(record: {
   type: "meme" | "image";
   description: string;
@@ -152,6 +156,7 @@ export async function analyzeImage(
   imageUrl: string,
   model: string,
   gifBuffer?: Buffer,
+  options?: ImageAnalysisOptions,
 ): Promise<ImageAnalysisResult> {
   try {
     // 检查是否为 GIF，如果是则提取三帧
@@ -209,17 +214,28 @@ Response format (JSON):
       });
     }
 
-    const response = await ai.complete({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: contentParts,
-        },
-      ],
-      temperature: 0.3,
-    });
+    const request = () =>
+      ai.complete({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: contentParts,
+          },
+        ],
+        temperature: 0.3,
+      });
+    const response = options?.runAIRequest
+      ? await options.runAIRequest(request)
+      : await request();
+
+    if (!response) {
+      return {
+        success: false,
+        error: "Request skipped due to active rate limit",
+      };
+    }
 
     if (!response.content) {
       return {
@@ -308,6 +324,7 @@ export async function processImage(
   imageUrl: string,
   model: string,
   db: ChatDatabase,
+  options?: ImageAnalysisOptions,
 ): Promise<ImageRecord | null> {
   try {
     // 计算哈希（基于图片内容）
@@ -319,7 +336,7 @@ export async function processImage(
       logger.info(formatImageRecognitionLog(existing));
       return existing;
     }
-    const analysis = await analyzeImage(ai, imageUrl, model);
+    const analysis = await analyzeImage(ai, imageUrl, model, undefined, options);
     if (!analysis.success || !analysis.type) {
       logger.warn(`[image-analyzer] Analysis failed: ${analysis.error}`);
       return null;
