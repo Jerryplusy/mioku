@@ -153,6 +153,12 @@ export interface AudioConfig {
   timeoutMs: number;
 }
 
+export interface AIRequestLimitConfig {
+  userRpm: number;
+  groupRpm: number;
+  windowMs: number;
+}
+
 /**
  * 聊天插件配置
  */
@@ -190,6 +196,7 @@ export interface ChatConfig {
   markdownUsageConstraintStrength: "low" | "medium" | "high";
   groupStructuredHistoryTtlMs: number;
   cooldownAfterReplyMs: number;
+  aiRequestLimits: AIRequestLimitConfig;
   dynamicDelay: DynamicDelayConfig;
   personality: PersonalityConfig;
   replyStyle: ReplyStyleConfig;
