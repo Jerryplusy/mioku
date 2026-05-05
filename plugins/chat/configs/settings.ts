@@ -40,6 +40,11 @@ export const SETTINGS_CONFIG = {
   groupStructuredHistoryTtlMs: 10 * 60_000,
   nicknames: ["miku", "未来", "初音"],
   cooldownAfterReplyMs: 20_000,
+  aiRequestLimits: {
+    userRpm: 3,
+    groupRpm: 6,
+    windowMs: 60_000,
+  },
   dynamicDelay: {
     enabled: true,
     interactionWindowMs: 60_000,

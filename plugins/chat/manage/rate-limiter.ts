@@ -1,4 +1,4 @@
-import type { DynamicDelayConfig } from "../types";
+import type { AIRequestLimitConfig, DynamicDelayConfig } from "../types";
 
 export class RateLimiter {
   // 用户触发记录：userId -> timestamp[]
@@ -9,6 +9,8 @@ export class RateLimiter {
   // 群组最后响应时间：groupId -> timestamp
   private groupLastResponse: Map<number, number> = new Map();
   private groupInteractions: Map<number, Map<number, number[]>> = new Map();
+  private userAiRequests: Map<number, number[]> = new Map();
+  private groupAiRequests: Map<number, number[]> = new Map();
 
   private readonly maxTriggersPerWindow: number;
   private readonly windowMs: number;
@@ -16,6 +18,7 @@ export class RateLimiter {
   private readonly groupCooldownMs: number;
   private readonly cleanupTimer: ReturnType<typeof setInterval>;
   private readonly dynamicDelayConfig: DynamicDelayConfig;
+  private readonly aiRequestLimitConfig: AIRequestLimitConfig;
 
   constructor(options?: {
     maxTriggersPerWindow?: number;
@@ -23,6 +26,7 @@ export class RateLimiter {
     dedupWindowMs?: number;
     groupCooldownMs?: number;
     dynamicDelay?: DynamicDelayConfig;
+    aiRequestLimits?: AIRequestLimitConfig;
   }) {
     this.maxTriggersPerWindow = options?.maxTriggersPerWindow ?? 5;
     this.windowMs = options?.windowMs ?? 60_000;
@@ -33,6 +37,11 @@ export class RateLimiter {
       interactionWindowMs: 60_000,
       baseDelayMs: 30_000,
       maxDelayMs: 300_000,
+    };
+    this.aiRequestLimitConfig = options?.aiRequestLimits ?? {
+      userRpm: 3,
+      groupRpm: 6,
+      windowMs: 60_000,
     };
 
     this.cleanupTimer = setInterval(() => this.cleanup(), 300_000);
@@ -107,6 +116,52 @@ export class RateLimiter {
     timestamps = timestamps.filter((t) => now - t < windowMs);
     timestamps.push(now);
     groupUsers.set(userId, timestamps);
+  }
+
+  canRunAIRequest(userId?: number, groupId?: number): boolean {
+    const now = Date.now();
+    const { userRpm, groupRpm, windowMs } = this.aiRequestLimitConfig;
+
+    if (typeof userId === "number") {
+      const userRequests = (this.userAiRequests.get(userId) ?? []).filter(
+        (timestamp) => now - timestamp < windowMs,
+      );
+      if (userRequests.length >= userRpm) {
+        return false;
+      }
+    }
+
+    if (typeof groupId === "number") {
+      const groupRequests = (this.groupAiRequests.get(groupId) ?? []).filter(
+        (timestamp) => now - timestamp < windowMs,
+      );
+      if (groupRequests.length >= groupRpm) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  recordAIRequest(userId?: number, groupId?: number): void {
+    const now = Date.now();
+    const windowMs = this.aiRequestLimitConfig.windowMs;
+
+    if (typeof userId === "number") {
+      const userRequests = (this.userAiRequests.get(userId) ?? []).filter(
+        (timestamp) => now - timestamp < windowMs,
+      );
+      userRequests.push(now);
+      this.userAiRequests.set(userId, userRequests);
+    }
+
+    if (typeof groupId === "number") {
+      const groupRequests = (this.groupAiRequests.get(groupId) ?? []).filter(
+        (timestamp) => now - timestamp < windowMs,
+      );
+      groupRequests.push(now);
+      this.groupAiRequests.set(groupId, groupRequests);
+    }
   }
 
   getInteractionCount(groupId: number): number {
@@ -184,6 +239,25 @@ export class RateLimiter {
       }
     }
 
+    const aiWindowMs = this.aiRequestLimitConfig.windowMs;
+    for (const [userId, requests] of this.userAiRequests) {
+      const valid = requests.filter((timestamp) => now - timestamp < aiWindowMs);
+      if (valid.length === 0) {
+        this.userAiRequests.delete(userId);
+      } else {
+        this.userAiRequests.set(userId, valid);
+      }
+    }
+
+    for (const [groupId, requests] of this.groupAiRequests) {
+      const valid = requests.filter((timestamp) => now - timestamp < aiWindowMs);
+      if (valid.length === 0) {
+        this.groupAiRequests.delete(groupId);
+      } else {
+        this.groupAiRequests.set(groupId, valid);
+      }
+    }
+
     if (this.dynamicDelayConfig.enabled) {
       const windowMs = this.dynamicDelayConfig.interactionWindowMs;
       for (const [groupId, groupUsers] of this.groupInteractions) {
@@ -210,5 +284,7 @@ export class RateLimiter {
     this.userMessages.clear();
     this.groupLastResponse.clear();
     this.groupInteractions.clear();
+    this.userAiRequests.clear();
+    this.groupAiRequests.clear();
   }
 }

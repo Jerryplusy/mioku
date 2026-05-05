@@ -333,6 +333,7 @@ const chatPlugin = definePlugin({
     const sessionManager = new SessionManager(db, config.maxSessions);
     const rateLimiter = new RateLimiter({
       dynamicDelay: config.dynamicDelay,
+      aiRequestLimits: config.aiRequestLimits,
     });
     const skillManager = new SkillSessionManager();
 
@@ -414,10 +415,27 @@ const chatPlugin = definePlugin({
 
     async function runWithRateLimitGuard<T>(
       request: () => Promise<T>,
+      options?: {
+        userId?: number;
+        groupId?: number;
+        label?: string;
+      },
     ): Promise<T | null> {
       if (isRateLimitBlocked()) {
+        ctx.logger.warn(
+          `[Chat] AI request skipped due to active rate limit block${options?.label ? ` (${options.label})` : ""}`,
+        );
         return null;
       }
+
+      if (!rateLimiter.canRunAIRequest(options?.userId, options?.groupId)) {
+        ctx.logger.warn(
+          `[Chat] AI request skipped due to RPM limit${options?.label ? ` (${options.label})` : ""}`,
+        );
+        return null;
+      }
+
+      rateLimiter.recordAIRequest(options?.userId, options?.groupId);
 
       let retries = 0;
       while (true) {
@@ -651,37 +669,43 @@ const chatPlugin = definePlugin({
         toolCtx.sentMessageIndices = undefined;
       }
 
-        const result = await runWithRateLimitGuard(() =>
-          runChat(
-            aiInstance,
-            toolCtx,
-            history,
-            targetMessage,
-            {
-              config: cfg,
-              groupName,
-              memberCount,
-              botNickname,
-              botRole,
-              aiService: aiService!,
-              isGroup,
-              memoryContext: contexts.memoryContext,
-              topicContext: contexts.topicContext,
-              expressionContext: contexts.expressionContext,
-              replyContext: {
-                type: options.replyContextType || "reply",
-                targetUser: targetMessage.userName,
-                targetMessage: targetMessage.content,
+        const result = await runWithRateLimitGuard(
+          () =>
+            runChat(
+              aiInstance,
+              toolCtx,
+              history,
+              targetMessage,
+              {
+                config: cfg,
+                groupName,
+                memberCount,
+                botNickname,
+                botRole,
+                aiService: aiService!,
+                isGroup,
+                memoryContext: contexts.memoryContext,
+                topicContext: contexts.topicContext,
+                expressionContext: contexts.expressionContext,
+                replyContext: {
+                  type: options.replyContextType || "reply",
+                  targetUser: targetMessage.userName,
+                  targetMessage: targetMessage.content,
+                },
+                promptInjections: options.promptInjections,
               },
-              promptInjections: options.promptInjections,
-            },
-            humanize,
-            skillManager,
-            undefined,
-            {
-              extraTools: options.extraTools,
-            },
-          ),
+              humanize,
+              skillManager,
+              undefined,
+              {
+                extraTools: options.extraTools,
+              },
+            ),
+          {
+            userId,
+            groupId,
+            label: "chat-runtime",
+          },
         );
       if (!result) {
         return {
@@ -991,42 +1015,48 @@ const chatPlugin = definePlugin({
           targetMessage.userId,
         );
 
-        const result = await runWithRateLimitGuard(() =>
-          runChat(
-            aiInstance,
-            toolCtx,
-            history,
-            targetMessage,
-            {
-              config: cfg,
-              groupName,
-              memberCount,
-              botNickname,
-              botRole,
-              aiService: aiService!,
-              isGroup: true,
-              memoryContext: contexts.memoryContext,
-              topicContext: contexts.topicContext,
-              expressionContext: contexts.expressionContext,
-              replyContext: {
-                type: "review",
-                targetUser: targetMessage.userName,
-                targetMessage: targetMessage.content,
+        const result = await runWithRateLimitGuard(
+          () =>
+            runChat(
+              aiInstance,
+              toolCtx,
+              history,
+              targetMessage,
+              {
+                config: cfg,
+                groupName,
+                memberCount,
+                botNickname,
+                botRole,
+                aiService: aiService!,
+                isGroup: true,
+                memoryContext: contexts.memoryContext,
+                topicContext: contexts.topicContext,
+                expressionContext: contexts.expressionContext,
+                replyContext: {
+                  type: "review",
+                  targetUser: targetMessage.userName,
+                  targetMessage: targetMessage.content,
+                },
+                reviewMessages: {
+                  contents: mergedContents,
+                  userNames,
+                  messageIds,
+                },
               },
-              reviewMessages: {
-                contents: mergedContents,
-                userNames,
-                messageIds,
+              humanize,
+              skillManager,
+              {
+                manager: groupStructuredHistory,
+                ttlMs: cfg.groupStructuredHistoryTtlMs,
+                currentUserInputs: structuredUserInputs,
               },
-            },
-            humanize,
-            skillManager,
-            {
-              manager: groupStructuredHistory,
-              ttlMs: cfg.groupStructuredHistoryTtlMs,
-              currentUserInputs: structuredUserInputs,
-            },
-          ),
+            ),
+          {
+            userId: targetMessage.userId,
+            groupId,
+            label: "dynamic-delay",
+          },
         );
         if (!result) {
           return;
@@ -1317,48 +1347,54 @@ const chatPlugin = definePlugin({
           targetMessage.userId,
         );
 
-        const result = await runWithRateLimitGuard(() =>
-          runChat(
-            aiInstance,
-            toolCtx,
-            history,
-            targetMessage,
-            {
-              config: cfg,
-              groupName,
-              memberCount,
-              botNickname,
-              botRole,
-              aiService: aiService!,
-              isGroup: true,
-              memoryContext: contexts.memoryContext,
-              topicContext: contexts.topicContext,
-              expressionContext: contexts.expressionContext,
-              replyContext: {
-                type: "review",
-                targetUser: targetMessage.userName,
-                targetMessage: targetMessage.content,
+        const result = await runWithRateLimitGuard(
+          () =>
+            runChat(
+              aiInstance,
+              toolCtx,
+              history,
+              targetMessage,
+              {
+                config: cfg,
+                groupName,
+                memberCount,
+                botNickname,
+                botRole,
+                aiService: aiService!,
+                isGroup: true,
+                memoryContext: contexts.memoryContext,
+                topicContext: contexts.topicContext,
+                expressionContext: contexts.expressionContext,
+                replyContext: {
+                  type: "review",
+                  targetUser: targetMessage.userName,
+                  targetMessage: targetMessage.content,
+                },
+                reviewMessages: {
+                  contents: mergedContents,
+                  userNames,
+                  messageIds,
+                },
               },
-              reviewMessages: {
-                contents: mergedContents,
-                userNames,
-                messageIds,
-              },
-            },
-            humanize,
-            skillManager,
-            {
-              manager: groupStructuredHistory,
-              ttlMs: cfg.groupStructuredHistoryTtlMs,
-              currentUserInputs: collected.map((msg) =>
-                buildStructuredUserInputFromEvent(
-                  msg.event,
-                  msg.content,
-                  msg.timestamp,
+              humanize,
+              skillManager,
+              {
+                manager: groupStructuredHistory,
+                ttlMs: cfg.groupStructuredHistoryTtlMs,
+                currentUserInputs: collected.map((msg) =>
+                  buildStructuredUserInputFromEvent(
+                    msg.event,
+                    msg.content,
+                    msg.timestamp,
+                  ),
                 ),
-              ),
-            },
-          ),
+              },
+            ),
+          {
+            userId: targetMessage.userId,
+            groupId,
+            label: "cooldown",
+          },
         );
         if (!result) {
           return;
@@ -1496,48 +1532,62 @@ const chatPlugin = definePlugin({
           const plannerThoughts = `After you spoke, the following messages were sent in the group. Use this context to respond naturally.
 Planned reason: ${planResult.reason}`;
 
-          const result = await runChat(
-            aiInstance,
-            toolCtx,
-            history,
-            targetMessage,
-            {
-              config: cfg,
-              groupName,
-              memberCount,
-              botNickname,
-              botRole: toolCtx.botRole,
-              aiService: aiService!,
-              isGroup: true,
-              memoryContext: contexts.memoryContext,
-              topicContext: contexts.topicContext,
-              expressionContext: contexts.expressionContext,
-              plannerThoughts,
-              replyContext: {
-                type: "comment",
-                targetUser: targetMessage.userName,
-                targetMessage: targetMessage.content,
-              },
-              reviewMessages: {
-                contents: collected.map((m) => m.content),
-                userNames: collected.map((m) => m.userName),
-                messageIds: collected.map((m) => m.messageId),
-              },
-            },
-            humanize,
-            skillManager,
-            {
-              manager: groupStructuredHistory,
-              ttlMs: cfg.groupStructuredHistoryTtlMs,
-              currentUserInputs: collected.map((msg) =>
-                buildStructuredUserInputFromEvent(
-                  msg.event,
-                  msg.content,
-                  msg.timestamp,
-                ),
+          const result = await runWithRateLimitGuard(
+            () =>
+              runChat(
+                aiInstance,
+                toolCtx,
+                history,
+                targetMessage,
+                {
+                  config: cfg,
+                  groupName,
+                  memberCount,
+                  botNickname,
+                  botRole: toolCtx.botRole,
+                  aiService: aiService!,
+                  isGroup: true,
+                  memoryContext: contexts.memoryContext,
+                  topicContext: contexts.topicContext,
+                  expressionContext: contexts.expressionContext,
+                  plannerThoughts,
+                  replyContext: {
+                    type: "comment",
+                    targetUser: targetMessage.userName,
+                    targetMessage: targetMessage.content,
+                  },
+                  reviewMessages: {
+                    contents: collected.map((m) => m.content),
+                    userNames: collected.map((m) => m.userName),
+                    messageIds: collected.map((m) => m.messageId),
+                  },
+                },
+                humanize,
+                skillManager,
+                {
+                  manager: groupStructuredHistory,
+                  ttlMs: cfg.groupStructuredHistoryTtlMs,
+                  currentUserInputs: collected.map((msg) =>
+                    buildStructuredUserInputFromEvent(
+                      msg.event,
+                      msg.content,
+                      msg.timestamp,
+                    ),
+                  ),
+                },
               ),
+            {
+              userId: targetMessage.userId,
+              groupId,
+              label: "cooldown-planner",
             },
           );
+          if (!result) {
+            ctx.logger.warn(
+              `[CooldownPlanner] Group ${groupId} AI request skipped`,
+            );
+            return;
+          }
 
           await sendAIResponse(
             {
@@ -1713,26 +1763,31 @@ Suggestion:
 - Quote messages from group friends appropriately (using [[[reply:message ID]]] format)
 - Don't mention your intentions like "I'm here to answer" or something like a normal chat`;
 
-              const result = await runWithRateLimitGuard(() =>
-                runChat(
-                  aiInstance,
-                  toolCtx,
-                  history,
-                  targetMessage,
-                  {
-                    config: cfg,
-                    botNickname,
-                    botRole: toolCtx.botRole,
-                    aiService: aiService!,
-                    isGroup: true,
-                    plannerThoughts,
-                    replyContext: {
-                      type: "idle",
+              const result = await runWithRateLimitGuard(
+                () =>
+                  runChat(
+                    aiInstance,
+                    toolCtx,
+                    history,
+                    targetMessage,
+                    {
+                      config: cfg,
+                      botNickname,
+                      botRole: toolCtx.botRole,
+                      aiService: aiService!,
+                      isGroup: true,
+                      plannerThoughts,
+                      replyContext: {
+                        type: "idle",
+                      },
                     },
-                  },
-                  humanize,
-                  skillManager,
-                ),
+                    humanize,
+                    skillManager,
+                  ),
+                {
+                  groupId,
+                  label: "idle-check",
+                },
               );
               if (!result) {
                 groupMessageCount.set(groupSessionId, 0);
@@ -1918,37 +1973,43 @@ Suggestion:
           selfId,
         );
 
-        const result = await runWithRateLimitGuard(() =>
-          runChat(
-            aiInstance,
-            toolCtx,
-            history,
-            targetMessage,
-            {
-              config: cfg,
-              groupName,
-              memberCount,
-              botNickname,
-              botRole: toolCtx.botRole,
-              aiService: aiService!,
-              isGroup: true,
-              memoryContext: contexts.memoryContext,
-              topicContext: contexts.topicContext,
-              expressionContext: contexts.expressionContext,
-              replyContext: {
-                type: "comment",
-                targetUser: targetMessage.userName,
-                targetMessage: targetMessage.content,
+        const result = await runWithRateLimitGuard(
+          () =>
+            runChat(
+              aiInstance,
+              toolCtx,
+              history,
+              targetMessage,
+              {
+                config: cfg,
+                groupName,
+                memberCount,
+                botNickname,
+                botRole: toolCtx.botRole,
+                aiService: aiService!,
+                isGroup: true,
+                memoryContext: contexts.memoryContext,
+                topicContext: contexts.topicContext,
+                expressionContext: contexts.expressionContext,
+                replyContext: {
+                  type: "comment",
+                  targetUser: targetMessage.userName,
+                  targetMessage: targetMessage.content,
+                },
               },
-            },
-            humanize,
-            skillManager,
-            {
-              manager: groupStructuredHistory,
-              ttlMs: cfg.groupStructuredHistoryTtlMs,
-              currentUserInputs: structuredUserInputs,
-            },
-          ),
+              humanize,
+              skillManager,
+              {
+                manager: groupStructuredHistory,
+                ttlMs: cfg.groupStructuredHistoryTtlMs,
+                currentUserInputs: structuredUserInputs,
+              },
+            ),
+          {
+            userId: targetMessage.userId,
+            groupId,
+            label: "queue",
+          },
         );
         if (!result) {
           queueManager.clearActiveTarget(groupSessionId);
@@ -2227,41 +2288,47 @@ Suggestion:
           selfId: e.self_id,
         });
 
-        const result = await runWithRateLimitGuard(() =>
-          runChat(
-            aiInstance,
-            toolCtx,
-            history,
-            targetMessage,
-            {
-              config: cfg,
-              groupName,
-              memberCount,
-              botNickname,
-              botRole,
-              aiService: aiService!,
-              isGroup,
-              memoryContext: contexts.memoryContext,
-              topicContext: contexts.topicContext,
-              expressionContext: contexts.expressionContext,
-              replyContext: {
-                type: "reply",
-                targetUser: targetMessage.userName,
-                targetMessage: targetMessage.content,
+        const result = await runWithRateLimitGuard(
+          () =>
+            runChat(
+              aiInstance,
+              toolCtx,
+              history,
+              targetMessage,
+              {
+                config: cfg,
+                groupName,
+                memberCount,
+                botNickname,
+                botRole,
+                aiService: aiService!,
+                isGroup,
+                memoryContext: contexts.memoryContext,
+                topicContext: contexts.topicContext,
+                expressionContext: contexts.expressionContext,
+                replyContext: {
+                  type: "reply",
+                  targetUser: targetMessage.userName,
+                  targetMessage: targetMessage.content,
+                },
               },
-            },
-            humanize,
-            skillManager,
-            groupId
-              ? {
-                  manager: groupStructuredHistory,
-                  ttlMs: cfg.groupStructuredHistoryTtlMs,
-                  currentUserInputs: [
-                    buildStructuredUserInputFromTarget(targetMessage),
-                  ],
-                }
-              : undefined,
-          ),
+              humanize,
+              skillManager,
+              groupId
+                ? {
+                    manager: groupStructuredHistory,
+                    ttlMs: cfg.groupStructuredHistoryTtlMs,
+                    currentUserInputs: [
+                      buildStructuredUserInputFromTarget(targetMessage),
+                    ],
+                  }
+                : undefined,
+            ),
+          {
+            userId,
+            groupId,
+            label: isGroup ? "group-chat" : "private-chat",
+          },
         );
 
         if (!result) {
@@ -2434,26 +2501,31 @@ Suggestion:
 - Quote messages from group friends appropriately (using [[[reply:message ID]]] format)
 - Don't mention your intentions like "I'm here to answer" or something like a normal chat`;
 
-              const result = await runWithRateLimitGuard(() =>
-                runChat(
-                  aiInstance,
-                  toolCtx,
-                  history,
-                  targetMessage,
-                  {
-                    config: cfg,
-                    botNickname,
-                    botRole: toolCtx.botRole,
-                    aiService: aiService!,
-                    isGroup: true,
-                    plannerThoughts,
-                    replyContext: {
-                      type: "idle",
+              const result = await runWithRateLimitGuard(
+                () =>
+                  runChat(
+                    aiInstance,
+                    toolCtx,
+                    history,
+                    targetMessage,
+                    {
+                      config: cfg,
+                      botNickname,
+                      botRole: toolCtx.botRole,
+                      aiService: aiService!,
+                      isGroup: true,
+                      plannerThoughts,
+                      replyContext: {
+                        type: "idle",
+                      },
                     },
-                  },
-                  humanize,
-                  skillManager,
-                ),
+                    humanize,
+                    skillManager,
+                  ),
+                {
+                  groupId,
+                  label: "idle-check",
+                },
               );
               if (!result) {
                 await e.reply(
@@ -2543,7 +2615,12 @@ Suggestion:
                 warn: (message) => ctx.logger.warn(message),
                 error: (message) => ctx.logger.error(message),
               },
-              runWithRateLimitGuard,
+              (request) =>
+                runWithRateLimitGuard(request, {
+                  userId,
+                  groupId,
+                  label: "history-media",
+                }),
             )
           : undefined;
 
@@ -2559,7 +2636,12 @@ Suggestion:
                   imageUrl,
                   cfg.multimodalWorkingModel,
                   db,
-                  { runAIRequest: runWithRateLimitGuard },
+                  { runAIRequest: (request) =>
+                    runWithRateLimitGuard(request, {
+                      userId,
+                      groupId,
+                      label: "image-analysis",
+                    }) },
                 ).catch((err) => {
                   ctx.logger.error(`[image-analyzer] Failed to process: ${err}`);
                 });
@@ -2898,36 +2980,42 @@ Suggestion:
           selfId: e.self_id,
         });
 
-        const result = await runWithRateLimitGuard(() =>
-          runChat(
-            aiInstance,
-            toolCtx,
-            history,
-            targetMessage,
-            {
-              config: cfg,
-              groupName,
-              memberCount,
-              botNickname,
-              botRole,
-              aiService: aiService!,
-              isGroup: true,
-              replyContext: {
-                type: "poked",
-                targetUser: targetMessage.userName,
-                targetMessage: targetMessage.content,
+        const result = await runWithRateLimitGuard(
+          () =>
+            runChat(
+              aiInstance,
+              toolCtx,
+              history,
+              targetMessage,
+              {
+                config: cfg,
+                groupName,
+                memberCount,
+                botNickname,
+                botRole,
+                aiService: aiService!,
+                isGroup: true,
+                replyContext: {
+                  type: "poked",
+                  targetUser: targetMessage.userName,
+                  targetMessage: targetMessage.content,
+                },
               },
-            },
-            humanize,
-            skillManager,
-            {
-              manager: groupStructuredHistory,
-              ttlMs: cfg.groupStructuredHistoryTtlMs,
-              currentUserInputs: [
-                buildStructuredUserInputFromTarget(targetMessage),
-              ],
-            },
-          ),
+              humanize,
+              skillManager,
+              {
+                manager: groupStructuredHistory,
+                ttlMs: cfg.groupStructuredHistoryTtlMs,
+                currentUserInputs: [
+                  buildStructuredUserInputFromTarget(targetMessage),
+                ],
+              },
+            ),
+          {
+            userId,
+            groupId,
+            label: "poke",
+          },
         );
         if (!result) {
           return;
