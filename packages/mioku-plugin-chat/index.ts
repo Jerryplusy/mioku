@@ -1101,7 +1101,7 @@ const chatPlugin = definePlugin({
             )
           : undefined;
 
-        if (ai && cfg.isMultimodal) {
+        if (ai && cfg.enableMediaRecognition) {
           const { processImage } = await import("./core/media/image-analyzer");
           for (const seg of e.message) {
             if (seg.type === "image") {
