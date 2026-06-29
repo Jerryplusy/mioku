@@ -33,11 +33,13 @@ import {
   sendEmoji,
 } from "./core/base";
 import {
+  getSegmentSourceCandidates,
   summarizeGroupNotice,
   summarizeHistoryCard,
   summarizeHistoryForward,
   summarizeHistoryVideo,
   type HistoryMediaProcessingOptions,
+  type MediaMessageSegment,
 } from "./core/media/history-media";
 import { CooldownManager } from "./manage/cooldown";
 import { IdleCheckManager } from "./manage/idle-check";
@@ -171,28 +173,6 @@ function getSegmentUrl(seg: {
   return typeof url === "string" && url.trim() ? url.trim() : null;
 }
 
-function getSegmentSourceCandidates(seg: {
-  file?: string;
-  data?: { file?: string; path?: string; url?: string };
-  path?: string;
-  url?: string;
-}): string[] {
-  return Array.from(
-    new Set(
-      [
-        seg?.file,
-        seg?.data?.file,
-        seg?.path,
-        seg?.data?.path,
-        seg?.url,
-        seg?.data?.url,
-      ]
-        .map((v) => (typeof v === "string" ? v.trim() : ""))
-        .filter(Boolean),
-    ),
-  );
-}
-
 async function getVideoSourceCandidatesFromMessage(
   bot: {
     api(action: string, params?: Record<string, unknown>): Promise<unknown>;
@@ -207,13 +187,9 @@ async function getVideoSourceCandidatesFromMessage(
   const segments = result?.message || result?.data?.message || [];
   if (!Array.isArray(segments)) return [];
   const candidates: string[] = [];
-  for (const seg of segments as { type?: string }[]) {
+  for (const seg of segments as MediaMessageSegment[]) {
     if (seg?.type !== "video") continue;
-    candidates.push(
-      ...getSegmentSourceCandidates(
-        seg as Parameters<typeof getSegmentSourceCandidates>[0],
-      ),
-    );
+    candidates.push(...getSegmentSourceCandidates(seg));
   }
   return candidates;
 }

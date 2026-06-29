@@ -74,27 +74,23 @@ const EMOTION_TAGS = [
 ];
 
 /**
- * 计算图片内容的哈希值
+ * 计算图片内容的哈希值（仅基于下载到的图片字节；URL 不参与哈希）
  */
-export async function calculateImageHash(url: string): Promise<string> {
+export async function calculateImageHash(url: string): Promise<string | null> {
   try {
-    // 下载图片内容
     const response = await fetch(url);
     if (!response.ok) {
-      // 如果下载失败，降级为 URL 哈希
-      return crypto.createHash("md5").update(url).digest("hex");
+      logger.warn(
+        `[image-analyzer] Failed to download image for hashing: ${response.status} ${response.statusText}`,
+      );
+      return null;
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
-
-    // 基于图片内容计算哈希
     return crypto.createHash("md5").update(buffer).digest("hex");
   } catch (err) {
-    logger.warn(
-      `[image-analyzer] Failed to calculate content hash, using URL hash: ${err}`,
-    );
-    // 降级为 URL 哈希
-    return crypto.createHash("md5").update(url).digest("hex");
+    logger.warn(`[image-analyzer] Failed to download image for hashing: ${err}`);
+    return null;
   }
 }
 
@@ -336,6 +332,12 @@ export async function processImage(
   try {
     // 计算哈希（基于图片内容）
     const hash = await calculateImageHash(imageUrl);
+    if (!hash) {
+      logger.warn(
+        `[image-analyzer] Skipping analysis, image content unavailable: ${imageUrl}`,
+      );
+      return null;
+    }
 
     // 检查是否已存在
     const existing = db.getImageByHash(hash);
@@ -444,6 +446,8 @@ export async function getImageTag(
   db: ChatDatabase,
 ): Promise<string> {
   const hash = await calculateImageHash(imageUrl);
+  if (!hash) return "[image]";
+
   const record = db.getImageByHash(hash);
 
   if (record) {

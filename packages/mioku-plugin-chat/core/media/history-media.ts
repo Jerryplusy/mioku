@@ -17,9 +17,44 @@ interface SummaryResult {
   summary: string;
 }
 
+export interface MediaMessageSegment {
+  type?: string;
+  file?: string;
+  path?: string;
+  url?: string;
+  id?: string;
+  data?: {
+    file?: string;
+    path?: string;
+    url?: string;
+    id?: string;
+    data?: string;
+    xml?: string;
+  };
+}
+
+export function getSegmentSourceCandidates(seg: MediaMessageSegment): string[] {
+  return Array.from(
+    new Set(
+      [
+        seg?.file,
+        seg?.data?.file,
+        seg?.path,
+        seg?.data?.path,
+        seg?.url,
+        seg?.data?.url,
+      ]
+        .map((v) => (typeof v === "string" ? v.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+}
+
 export interface MediaSummaryStore {
   getMediaSummary(key: string): MediaSummaryRecord | null;
   saveMediaSummary(summary: MediaSummaryRecord): void;
+  getMediaSummaryBySource?(sourceKey: string): MediaSummaryRecord | null;
+  saveMediaSummarySource?(sourceKey: string, summaryKey: string): void;
 }
 
 export interface HistoryMediaProcessingOptions {
@@ -118,6 +153,7 @@ export async function summarizeHistoryVideo(
 
         return normalizeSummary(response.content);
       },
+      sources,
     );
 
     logMediaSummary(options, "video", result.summary);
@@ -133,6 +169,14 @@ export async function getCachedHistoryVideoTag(
 ): Promise<string> {
   const sources = normalizeVideoSources(videoSource);
   if (sources.length === 0) return "[video]";
+
+  for (const source of sources) {
+    const cached = options.db?.getMediaSummaryBySource?.(source);
+    if (cached?.summary && !isFallbackVideoSummary(cached.summary)) {
+      return `[video:${cached.summary}]`;
+    }
+  }
+
   try {
     const videoFile = await downloadVideoForAnalysis(sources, options);
     try {
@@ -315,8 +359,16 @@ async function getOrCreateSummary(
   contentHash: string,
   options: HistoryMediaProcessingOptions,
   producer: () => Promise<string>,
+  sourceAliases: string[] = [],
 ): Promise<SummaryResult> {
   const cacheKey = `${kind}:${contentHash}`;
+  const aliases = Array.from(
+    new Set(
+      [source, ...sourceAliases]
+        .map((s) => String(s || "").trim())
+        .filter(Boolean),
+    ),
+  );
   const cached = options.db?.getMediaSummary(cacheKey);
   if (cached?.summary) {
     if (kind === "video") {
@@ -325,9 +377,11 @@ async function getOrCreateSummary(
         // Old versions cached this probe failure as a valid summary. Ignore it
         // so the new message can be downloaded and diagnosed again.
       } else {
+        writeMediaSummarySources(options, cacheKey, aliases);
         return { summary: cached.summary };
       }
     } else {
+      writeMediaSummarySources(options, cacheKey, aliases);
       return { summary: cached.summary };
     }
   }
@@ -345,6 +399,7 @@ async function getOrCreateSummary(
         summary,
         createdAt: Date.now(),
       });
+      writeMediaSummarySources(options, cacheKey, aliases);
       return { summary };
     }
   } catch (err) {
@@ -356,6 +411,17 @@ async function getOrCreateSummary(
   return {
     summary: kind === "video" ? "用户发送了一个视频。" : "内容暂时无法解析。",
   };
+}
+
+function writeMediaSummarySources(
+  options: HistoryMediaProcessingOptions,
+  summaryKey: string,
+  sources: string[],
+): void {
+  if (!options.db?.saveMediaSummarySource) return;
+  for (const source of sources) {
+    options.db.saveMediaSummarySource!(source, summaryKey);
+  }
 }
 
 function logMediaSummary(

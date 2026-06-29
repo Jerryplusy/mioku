@@ -1,11 +1,18 @@
 import { logger, MiokiContext } from "mioki";
 import type { AIInstance } from "mioku";
-import type { ChatConfig, ChatMessage } from "../types";
+import type {
+  ChatConfig,
+  ChatMessage,
+  ImageRecord,
+  MediaSummaryRecord,
+} from "../types";
 import {
   getCachedHistoryCardTag,
   getCachedHistoryForwardTag,
   getCachedHistoryVideoTag,
+  getSegmentSourceCandidates,
   type HistoryMediaProcessingOptions,
+  type MediaMessageSegment,
 } from "../core/media/history-media";
 import { getImageTag } from "../core/media/image-analyzer";
 
@@ -207,10 +214,12 @@ export async function getGroupHistory(
   selfId: number,
   db?: {
     getBotMessages(groupId: number, limit: number): ChatMessage[];
-    getImageByHash?(hash: string): any;
-    getImageByUrl?(url: string): any;
-    getMediaSummary?(key: string): any;
-    saveMediaSummary?(summary: any): void;
+    getImageByHash?(hash: string): ImageRecord | null;
+    getImageByUrl?(url: string): ImageRecord | null;
+    getMediaSummary?(key: string): MediaSummaryRecord | null;
+    saveMediaSummary?(summary: MediaSummaryRecord): void;
+    getMediaSummaryBySource?(sourceKey: string): MediaSummaryRecord | null;
+    saveMediaSummarySource?(sourceKey: string, summaryKey: string): void;
     getStoredGroupNoticeMessages?(
       groupId: number,
       limit?: number,
@@ -279,6 +288,8 @@ export async function getGroupHistory(
           ? {
               getMediaSummary: db.getMediaSummary.bind(db),
               saveMediaSummary: db.saveMediaSummary.bind(db),
+              getMediaSummaryBySource: db.getMediaSummaryBySource?.bind(db),
+              saveMediaSummarySource: db.saveMediaSummarySource?.bind(db),
             }
           : undefined,
       bot,
@@ -371,17 +382,17 @@ export async function getGroupHistory(
 
             // 处理视频消息：历史里只读取已缓存摘要，不触发旧视频分析。
             const videoSegs = msg.message.filter(
-              (seg: any) => seg.type === "video",
+              (seg: MediaMessageSegment) => seg.type === "video",
             );
             for (const videoSeg of videoSegs) {
-              const videoUrl =
-                (videoSeg as any).url || (videoSeg as any).data?.url;
-              if (videoUrl) {
-                const tag = await getCachedHistoryVideoTag(
-                  String(videoUrl),
-                  historyMediaOptions,
+              const videoSources = getSegmentSourceCandidates(videoSeg);
+              if (videoSources.length > 0) {
+                parts.push(
+                  await getCachedHistoryVideoTag(
+                    videoSources,
+                    historyMediaOptions,
+                  ),
                 );
-                parts.push(tag);
               } else {
                 parts.push("[video]");
               }
