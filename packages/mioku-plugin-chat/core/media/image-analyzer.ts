@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, createWriteStream, unlink } from "fs";
 import * as https from "https";
 import * as http from "http";
 import { URL } from "url";
+import { prepareImageUrlsForModel } from "./image-compress";
 
 /**
  * 图片分析结果
@@ -171,6 +172,8 @@ export async function analyzeImage(
         );
       }
     }
+
+    imageUrls = await prepareImageUrlsForModel(imageUrls);
 
     const systemPrompt = `You are an image classification and analysis assistant. Analyze images and return structured information.
 

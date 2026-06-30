@@ -59,13 +59,16 @@ async function createImageFollowupResult(
         gifFrameNote = ` The original image is an animated GIF; ${result.frames.length} extracted frame(s) are attached in order.`;
       } else {
         logger.warn(
-          "[view_image] Failed to extract GIF frames, attaching original image",
+          "[view_media] Failed to extract GIF frames, attaching original image",
         );
       }
     }
   } catch (err) {
-    logger.warn(`[view_image] Failed to prepare image attachment: ${err}`);
+    logger.warn(`[view_media] Failed to prepare image attachment: ${err}`);
   }
+
+  const { prepareImageUrlsForModel } = await import("./media/image-compress");
+  const compressedImageUrls = await prepareImageUrlsForModel(imageUrls);
 
   return {
     success: true,
@@ -73,9 +76,30 @@ async function createImageFollowupResult(
     note: `${note}${gifFrameNote}`,
     [TOOL_RESULT_FOLLOWUP_KEY]: {
       text: `${text}${gifFrameNote}`,
-      images: imageUrls.map((url) => ({ url, detail: "auto" })),
+      images: compressedImageUrls.map((url) => ({ url, detail: "auto" })),
     },
   };
+}
+
+function createVideoFollowupResult(
+  videoUrl: string,
+  text: string,
+  note: string,
+  audio?: { data: string; format: "mp3" | "wav" },
+): Record<string, any> {
+  const result: Record<string, any> = {
+    success: true,
+    video_attached: true,
+    note,
+    [TOOL_RESULT_FOLLOWUP_KEY]: {
+      text,
+      videos: [{ url: videoUrl, detail: "auto" }],
+    },
+  };
+  if (audio) {
+    result[TOOL_RESULT_FOLLOWUP_KEY].audios = [audio];
+  }
+  return result;
 }
 
 /**
@@ -191,70 +215,147 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
     });
   }
 
-  // 查看图片工具
+  // 查看媒体工具（图片/视频）
   {
     tools.push({
-      name: "view_image",
+      name: "view_media",
       description:
-        "View and analyze an image by its message ID. Use this when you need to see what's in an image to answer the user's question. The image will be analyzed and described to you.",
+        "View and analyze an image or video by its message ID. Use this when you need to see what's in an image or video to answer the user's question. The media will be analyzed and described to you.",
       parameters: {
         type: "object",
         properties: {
           message_id: {
             type: "number",
             description:
-              "The message ID (message_id) of the image. You can get this from the original message that contains the image.",
+              "The message ID (message_id) of the image or video. You can get this from the original message that contains the media.",
           },
         },
         required: ["message_id"],
       },
       handler: async (args) => {
         try {
-          // 通过 message_id 获取消息中的图片
-          const { getImageUrlByMessageId } = await import("./multimodal");
-          const imageUrl = await getImageUrlByMessageId(
+          const { getMediaByMessageId, describeImage } = await import(
+            "./multimodal"
+          );
+          const media = await getMediaByMessageId(
             toolCtx.ctx,
             args.message_id,
             toolCtx.event,
           );
 
-          if (!imageUrl) {
-            return { error: "Image not found in the specified message" };
+          if (!media) {
+            return { error: "Image or video not found in the specified message" };
           }
 
-          if (toolCtx.config.isMultimodal) {
-            return await createImageFollowupResult(
-              imageUrl,
-              `The image from message #${args.message_id} is attached. Inspect it directly and answer the user's question from the visual content.`,
-              "The image has been attached to the next main model request. Inspect it directly instead of relying on a worker-model description.",
+          if (media.kind === "image") {
+            if (toolCtx.config.isMultimodal) {
+              return await createImageFollowupResult(
+                media.url,
+                `The image from message #${args.message_id} is attached. Inspect it directly and answer the user's question from the visual content.`,
+                "The image has been attached to the next main model request. Inspect it directly instead of relying on a worker-model description.",
+              );
+            }
+
+            // 主模型不支持视觉时，使用多模态工作模型描述图片。
+            const ai = toolCtx.aiService.getDefault();
+            if (!ai) {
+              return { error: "AI instance not available" };
+            }
+
+            const result = await describeImage(
+              ai,
+              media.url,
+              toolCtx.config.multimodalWorkingModel,
+              toolCtx.event?.raw_message || undefined,
             );
+
+            if (!result.success) {
+              return { error: result.error || "Failed to analyze image" };
+            }
+
+            return {
+              success: true,
+              description: result.description,
+              note: "The image has been analyzed. Use the description above to answer the user's question.",
+            };
           }
 
-          // 主模型不支持视觉时，使用多模态工作模型描述图片。
-          const ai = toolCtx.aiService.getDefault();
-          if (!ai) {
-            return { error: "AI instance not available" };
+          // 视频处理：体积超过阈值时一律交给多模态工作模型概括（抽帧），
+          // 否则按主模型是否多模态决定直接附加完整视频或用工作模型概括。
+          const {
+            downloadVideoForAnalysis,
+            summarizeVideoContent,
+            probeVideoMimeType,
+            VIDEO_FULL_UPLOAD_MAX_BYTES,
+          } = await import("./media/history-media");
+
+          const videoFile = await downloadVideoForAnalysis(media.sources, {
+            logger: {
+              info: (m) => logger.info(m),
+              warn: (m) => logger.warn(m),
+              error: (m) => logger.error(m),
+            },
+          });
+
+          try {
+            const attachFullVideo =
+              toolCtx.config.isMultimodal &&
+              videoFile.byteSize <= VIDEO_FULL_UPLOAD_MAX_BYTES;
+
+            if (attachFullVideo) {
+              const fs = await import("fs/promises");
+              const { extractVideoAudioForModel, probeVideoMimeType } =
+                await import("./media/history-media");
+              const mimeType = await probeVideoMimeType(videoFile.path);
+              const buffer = await fs.readFile(videoFile.path);
+              const dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
+              const audio = await extractVideoAudioForModel(videoFile.path, {
+                logger: {
+                  info: (m) => logger.info(m),
+                  warn: (m) => logger.warn(m),
+                  error: (m) => logger.error(m),
+                },
+              });
+              return createVideoFollowupResult(
+                dataUrl,
+                `The video from message #${args.message_id} is attached${
+                  audio ? " along with its audio track" : ""
+                }. Inspect it directly and answer the user's question from both the visual and audio content.`,
+                "The video has been attached to the next main model request. Inspect it directly (including the audio when present) instead of relying on a worker-model description.",
+                audio ?? undefined,
+              );
+            }
+
+            // 工作模型概括：<=30MB 走完整视频，>30MB 自动抽帧。
+            const ai = toolCtx.aiService.getDefault();
+            if (!ai) {
+              return { error: "AI instance not available" };
+            }
+
+            const summary = await summarizeVideoContent(
+              videoFile.path,
+              videoFile.byteSize,
+              {
+                ai,
+                multimodalWorkingModel: toolCtx.config.multimodalWorkingModel,
+                logger: {
+                  info: (m) => logger.info(m),
+                  warn: (m) => logger.warn(m),
+                  error: (m) => logger.error(m),
+                },
+              },
+            );
+
+            return {
+              success: true,
+              description: summary,
+              note: "The video has been summarized. Use the description above to answer the user's question.",
+            };
+          } finally {
+            await videoFile.cleanup();
           }
-          const { describeImage } = await import("./multimodal");
-
-          const result = await describeImage(
-            ai,
-            imageUrl,
-            toolCtx.config.multimodalWorkingModel,
-            toolCtx.event?.raw_message || undefined,
-          );
-
-          if (!result.success) {
-            return { error: result.error || "Failed to analyze image" };
-          }
-
-          return {
-            success: true,
-            description: result.description,
-            note: "The image has been analyzed. Use the description above to answer the user's question.",
-          };
         } catch (err) {
-          return { error: `Failed to analyze image: ${err}` };
+          return { error: `Failed to analyze media: ${err}` };
         }
       },
     });

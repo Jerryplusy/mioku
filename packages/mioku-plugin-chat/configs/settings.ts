@@ -1,6 +1,6 @@
 export const SETTINGS_CONFIG = {
   searxng: {
-    enabled: false,
+    enabled: true,
     baseUrl: "https://search.crystelf.top/",
     timeoutMs: 8000,
     defaultLimit: 5,

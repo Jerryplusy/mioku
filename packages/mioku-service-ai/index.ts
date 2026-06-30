@@ -1150,11 +1150,13 @@ function normalizeToolResult(result: any): {
   const followup = result[TOOL_RESULT_FOLLOWUP_KEY] as
     | ToolResultFollowup
     | undefined;
-  if (
-    !followup ||
-    !Array.isArray(followup.images) ||
-    followup.images.length === 0
-  ) {
+  const hasImages =
+    Array.isArray(followup?.images) && followup!.images!.length > 0;
+  const hasVideos =
+    Array.isArray(followup?.videos) && followup!.videos!.length > 0;
+  const hasAudios =
+    Array.isArray(followup?.audios) && followup!.audios!.length > 0;
+  if (!followup || (!hasImages && !hasVideos && !hasAudios)) {
     return { visibleResult: result, followupMessages: [] };
   }
 
@@ -1162,13 +1164,27 @@ function normalizeToolResult(result: any): {
   const content = [
     {
       type: "text" as const,
-      text: followup.text || "Use the attached image to answer the request.",
+      text: followup.text || "Use the attached media to answer the request.",
     },
-    ...followup.images.map((image) => ({
+    ...(followup.images || []).map((image) => ({
       type: "image_url" as const,
       image_url: {
         url: image.url,
         detail: image.detail ?? "auto",
+      },
+    })),
+    ...(followup.videos || []).map((video) => ({
+      type: "video_url" as const,
+      video_url: {
+        url: video.url,
+        detail: video.detail ?? "auto",
+      },
+    })),
+    ...(followup.audios || []).map((audio) => ({
+      type: "input_audio" as const,
+      input_audio: {
+        data: audio.data,
+        format: audio.format,
       },
     })),
   ];

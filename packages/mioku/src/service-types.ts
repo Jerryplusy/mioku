@@ -111,9 +111,17 @@ export const TOOL_RESULT_FOLLOWUP_KEY = "__miokuFollowup";
 
 export interface ToolResultFollowup {
   text: string;
-  images: Array<{
+  images?: Array<{
     url: string;
     detail?: "auto" | "low" | "high";
+  }>;
+  videos?: Array<{
+    url: string;
+    detail?: "auto" | "low" | "high";
+  }>;
+  audios?: Array<{
+    data: string;
+    format: "mp3" | "wav";
   }>;
 }
 

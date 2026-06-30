@@ -29,6 +29,7 @@ import {
   GroupStructuredHistoryManager,
   type StructuredUserInput,
 } from "../manage/group-structured-history";
+import { prepareImageUrlsForModel } from "./media/image-compress";
 
 interface StructuredHistoryRunContext {
   manager: GroupStructuredHistoryManager;
@@ -130,6 +131,10 @@ export async function runChat(
       directImageUrls,
     ).filter((message) => message.role !== "system"),
   );
+  // 体积过大的图片先压缩，再附加到主模型请求；估算用原始 URL 即可（图片按固定 token 计）。
+  const modelImageUrls = directImageUrls
+    ? await prepareImageUrlsForModel(directImageUrls)
+    : undefined;
   const usageContext = {
     usageId,
     source: "chat",
@@ -206,7 +211,7 @@ export async function runChat(
         targetMessage,
         cachedHistory,
         currentUserMessages,
-        directImageUrls,
+        modelImageUrls,
       ),
       usageContext,
       usageContextTokens: chatHistoryTokens,
