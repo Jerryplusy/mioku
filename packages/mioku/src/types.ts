@@ -105,10 +105,6 @@ export interface ToolResultFollowup {
     url: string;
     detail?: "auto" | "low" | "high";
   }>;
-  audios?: Array<{
-    data: string;
-    format: "mp3" | "wav";
-  }>;
 }
 
 export interface TextMessage {

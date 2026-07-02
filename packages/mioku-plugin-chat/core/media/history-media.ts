@@ -12,10 +12,8 @@ const execFileAsync = promisify(execFile);
 const VIDEO_FRAME_COUNT = 5;
 const VIDEO_FRAME_EXTRACTION_FALLBACK =
   "用户发送了一个视频，但未能提取画面内容";
-// 体积阈值：超过此大小（30MB）的视频不再整体上传给多模态工作模型，改用抽帧。
-export const VIDEO_FULL_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
-// 提取出来的音频超过此大小（5MB）不再附给模型，避免请求体过大。
-const VIDEO_AUDIO_MAX_BYTES = 5 * 1024 * 1024;
+// 体积阈值：超过此大小（10MB）的视频不再整体上传给多模态工作模型，改用抽帧。
+export const VIDEO_FULL_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
 
 interface SummaryResult {
   summary: string;
@@ -152,21 +150,13 @@ async function summarizeVideoByFullVideo(
   const content: any[] = [
     {
       type: "text",
-      text: "This is a video sent by someone in a chat. Summarize the video's content in Chinese for later use as chat history context. Cover both the visuals and the audio: describe the visible people/objects/actions/scenes/on-screen text, and transcribe or paraphrase any important spoken content, dialogue, narration, music, or sound cues from the audio. Then briefly explain what the video is about. Stay factual and concise; state uncertainty honestly when unclear.",
+      text: "This is a video sent by someone in a chat. Summarize the video's content in Chinese for later use as chat history context: describe the visible people/objects/actions/scenes/on-screen text, and briefly explain what the video is about. Stay factual and concise; state uncertainty honestly when unclear.",
     },
     {
       type: "video_url",
       video_url: { url: dataUrl },
     },
   ];
-
-  const audio = await extractVideoAudioForModel(videoPath, options);
-  if (audio) {
-    content.push({
-      type: "input_audio",
-      input_audio: { data: audio.data, format: audio.format },
-    });
-  }
 
   const response = await runHistoryMediaAIRequest(options, () =>
     options.ai!.complete({
@@ -175,7 +165,7 @@ async function summarizeVideoByFullVideo(
         {
           role: "system",
           content:
-            "You summarize video content for a chat history. The video and (when present) its audio track are both provided. Describe only what the video actually shows and what the audio actually contains, objectively and concisely. Cover key spoken content, dialogue, narration, and notable sound cues alongside the visuals. Do not invent information that is not present.",
+            "You summarize video content for a chat history. Describe only what the video actually shows, objectively and concisely. Do not invent information that is not present.",
         },
         {
           role: "user",
@@ -205,30 +195,16 @@ async function summarizeVideoByFrames(
     return VIDEO_FRAME_EXTRACTION_FALLBACK;
   }
 
-  const audio = await extractVideoAudioForModel(videoPath, options);
-
   const content: any[] = [
     {
       type: "text",
-      text: `These ${frames.length} frames were sampled evenly from a video sent in a chat${
-        audio ? ", along with the video's audio track" : ""
-      }. Summarize the video's likely content in Chinese for later use as chat history context: note the visible people/objects/actions/on-screen text${
-        audio
-          ? ", and transcribe or paraphrase any important spoken content, dialogue, narration, music, or sound cues from the audio"
-          : ""
-      }, and infer what the video is about. Stay factual and concise; if the frames are ambiguous or insufficient, say so honestly.`,
+      text: `These ${frames.length} frames were sampled evenly from a video sent in a chat. Summarize the video's likely content in Chinese for later use as chat history context: note the visible people/objects/actions/on-screen text, and infer what the video is about. Stay factual and concise; if the frames are ambiguous or insufficient, say so honestly.`,
     },
     ...frames.map((frame) => ({
       type: "image_url",
       image_url: { url: frame, detail: "auto" },
     })),
   ];
-  if (audio) {
-    content.push({
-      type: "input_audio",
-      input_audio: { data: audio.data, format: audio.format },
-    });
-  }
 
   const response = await runHistoryMediaAIRequest(options, () =>
     options.ai!.complete({
@@ -236,9 +212,8 @@ async function summarizeVideoByFrames(
       messages: [
         {
           role: "system",
-          content: audio
-            ? "You summarize video content for a chat history from evenly sampled frames and the audio track. Describe what the frames plausibly show and what the audio actually contains, objectively and concisely. Cover key spoken content, dialogue, narration, and notable sound cues. Do not invent information that is not present."
-            : "You summarize video content for a chat history from evenly sampled frames. Describe what the frames plausibly show, objectively and concisely. Do not invent information that is not present.",
+          content:
+            "You summarize video content for a chat history from evenly sampled frames. Describe what the frames plausibly show, objectively and concisely. Do not invent information that is not present.",
         },
         {
           role: "user",
@@ -663,84 +638,6 @@ function mapFormatNameToMimeType(formatName: string): string {
   if (names.some((n) => n === "mov" || n === "mp4" || n === "m4v"))
     return "video/mp4";
   return "video/mp4";
-}
-
-async function probeVideoHasAudio(videoPath: string): Promise<boolean> {
-  try {
-    const { stdout } = await execFileAsync(
-      "ffprobe",
-      [
-        "-v",
-        "error",
-        "-select_streams",
-        "a",
-        "-show_entries",
-        "stream=codec_type",
-        "-of",
-        "default=noprint_wrappers=1:nokey=1",
-        videoPath,
-      ],
-      { timeout: 20_000 },
-    );
-    return /audio/i.test(String(stdout).trim());
-  } catch {
-    return false;
-  }
-}
-
-interface ExtractedAudio {
-  data: string;
-  format: "mp3" | "wav";
-}
-
-export async function extractVideoAudioForModel(
-  videoPath: string,
-  options: HistoryMediaProcessingOptions,
-): Promise<ExtractedAudio | null> {
-  const hasAudio = await probeVideoHasAudio(videoPath);
-  if (!hasAudio) return null;
-
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "mioku-video-audio-"));
-  try {
-    const outputPath = path.join(tempDir, "audio.mp3");
-    await execFileAsync(
-      "ffmpeg",
-      [
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        videoPath,
-        "-vn",
-        "-acodec",
-        "libmp3lame",
-        "-ab",
-        "64k",
-        "-ac",
-        "1",
-        "-y",
-        outputPath,
-      ],
-      { timeout: 60_000 },
-    );
-    const buffer = await fs.readFile(outputPath);
-    if (buffer.length === 0 || buffer.length > VIDEO_AUDIO_MAX_BYTES) {
-      if (buffer.length > VIDEO_AUDIO_MAX_BYTES) {
-        getHistoryMediaLogger(options).warn(
-          `[history-media] Extracted audio too large (${buffer.length} bytes), skipping`,
-        );
-      }
-      return null;
-    }
-    return { data: buffer.toString("base64"), format: "mp3" };
-  } catch (err) {
-    getHistoryMediaLogger(options).warn(
-      `[history-media] Failed to extract video audio: ${err}`,
-    );
-    return null;
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-  }
 }
 
 function buildFfmpegInputArgs(input: string, args: string[]): string[] {

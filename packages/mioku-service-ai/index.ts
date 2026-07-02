@@ -1154,9 +1154,7 @@ function normalizeToolResult(result: any): {
     Array.isArray(followup?.images) && followup!.images!.length > 0;
   const hasVideos =
     Array.isArray(followup?.videos) && followup!.videos!.length > 0;
-  const hasAudios =
-    Array.isArray(followup?.audios) && followup!.audios!.length > 0;
-  if (!followup || (!hasImages && !hasVideos && !hasAudios)) {
+  if (!followup || (!hasImages && !hasVideos)) {
     return { visibleResult: result, followupMessages: [] };
   }
 
@@ -1178,13 +1176,6 @@ function normalizeToolResult(result: any): {
       video_url: {
         url: video.url,
         detail: video.detail ?? "auto",
-      },
-    })),
-    ...(followup.audios || []).map((audio) => ({
-      type: "input_audio" as const,
-      input_audio: {
-        data: audio.data,
-        format: audio.format,
       },
     })),
   ];

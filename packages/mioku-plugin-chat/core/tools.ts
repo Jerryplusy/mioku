@@ -85,9 +85,8 @@ function createVideoFollowupResult(
   videoUrl: string,
   text: string,
   note: string,
-  audio?: { data: string; format: "mp3" | "wav" },
 ): Record<string, any> {
-  const result: Record<string, any> = {
+  return {
     success: true,
     video_attached: true,
     note,
@@ -96,10 +95,6 @@ function createVideoFollowupResult(
       videos: [{ url: videoUrl, detail: "auto" }],
     },
   };
-  if (audio) {
-    result[TOOL_RESULT_FOLLOWUP_KEY].audios = [audio];
-  }
-  return result;
 }
 
 /**
@@ -304,29 +299,17 @@ function createInfoTools(toolCtx: ToolContext): AITool[] {
 
             if (attachFullVideo) {
               const fs = await import("fs/promises");
-              const { extractVideoAudioForModel, probeVideoMimeType } =
-                await import("./media/history-media");
               const mimeType = await probeVideoMimeType(videoFile.path);
               const buffer = await fs.readFile(videoFile.path);
               const dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
-              const audio = await extractVideoAudioForModel(videoFile.path, {
-                logger: {
-                  info: (m) => logger.info(m),
-                  warn: (m) => logger.warn(m),
-                  error: (m) => logger.error(m),
-                },
-              });
               return createVideoFollowupResult(
                 dataUrl,
-                `The video from message #${args.message_id} is attached${
-                  audio ? " along with its audio track" : ""
-                }. Inspect it directly and answer the user's question from both the visual and audio content.`,
-                "The video has been attached to the next main model request. Inspect it directly (including the audio when present) instead of relying on a worker-model description.",
-                audio ?? undefined,
+                `The video from message #${args.message_id} is attached. Inspect it directly and answer the user's question from the visual content.`,
+                "The video has been attached to the next main model request. Inspect it directly instead of relying on a worker-model description.",
               );
             }
 
-            // 工作模型概括：<=30MB 走完整视频，>30MB 自动抽帧。
+            // 工作模型概括：<=10MB 走完整视频，>10MB 自动抽帧。
             const ai = toolCtx.aiService.getDefault();
             if (!ai) {
               return { error: "AI instance not available" };
