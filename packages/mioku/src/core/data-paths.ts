@@ -1,72 +1,32 @@
-/**
- * Data Directory Utilities for Mioku Plugins
- *
- * Provides consistent data path resolution that respects the project directory
- * (process.cwd()) rather than the package installation directory.
- */
-
 import * as path from "path";
+import { existsSync, mkdirSync } from "fs";
 
-/**
- * Get the data directory for a specific plugin
- * Returns: {cwd}/data/{pluginName}
- */
 export function getPluginDataDir(pluginName: string): string {
-  const dataDir = path.join(process.cwd(), "data", pluginName);
-  return dataDir;
+  return path.join(process.cwd(), "data", pluginName);
 }
 
-/**
- * Get the data directory for a service
- * Returns: {cwd}/data/{serviceName}
- */
 export function getServiceDataDir(serviceName: string): string {
-  const dataDir = path.join(process.cwd(), "data", serviceName);
-  return dataDir;
+  return path.join(process.cwd(), "data", serviceName);
 }
 
-/**
- * Get the main data directory
- * Returns: {cwd}/data
- */
 export function getDataDir(): string {
   return path.join(process.cwd(), "data");
 }
 
-/**
- * Get the config directory for a plugin
- * Returns: {cwd}/config/{pluginName}
- */
 export function getPluginConfigDir(pluginName: string): string {
-  const configDir = path.join(process.cwd(), "config", pluginName);
-  return configDir;
+  return path.join(process.cwd(), "config", pluginName);
 }
 
-/**
- * Get the config directory for a service
- * Returns: {cwd}/config/service/{serviceName}
- */
 export function getServiceConfigDir(serviceName: string): string {
-  const configDir = path.join(process.cwd(), "config", "service", serviceName);
-  return configDir;
+  return path.join(process.cwd(), "config", "service", serviceName);
 }
 
-/**
- * Get the main config directory
- * Returns: {cwd}/config
- */
 export function getConfigDir(): string {
   return path.join(process.cwd(), "config");
 }
 
-/**
- * Ensure a directory exists, creating it if necessary
- */
 export function ensureDataDir(pluginName: string): string {
   const dir = getPluginDataDir(pluginName);
-  const { existsSync, mkdirSync } = require("fs");
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   return dir;
 }

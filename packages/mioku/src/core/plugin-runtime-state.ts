@@ -1,50 +1,32 @@
-/**
- * Plugin Runtime State Management
- *
- * Provides a way for plugins to store state that needs to persist
- * across the plugin lifecycle but should be isolated per plugin.
- */
+import { getOrCreate } from "./registry";
 
-interface PluginRuntimeState {
+interface PluginStateStore {
   [pluginName: string]: Record<string, any>;
 }
 
-const runtimeState: PluginRuntimeState = {};
+// Stashed via the global registry so it survives jiti re-evaluation when a
+// plugin re-imports the framework through its loader. Values are `any` because
+// the state bag is plugin-defined and consumed via casts.
+const store = getOrCreate<PluginStateStore>("plugin-runtime-state", () => ({}));
 
-/**
- * Get the runtime state for a plugin
- */
 export function getPluginRuntimeState(pluginName: string): Record<string, any> {
-  if (!runtimeState[pluginName]) {
-    runtimeState[pluginName] = {};
-  }
-  return runtimeState[pluginName];
+  if (!store[pluginName]) store[pluginName] = {};
+  return store[pluginName];
 }
 
-/**
- * Set/update the runtime state for a plugin
- */
 export function setPluginRuntimeState(
   pluginName: string,
   state: Record<string, any>,
 ): Record<string, any> {
-  if (!runtimeState[pluginName]) {
-    runtimeState[pluginName] = {};
-  }
-  Object.assign(runtimeState[pluginName], state);
-  return runtimeState[pluginName];
+  if (!store[pluginName]) store[pluginName] = {};
+  Object.assign(store[pluginName], state);
+  return store[pluginName];
 }
 
-/**
- * Reset the runtime state for a plugin
- */
 export function resetPluginRuntimeState(pluginName: string): void {
-  delete runtimeState[pluginName];
+  delete store[pluginName];
 }
 
-/**
- * Get all plugin runtime states (for debugging)
- */
-export function getAllPluginRuntimeStates(): PluginRuntimeState {
-  return { ...runtimeState };
+export function getAllPluginRuntimeStates(): PluginStateStore {
+  return { ...store };
 }

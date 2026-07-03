@@ -1,36 +1,19 @@
-/**
- * Mioku - Plugin framework extended from mioki
- *
- * Main entry point for the mioku npm package
- */
-
-import pluginManager from "./core/plugin-manager";
-import serviceManager from "./core/service-manager";
-import { registerPluginArtifacts } from "./core/plugin-artifact-registry";
 import * as fs from "fs";
 import * as path from "path";
-import { existsSync, mkdirSync } from "fs";
-import {
-  DEFAULT_RUNTIME_PLUGINS_DIR,
-  prepareRuntimePluginLinks,
-} from "./core/plugin-linker";
+import { fileURLToPath } from "url";
+import { bootstrapMioku } from "./core/bootstrap";
 import { setMiokuLogger } from "./core/logger";
 
-// Re-export mioki types for convenience
 export type { MiokiPlugin, MiokiContext } from "mioki";
 
-export function definePlugin<T extends import("mioki").MiokiPlugin>(
-  plugin: T,
-): T {
+export function definePlugin<T extends import("mioki").MiokiPlugin>(plugin: T): T {
   return plugin;
 }
 
-// Core functionality
 export { default as pluginManager } from "./core/plugin-manager";
 export { default as serviceManager } from "./core/service-manager";
 export { registerPluginArtifacts } from "./core/plugin-artifact-registry";
 
-// Service config helpers
 export {
   registerServiceConfig,
   getServiceConfig,
@@ -39,9 +22,10 @@ export {
   deleteServiceConfig,
 } from "./core/service-config";
 
-// Types from types.ts
 export type {
   MiokuService,
+  MiokuRuntimeConfig,
+  PackageJsonLike,
   PluginMetadata,
   ServiceMetadata,
   PluginPackageConfig,
@@ -52,10 +36,6 @@ export type {
   AccessRuleEntry,
   AccessScopeConfig,
   AccessControlConfig,
-} from "./types";
-
-// Service types from service-types.ts
-export type {
   ConfigService,
   ScreenshotService,
   HelpService,
@@ -88,96 +68,41 @@ export type {
   AIUsageBreakdown,
   AIUsageFinalization,
   AIUsageSummary,
-} from "./service-types";
+} from "./types";
 
-export { TOOL_RESULT_FOLLOWUP_KEY } from "./service-types";
+export { TOOL_RESULT_FOLLOWUP_KEY } from "./types";
 
-/**
- * Start options for Mioku
- */
 export interface MiokuStartOptions {
   cwd?: string;
 }
 
-/**
- * Start Mioku with plugin and service discovery
- */
 export async function start(options: MiokuStartOptions = {}): Promise<void> {
   const { cwd = process.cwd() } = options;
-
-  if (cwd) {
-    process.chdir(cwd);
-  }
+  if (cwd) process.chdir(cwd);
 
   const { start: startMioki, logger, botConfig } = await import("mioki");
   setMiokuLogger(logger);
-
-  // Read mioku config from package.json (mioki field contains merged config)
-  const packageJsonPath = path.join(process.cwd(), "package.json");
-  let miokuConfig: any = {};
-  if (fs.existsSync(packageJsonPath)) {
-    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
-    // mioku-specific config lives in the same mioki field
-    miokuConfig = pkg.mioki || {};
-  }
 
   logger.info("こんにちは..");
   logger.info("---------------------------------------");
   logger.info("----------  Mioku 正在启动 ------------");
   logger.info("---------------------------------------");
 
-  // Ensure required directories exist
-  const requiredDirs = ["data", "config", "temp"];
-  for (const dir of requiredDirs) {
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-  }
-
-  logger.info("O.o Miku 正在翻找插件..");
-  const discoveredPlugins = await pluginManager.discoverPlugins(miokuConfig);
-  logger.info(`O.o 共发现 ${discoveredPlugins.length} 个插件: ${discoveredPlugins.map(p => p.name).join(", ")}`);
-
-  const runtimePluginsDir = path.resolve(
-    process.cwd(),
-    DEFAULT_RUNTIME_PLUGINS_DIR,
-  );
-  const linkedPluginNames = await prepareRuntimePluginLinks(
-    discoveredPlugins,
-    runtimePluginsDir,
-  );
-  botConfig.plugins_dir = DEFAULT_RUNTIME_PLUGINS_DIR;
-
-  logger.info("o.O Miku 正在翻找服务..");
-  await serviceManager.discoverServices(miokuConfig);
-
-  const requiredServices = pluginManager.collectRequiredServices();
-  const missingServices =
-    await serviceManager.checkMissingServices(requiredServices);
-
-  if (missingServices.length > 0) {
-    logger.warn(`发现缺失服务: ${missingServices.join(", ")}`);
-  }
-
-  // Only auto-load discovered plugins if the user has not specified a plugins list.
-  // "not specified" means plugins key is undefined in mioki config.
-  // If plugins is explicitly set (even to empty array []), only load what's in the list.
-  const userSpecifiedPlugins = miokuConfig.plugins !== undefined;
-  if (!userSpecifiedPlugins) {
-    for (const name of linkedPluginNames) {
-      if (!botConfig.plugins.includes(name)) {
-        botConfig.plugins.push(name);
-      }
-    }
-  }
-
-  await startMioki({ cwd });
+  await bootstrapMioku({ cwd, botConfig, startMioki });
 }
 
-// Version
-export const version = "1.0.0";
+function readVersion(): string {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const pkgPath = path.join(here, "..", "package.json");
+    return JSON.parse(fs.readFileSync(pkgPath, "utf-8")).version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
 
-// Data path utilities
+export const version: string = readVersion();
+
 export {
   getDataDir,
   getPluginDataDir,
@@ -188,7 +113,6 @@ export {
   ensureDataDir,
 } from "./core/data-paths";
 
-// Plugin runtime state
 export {
   getPluginRuntimeState,
   setPluginRuntimeState,

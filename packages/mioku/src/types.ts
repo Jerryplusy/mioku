@@ -1,20 +1,96 @@
-/**
- * Mioku Service Definition
- */
+// Mioku framework types — single source of truth for the public API surface.
+
+// ---------- framework ----------
+
 export interface MiokuService {
   name: string;
   version: string;
   description?: string;
-
-  // 初始化服务
   init(): Promise<void>;
-
-  // 服务提供的 API
   api: Record<string, any>;
-
-  // 清理资源
   dispose?(): Promise<void>;
 }
+
+export interface MiokuRuntimeConfig {
+  plugins?: string[];
+  plugins_dir?: string;
+  services_dir?: string;
+  [key: string]: unknown;
+}
+
+export interface PackageJsonLike {
+  name?: string;
+  version?: string;
+  description?: string;
+  mioki?: MiokuRuntimeConfig;
+  mioku?: PluginPackageConfig;
+  dependencies?: Record<string, string>;
+}
+
+export interface PluginMetadata {
+  name: string;
+  version: string;
+  description?: string;
+  path: string;
+  packageJson: PackageJsonLike;
+  config: PluginPackageConfig;
+}
+
+export interface ServiceMetadata {
+  name: string;
+  version: string;
+  description?: string;
+  path: string;
+  packageJson: PackageJsonLike;
+}
+
+// ---------- plugin package config ----------
+
+export interface PluginPackageConfig {
+  services?: string[];
+  help?: PluginHelp;
+  accessHooks?: AccessHook[];
+}
+
+export interface PluginHelp {
+  title: string;
+  description: string;
+  commands: Array<{
+    cmd: string;
+    desc: string;
+    usage?: string;
+    role?: CommandRole;
+  }>;
+}
+
+export type CommandRole = "master" | "admin" | "owner" | "member";
+
+export interface AccessHook {
+  id: string;
+  match?: string;
+  event?: string;
+  description?: string;
+}
+
+export type AccessAction = "allow" | "block";
+
+export interface AccessRuleEntry {
+  action: AccessAction;
+}
+
+export interface AccessScopeConfig {
+  plugins?: Record<string, AccessRuleEntry>;
+  commands?: Record<string, Record<string, AccessRuleEntry>>;
+}
+
+export interface AccessControlConfig {
+  version: 1;
+  global: AccessScopeConfig;
+  groups: Record<string, AccessScopeConfig>;
+  users: Record<string, AccessScopeConfig>;
+}
+
+// ---------- built-in service contracts ----------
 
 export interface ConfigService {
   registerConfig(pluginName: string, configName: string, initialConfig: any): Promise<boolean>;
@@ -38,9 +114,12 @@ export interface HelpService {
   unregisterHelp(pluginName: string): boolean;
 }
 
-/**
- * AI 相关类型
- */
+export interface WebUIService {
+  getSettings(): { port: number; host: string; packageManager: string };
+}
+
+// ---------- AI service ----------
+
 export interface AITool {
   name: string;
   description: string;
@@ -52,59 +131,13 @@ export interface AITool {
   handler: (args: any, event?: any) => Promise<any> | any;
 }
 
+export type SkillPermissionRole = "owner" | "admin" | "member";
+
 export interface AISkill {
   name: string;
   description: string;
-  permission?: "owner" | "admin" | "member";
+  permission?: SkillPermissionRole;
   tools: AITool[];
-}
-
-export interface AIInstance {
-  generateText(options: any): Promise<string>;
-  generateMultimodal(options: any): Promise<string>;
-  complete(options: any): Promise<any>;
-  generateWithTools(options: any): Promise<any>;
-  registerPrompt(name: string, prompt: string): boolean;
-  getPrompt(name: string): string | undefined;
-  getAllPrompts(): Record<string, string>;
-  removePrompt(name: string): boolean;
-}
-
-export interface AIService {
-  create(options: any): Promise<AIInstance>;
-  get(name: string): AIInstance | undefined;
-  list(): string[];
-  remove(name: string): boolean;
-  setDefault(name: string): boolean;
-  getDefault(): AIInstance | undefined;
-  registerChatRuntime(runtime: any): boolean;
-  getChatRuntime(): any;
-  removeChatRuntime(): boolean;
-  registerSkill(skill: AISkill): boolean;
-  getSkill(skillName: string): AISkill | undefined;
-  getAllSkills(): Map<string, AISkill>;
-  removeSkill(skillName: string): boolean;
-  getTool(toolName: string): AITool | undefined;
-  getAllTools(): Map<string, AITool>;
-}
-
-export interface ChatRuntime {
-  generateNotice(options: ChatRuntimeNoticeOptions): Promise<ChatRuntimeResult>;
-  requestInformation(options: ChatRuntimeInformationRequestOptions): Promise<ChatRuntimeResult>;
-}
-
-export const TOOL_RESULT_FOLLOWUP_KEY = "__miokuFollowup";
-
-export interface ToolResultFollowup {
-  text: string;
-  images?: Array<{
-    url: string;
-    detail?: "auto" | "low" | "high";
-  }>;
-  videos?: Array<{
-    url: string;
-    detail?: "auto" | "low" | "high";
-  }>;
 }
 
 export interface TextMessage {
@@ -132,6 +165,11 @@ export interface ToolCallRecord {
   result: any;
 }
 
+export interface SessionToolDefinition {
+  name: string;
+  tool: AITool;
+}
+
 export interface CompleteOptions {
   model?: string;
   messages: any[];
@@ -143,6 +181,9 @@ export interface CompleteOptions {
   executableToolsProvider?: () => SessionToolDefinition[];
   maxIterations?: number;
   onTextDelta?: (delta: string) => void | Promise<void>;
+  usageContext?: AIUsageContext;
+  usageContextTokens?: number;
+  usageBreakdown?: AIUsageFinalization["breakdown"];
 }
 
 export interface CompleteResponse {
@@ -155,9 +196,53 @@ export interface CompleteResponse {
   allToolCalls?: ToolCallRecord[];
 }
 
-export interface SessionToolDefinition {
-  name: string;
-  tool: AITool;
+export interface AIInstance {
+  generateText(options: { prompt?: string; messages: TextMessage[]; model?: string; temperature?: number; max_tokens?: number }): Promise<string>;
+  generateMultimodal(options: { prompt?: string; messages: MultimodalMessage[]; model?: string; temperature?: number; max_tokens?: number }): Promise<string>;
+  complete(options: CompleteOptions): Promise<CompleteResponse>;
+  generateWithTools(options: { prompt?: string; messages: TextMessage[] | MultimodalMessage[]; model?: string; temperature?: number; maxIterations?: number }): Promise<any>;
+  setUsageContext?(context: AIUsageContext | undefined): void;
+  withUsageContext?<T>(context: AIUsageContext | undefined, fn: () => Promise<T>): Promise<T>;
+  registerPrompt(name: string, prompt: string): boolean;
+  getPrompt(name: string): string | undefined;
+  getAllPrompts(): Record<string, string>;
+  removePrompt(name: string): boolean;
+}
+
+export interface AIService {
+  create(options: { name: string; apiUrl: string; apiKey: string; modelType: "text" | "multimodal"; model?: string }): Promise<AIInstance>;
+  get(name: string): AIInstance | undefined;
+  list(): string[];
+  remove(name: string): boolean;
+  setDefault(name: string): boolean;
+  getDefault(): AIInstance | undefined;
+  registerChatRuntime(runtime: any): boolean;
+  getChatRuntime(): any;
+  removeChatRuntime(): boolean;
+  registerSkill(skill: AISkill): boolean;
+  getSkill(skillName: string): AISkill | undefined;
+  getAllSkills(): Map<string, AISkill>;
+  removeSkill(skillName: string): boolean;
+  getTool(toolName: string): AITool | undefined;
+  getAllTools(): Map<string, AITool>;
+  getUsageSummary?(options: { range: AIUsageRange; botId?: number }): AIUsageSummary;
+  cleanupUsageStats?(retentionMs?: number): number;
+  finalizeUsage?(usageId: string, finalization: AIUsageFinalization): boolean;
+}
+
+// ---------- chat runtime ----------
+
+export interface ChatRuntime {
+  generateNotice(options: ChatRuntimeNoticeOptions): Promise<ChatRuntimeResult>;
+  requestInformation(options: ChatRuntimeInformationRequestOptions): Promise<ChatRuntimeResult>;
+}
+
+export const TOOL_RESULT_FOLLOWUP_KEY = "__miokuFollowup";
+
+export interface ToolResultFollowup {
+  text: string;
+  images?: Array<{ url: string; detail?: "auto" | "low" | "high" }>;
+  videos?: Array<{ url: string; detail?: "auto" | "low" | "high" }>;
 }
 
 export interface ChatRuntimePromptInjection {
@@ -186,6 +271,10 @@ export type ChatRuntimeBaseOptions = ChatRuntimeSource & {
   send?: boolean;
 };
 
+export type ChatRuntimeNoticeOptions = ChatRuntimeBaseOptions & {
+  instruction: string;
+};
+
 export type ChatRuntimeInformationRequestOptions = ChatRuntimeBaseOptions & {
   task: string;
   schema: {
@@ -195,10 +284,6 @@ export type ChatRuntimeInformationRequestOptions = ChatRuntimeBaseOptions & {
   };
   toolName?: string;
   toolDescription?: string;
-};
-
-export type ChatRuntimeNoticeOptions = ChatRuntimeBaseOptions & {
-  instruction: string;
 };
 
 export interface ChatRuntimeCollectedInfo {
@@ -212,95 +297,59 @@ export interface ChatRuntimeResult {
   messages: string[];
   toolCalls: ToolCallRecord[];
   collectedInfo: ChatRuntimeCollectedInfo | null;
+  pendingAt?: number[];
+  pendingPoke?: number[];
+  pendingQuote?: number;
+  emojiPath?: string | null;
+  protocolMessages?: any[];
 }
 
-/**
- * 插件元数据
- */
-export interface PluginMetadata {
-  name: string;
-  version: string;
-  description?: string;
-  // 插件路径
-  path: string;
-  // 插件 package
-  packageJson: any;
-  // 插件 Mioku 配置项
-  config: PluginPackageConfig;
+// ---------- usage tracking ----------
+
+export type AIUsageRange = "today" | "7d" | "30d";
+
+export interface AIUsageContext {
+  usageId?: string;
+  source?: string;
+  botId?: number;
+  groupId?: number;
+  groupName?: string;
+  userId?: number;
+  userName?: string;
+  sessionId?: string;
 }
 
-/**
- * 服务元数据
- */
-export interface ServiceMetadata {
-  name: string;
-  version: string;
-  description?: string;
-  // 服务路径
-  path: string;
-  // 服务 package
-  packageJson: any;
+export interface AIUsageBreakdown {
+  systemPromptTokens?: number;
+  chatHistoryTokens?: number;
+  toolDefinitionTokens?: number;
+  toolUseTokens?: number;
+  otherContextTokens?: number;
 }
 
-export interface AccessHook {
-  id: string;
-  match?: string;
-  event?: string;
-  description?: string;
+export interface AIUsageFinalization {
+  sentUserMessages?: number;
+  sentAssistantMessages?: number;
+  breakdown?: AIUsageBreakdown;
 }
 
-/**
- * 插件包配置
- * package.json 中的 mioku 字段
- */
-export interface PluginPackageConfig {
-  // 依赖的服务
-  services?: string[];
-  // 帮助信息
-  help?: PluginHelp;
-  accessHooks?: AccessHook[];
-}
-
-export type AccessAction = "allow" | "block";
-
-export interface AccessRuleEntry {
-  action: AccessAction;
-}
-
-export interface AccessScopeConfig {
-  plugins?: Record<string, AccessRuleEntry>;
-  commands?: Record<string, Record<string, AccessRuleEntry>>;
-}
-
-export interface AccessControlConfig {
-  version: 1;
-  global: AccessScopeConfig;
-  groups: Record<string, AccessScopeConfig>;
-  users: Record<string, AccessScopeConfig>;
-}
-
-/**
- * 插件帮助信息
- */
-export interface PluginHelp {
-  // 插件名称
-  title: string;
-  // 描述
-  description: string;
-  commands: Array<{
-    // 命令
-    cmd: string;
-    // 命令描述
-    desc: string;
-    // 使用示例
-    usage?: string;
-    // 使用权限
-    role?: CommandRole;
+export interface AIUsageSummary {
+  range: AIUsageRange;
+  total: {
+    requests: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheWriteTokens: number;
+    cacheReadTokens: number;
+    totalTokens: number;
+  };
+  byBot: Array<{
+    botId: number | null;
+    requests: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheWriteTokens: number;
+    cacheReadTokens: number;
+    totalTokens: number;
   }>;
 }
-
-/**
- * 指令权限级别
- * 主人 管理员 群主 群成员
- */
-export type CommandRole = "master" | "admin" | "owner" | "member";
