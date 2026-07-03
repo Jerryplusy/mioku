@@ -6,4 +6,6 @@ export {
   getBotRole,
   getQuotedContent,
   getGroupHistory,
+  buildChatMessageFromEvent,
+  normalizeIdList,
 } from "./message";

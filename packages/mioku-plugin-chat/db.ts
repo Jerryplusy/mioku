@@ -11,6 +11,40 @@ import type {
   MediaSummaryRecord,
 } from "./types";
 
+function toChatMessage(row: any): ChatMessage {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    role: row.role,
+    content: row.content,
+    userId: row.user_id,
+    userName: row.user_name,
+    userRole: row.user_role,
+    userTitle: row.user_title,
+    groupId: row.group_id,
+    groupName: row.group_name,
+    timestamp: row.timestamp,
+    messageId: row.message_id,
+  };
+}
+
+function toTopicRecord(row: any): TopicRecord {
+  return toTopicRecord(row);
+}
+
+function toExpressionRecord(row: any): ExpressionRecord {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    userId: row.user_id,
+    userName: row.user_name,
+    situation: row.situation,
+    style: row.style,
+    example: row.example,
+    createdAt: row.created_at,
+  };
+}
+
 /**
  * 聊天数据库接口
  */
@@ -413,40 +447,14 @@ export async function initDatabase(): Promise<ChatDatabase> {
         : (stmts.getMessages.all({ $sessionId: sessionId, $limit: limit }) as any[]);
 
       return rows
-        .map((row) => ({
-          id: row.id,
-          sessionId: row.session_id,
-          role: row.role,
-          content: row.content,
-          userId: row.user_id,
-          userName: row.user_name,
-          userRole: row.user_role,
-          userTitle: row.user_title,
-          groupId: row.group_id,
-          groupName: row.group_name,
-          timestamp: row.timestamp,
-          messageId: row.message_id,
-        }))
+        .map(toChatMessage)
         .reverse(); // 按时间正序
     },
 
     getBotMessages(groupId: number, limit: number = 50): ChatMessage[] {
       const rows = stmts.getBotMessages.all({ $groupId: groupId, $limit: limit }) as any[];
       return rows
-        .map((row) => ({
-          id: row.id,
-          sessionId: row.session_id,
-          role: row.role,
-          content: row.content,
-          userId: row.user_id,
-          userName: row.user_name,
-          userRole: row.user_role,
-          userTitle: row.user_title,
-          groupId: row.group_id,
-          groupName: row.group_name,
-          timestamp: row.timestamp,
-          messageId: row.message_id,
-        }))
+        .map(toChatMessage)
         .reverse(); // 按时间正序
     },
 
@@ -458,20 +466,7 @@ export async function initDatabase(): Promise<ChatDatabase> {
         { $groupId: groupId, $limit: limit },
       ) as any[];
       return rows
-        .map((row) => ({
-          id: row.id,
-          sessionId: row.session_id,
-          role: row.role,
-          content: row.content,
-          userId: row.user_id,
-          userName: row.user_name,
-          userRole: row.user_role,
-          userTitle: row.user_title,
-          groupId: row.group_id,
-          groupName: row.group_name,
-          timestamp: row.timestamp,
-          messageId: row.message_id,
-        }))
+        .map(toChatMessage)
         .reverse();
     },
 
@@ -489,20 +484,7 @@ export async function initDatabase(): Promise<ChatDatabase> {
         : (stmts.getMessagesByUser.all({ $userId: userId, $limit: limit }) as any[]);
 
       return rows
-        .map((row) => ({
-          id: row.id,
-          sessionId: row.session_id,
-          role: row.role,
-          content: row.content,
-          userId: row.user_id,
-          userName: row.user_name,
-          userRole: row.user_role,
-          userTitle: row.user_title,
-          groupId: row.group_id,
-          groupName: row.group_name,
-          timestamp: row.timestamp,
-          messageId: row.message_id,
-        }))
+        .map(toChatMessage)
         .reverse();
     },
 
@@ -512,20 +494,7 @@ export async function initDatabase(): Promise<ChatDatabase> {
         : (stmts.getAllMessagesByUser.all({ $userId: userId }) as any[]);
 
       return rows
-        .map((row) => ({
-          id: row.id,
-          sessionId: row.session_id,
-          role: row.role,
-          content: row.content,
-          userId: row.user_id,
-          userName: row.user_name,
-          userRole: row.user_role,
-          userTitle: row.user_title,
-          groupId: row.group_id,
-          groupName: row.group_name,
-          timestamp: row.timestamp,
-          messageId: row.message_id,
-        }))
+        .map(toChatMessage)
         .reverse();
     },
 
@@ -539,20 +508,7 @@ export async function initDatabase(): Promise<ChatDatabase> {
         $startTimestamp: startTimestamp,
         $endTimestamp: endTimestamp,
       }) as any[];
-      return rows.map((row) => ({
-        id: row.id,
-        sessionId: row.session_id,
-        role: row.role,
-        content: row.content,
-        userId: row.user_id,
-        userName: row.user_name,
-        userRole: row.user_role,
-        userTitle: row.user_title,
-        groupId: row.group_id,
-        groupName: row.group_name,
-        timestamp: row.timestamp,
-        messageId: row.message_id,
-      }));
+      return rows.map(toChatMessage);
     },
 
     updateCompressedContext(sessionId: string, context: string): void {
@@ -579,20 +535,7 @@ export async function initDatabase(): Promise<ChatDatabase> {
         $limit: limit,
       }) as any[];
       return rows
-        .map((row) => ({
-          id: row.id,
-          sessionId: row.session_id,
-          role: row.role,
-          content: row.content,
-          userId: row.user_id,
-          userName: row.user_name,
-          userRole: row.user_role,
-          userTitle: row.user_title,
-          groupId: row.group_id,
-          groupName: row.group_name,
-          timestamp: row.timestamp,
-          messageId: row.message_id,
-        }))
+        .map(toChatMessage)
         .reverse();
     },
 
@@ -613,18 +556,7 @@ export async function initDatabase(): Promise<ChatDatabase> {
 
     getTopics(sessionId: string, limit: number = 10): TopicRecord[] {
       const rows = stmts.getTopics.all({ $sessionId: sessionId, $limit: limit }) as any[];
-      return rows.map((row) => ({
-        id: row.id,
-        sessionId: row.session_id,
-        title: row.title,
-        keywords: row.keywords,
-        summary: row.summary,
-        messageCount: row.message_count,
-        windowStartAt: row.window_start_at ?? undefined,
-        windowEndAt: row.window_end_at ?? undefined,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      }));
+      return rows.map(toTopicRecord);
     },
 
     getTopicByWindow(
@@ -638,18 +570,7 @@ export async function initDatabase(): Promise<ChatDatabase> {
         $windowEndAt: windowEndAt,
       }) as any;
       if (!row) return null;
-      return {
-        id: row.id,
-        sessionId: row.session_id,
-        title: row.title,
-        keywords: row.keywords,
-        summary: row.summary,
-        messageCount: row.message_count,
-        windowStartAt: row.window_start_at ?? undefined,
-        windowEndAt: row.window_end_at ?? undefined,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      };
+      return toTopicRecord(row);
     },
 
     updateTopic(
@@ -686,16 +607,7 @@ export async function initDatabase(): Promise<ChatDatabase> {
 
     getExpressions(sessionId: string, limit: number = 50): ExpressionRecord[] {
       const rows = stmts.getExpressions.all({ $sessionId: sessionId, $limit: limit }) as any[];
-      return rows.map((row) => ({
-        id: row.id,
-        sessionId: row.session_id,
-        userId: row.user_id,
-        userName: row.user_name,
-        situation: row.situation,
-        style: row.style,
-        example: row.example,
-        createdAt: row.created_at,
-      }));
+      return rows.map(toExpressionRecord);
     },
 
     getExpressionsByUser(
@@ -703,16 +615,7 @@ export async function initDatabase(): Promise<ChatDatabase> {
       limit: number = 50,
     ): ExpressionRecord[] {
       const rows = stmts.getExpressionsByUser.all({ $userId: userId, $limit: limit }) as any[];
-      return rows.map((row) => ({
-        id: row.id,
-        sessionId: row.session_id,
-        userId: row.user_id,
-        userName: row.user_name,
-        situation: row.situation,
-        style: row.style,
-        example: row.example,
-        createdAt: row.created_at,
-      }));
+      return rows.map(toExpressionRecord);
     },
 
     replaceExpressionsByUser(

@@ -75,6 +75,11 @@ export interface ChatPluginContext {
   buildToolContext: BuildToolContext;
   buildStructuredUserInputFromTarget: BuildStructuredUserInputFromTarget;
   runChat: RunChat;
+  startCooldownTimer: (
+    groupSessionId: string,
+    groupId: number,
+    selfId: number,
+  ) => void;
   recordGroupMessageForLearning: (
     userMsg: ChatMessage,
     groupSessionId: string,
@@ -87,6 +92,18 @@ export interface ChatPluginContext {
 export interface ChatRuntimeState {
   isRateLimitBlocked: () => boolean;
   processingSet: Set<string>;
+}
+
+/**
+ * Closure state shared with the extracted message/poke handlers.
+ */
+export interface ChatHandlerState {
+  getConfig: () => Promise<ChatConfig>;
+  matchMessageCommands?: (
+    text: string,
+  ) => Array<{ plugin: string; command: string }>;
+  runtimeState: ChatRuntimeState;
+  pokeCooldowns: Map<number, number>;
 }
 
 /**

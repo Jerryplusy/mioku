@@ -5,6 +5,7 @@ import type { ChatDatabase } from "../db";
 import type { HumanizeEngine } from "../humanize";
 import type { SkillSessionManager } from "./skill-session";
 import type { GroupStructuredHistoryManager } from "./group-structured-history";
+import { buildStructuredUserInputFromEvent } from "./group-structured-history";
 import type { SessionManager } from "./session";
 import type { RateLimiter } from "./rate-limiter";
 import type { IdleCheckManager } from "./idle-check";
@@ -21,6 +22,7 @@ import type {
   BuildToolContext,
   BuildStructuredUserInput,
 } from "./types";
+import type { ChatPluginContext } from "../context";
 import { getBotRole } from "../utils";
 
 interface CooldownMessage {
@@ -38,33 +40,56 @@ export class CooldownManager {
   private groupCooldownMessages = new Map<string, CooldownMessage[]>();
   private cooldownTimeoutIds = new Map<string, NodeJS.Timeout>();
 
-  constructor(
-    private ctx: MiokiContext,
-    private cfg: ChatConfig,
-    private db: ChatDatabase,
-    private humanize: HumanizeEngine,
-    private aiInstance: AIInstance,
-    private aiService: import("mioku").AIService,
-    private skillManager: SkillSessionManager,
-    private groupStructuredHistory: GroupStructuredHistoryManager,
-    private sessionManager: SessionManager,
-    private rateLimiter: RateLimiter,
-    private idleCheckManager: IdleCheckManager,
-    private runWithRateLimitGuard: RunRateLimitGuard,
-    private buildHistoryMediaOptions: (
-      ai: AIInstance,
-      cfg: ChatConfig,
-    ) => HistoryMediaOptions,
-    private getGroupHistoryMessages: GetGroupHistoryMessages,
-    private getGroupInfoData: GetGroupInfoData,
-    private getHumanizeContexts: GetHumanizeContexts,
-    private sendAIResponse: SendAIResponse,
-    private saveBotMessages: SaveBotMessages,
-    private sendEmoji: SendEmoji,
-    private runChat: RunChat,
-    private buildToolContext: BuildToolContext,
-    private buildStructuredUserInputFromEvent: BuildStructuredUserInput,
-  ) {}
+  private ctx: MiokiContext;
+  private cfg: ChatConfig;
+  private db: ChatDatabase;
+  private humanize: HumanizeEngine;
+  private aiInstance: AIInstance;
+  private aiService: import("mioku").AIService;
+  private skillManager: SkillSessionManager;
+  private groupStructuredHistory: GroupStructuredHistoryManager;
+  private sessionManager: SessionManager;
+  private rateLimiter: RateLimiter;
+  private idleCheckManager: IdleCheckManager;
+  private runWithRateLimitGuard: RunRateLimitGuard;
+  private buildHistoryMediaOptions: (
+    ai: AIInstance,
+    cfg: ChatConfig,
+  ) => HistoryMediaOptions;
+  private getGroupHistoryMessages: GetGroupHistoryMessages;
+  private getGroupInfoData: GetGroupInfoData;
+  private getHumanizeContexts: GetHumanizeContexts;
+  private sendAIResponse: SendAIResponse;
+  private saveBotMessages: SaveBotMessages;
+  private sendEmoji: SendEmoji;
+  private runChat: RunChat;
+  private buildToolContext: BuildToolContext;
+  private buildStructuredUserInputFromEvent: BuildStructuredUserInput;
+
+  constructor(pluginCtx: ChatPluginContext) {
+    this.ctx = pluginCtx.ctx;
+    this.cfg = pluginCtx.config;
+    this.db = pluginCtx.db;
+    this.humanize = pluginCtx.humanize;
+    this.aiInstance = pluginCtx.aiInstance;
+    this.aiService = pluginCtx.aiService;
+    this.skillManager = pluginCtx.skillManager;
+    this.groupStructuredHistory = pluginCtx.groupStructuredHistory;
+    this.sessionManager = pluginCtx.sessionManager;
+    this.rateLimiter = pluginCtx.rateLimiter;
+    this.idleCheckManager = pluginCtx.idleCheckManager;
+    this.runWithRateLimitGuard = pluginCtx.runWithRateLimitGuard;
+    this.buildHistoryMediaOptions = pluginCtx.buildHistoryMediaOptions;
+    this.getGroupHistoryMessages = pluginCtx.getGroupHistoryMessages;
+    this.getGroupInfoData = pluginCtx.getGroupInfoData;
+    this.getHumanizeContexts = pluginCtx.getHumanizeContexts;
+    this.sendAIResponse = pluginCtx.sendAIResponse;
+    this.saveBotMessages = pluginCtx.saveBotMessages;
+    this.sendEmoji = pluginCtx.sendEmoji;
+    this.runChat = pluginCtx.runChat;
+    this.buildToolContext = pluginCtx.buildToolContext;
+    this.buildStructuredUserInputFromEvent = buildStructuredUserInputFromEvent;
+  }
 
   startCooldownTimer(
     groupSessionId: string,

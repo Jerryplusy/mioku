@@ -1,5 +1,6 @@
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import type { MultimodalContentItem } from "mioku";
+import type { TargetMessage } from "../types";
 
 export interface StructuredUserInput {
   userName: string;
@@ -92,6 +93,40 @@ export function buildStructuredUserMessages(
     role: "user",
     content: formatStructuredUserContent(input),
   }));
+}
+
+export function buildStructuredUserInputFromEvent(
+  event: any,
+  content: string,
+  fallbackTimestamp: number = Date.now(),
+): StructuredUserInput {
+  return {
+    userName:
+      event?.sender?.card ||
+      event?.sender?.nickname ||
+      String(event?.user_id || event?.sender?.user_id || 0),
+    userId: event?.user_id || event?.sender?.user_id || 0,
+    userRole: event?.sender?.role || "member",
+    userTitle: event?.sender?.title,
+    content,
+    messageId: event?.message_id,
+    timestamp:
+      typeof event?.time === "number" ? event.time * 1000 : fallbackTimestamp,
+  };
+}
+
+export function buildStructuredUserInputFromTarget(
+  targetMessage: TargetMessage,
+): StructuredUserInput {
+  return {
+    userName: targetMessage.userName,
+    userId: targetMessage.userId,
+    userRole: targetMessage.userRole,
+    userTitle: targetMessage.userTitle,
+    content: targetMessage.content,
+    messageId: targetMessage.messageId,
+    timestamp: targetMessage.timestamp,
+  };
 }
 
 export function attachImagesToCurrentUserMessages(

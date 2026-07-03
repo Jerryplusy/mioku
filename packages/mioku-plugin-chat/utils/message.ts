@@ -505,3 +505,36 @@ export async function getGroupHistory(
     return botMessages;
   }
 }
+
+export function buildChatMessageFromEvent(
+  e: any,
+  text: string,
+  isGroup: boolean,
+  groupId: number | undefined,
+): ChatMessage {
+  const userId: number = e.user_id || e.sender?.user_id;
+  return {
+    sessionId: groupId ? `group:${groupId}` : `personal:${userId}`,
+    role: "user" as const,
+    content: text,
+    userId,
+    userName: e.sender?.card || e.sender?.nickname || String(userId),
+    userRole: e.sender?.role || "member",
+    userTitle: (e.sender as any)?.title || undefined,
+    groupId,
+    groupName: isGroup ? e.group_name : undefined,
+    timestamp: Date.now(),
+    messageId: e.message_id,
+  };
+}
+
+export function normalizeIdList(input: unknown): number[] {
+  if (!Array.isArray(input)) return [];
+  return Array.from(
+    new Set(
+      input
+        .map((item) => Math.floor(Number(item)))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  );
+}
