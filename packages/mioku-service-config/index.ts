@@ -2,8 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import _ from "lodash";
 import { logger } from "mioki";
-import type { MiokuService } from "mioku";
-import { ConfigService } from "./tpyes";
+import type { MiokuService, ConfigService } from "mioku";
 
 /**
  * 配置管理器实现

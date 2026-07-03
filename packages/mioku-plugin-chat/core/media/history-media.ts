@@ -12,14 +12,51 @@ const execFileAsync = promisify(execFile);
 const VIDEO_FRAME_COUNT = 5;
 const VIDEO_FRAME_EXTRACTION_FALLBACK =
   "用户发送了一个视频，但未能提取画面内容";
+// 体积阈值：超过此大小（10MB）的视频不再整体上传给多模态工作模型，改用抽帧。
+export const VIDEO_FULL_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
 
 interface SummaryResult {
   summary: string;
 }
 
+export interface MediaMessageSegment {
+  type?: string;
+  file?: string;
+  path?: string;
+  url?: string;
+  id?: string;
+  data?: {
+    file?: string;
+    path?: string;
+    url?: string;
+    id?: string;
+    data?: string;
+    xml?: string;
+  };
+}
+
+export function getSegmentSourceCandidates(seg: MediaMessageSegment): string[] {
+  return Array.from(
+    new Set(
+      [
+        seg?.file,
+        seg?.data?.file,
+        seg?.path,
+        seg?.data?.path,
+        seg?.url,
+        seg?.data?.url,
+      ]
+        .map((v) => (typeof v === "string" ? v.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+}
+
 export interface MediaSummaryStore {
   getMediaSummary(key: string): MediaSummaryRecord | null;
   saveMediaSummary(summary: MediaSummaryRecord): void;
+  getMediaSummaryBySource?(sourceKey: string): MediaSummaryRecord | null;
+  saveMediaSummarySource?(sourceKey: string, summaryKey: string): void;
 }
 
 export interface HistoryMediaProcessingOptions {
@@ -71,53 +108,8 @@ export async function summarizeHistoryVideo(
       videoFile.source,
       videoFile.contentHash,
       options,
-      async () => {
-        const frames = await extractVideoFrames(
-          videoFile.path,
-          VIDEO_FRAME_COUNT,
-          options,
-        );
-        if (frames.length === 0) {
-          getHistoryMediaLogger(options).warn(
-            "[history-media] Video frame extraction returned 0 frames",
-          );
-          return VIDEO_FRAME_EXTRACTION_FALLBACK;
-        }
-
-        const content: any[] = [
-          {
-            type: "text",
-            text: `These ${frames.length} frames were sampled evenly from a chat video. Summarize the video's likely content in Chinese for chat history context. Mention visible people/objects/actions/text, and keep it concise.`,
-          },
-          ...frames.map((frame) => ({
-            type: "image_url",
-            image_url: { url: frame, detail: "auto" },
-          })),
-        ];
-
-        const response = await runHistoryMediaAIRequest(options, () =>
-          options.ai!.complete({
-            model: options.multimodalWorkingModel,
-            messages: [
-              {
-                role: "system",
-                content:
-                  "You summarize video frames for a chat history. Be factual and concise. If frames are ambiguous, say so.",
-              },
-              {
-                role: "user",
-                content,
-              },
-            ],
-            temperature: 0.3,
-          }),
-        );
-        if (!response) {
-          return "";
-        }
-
-        return normalizeSummary(response.content);
-      },
+      () => summarizeVideoContent(videoFile.path, videoFile.byteSize, options),
+      sources,
     );
 
     logMediaSummary(options, "video", result.summary);
@@ -127,30 +119,128 @@ export async function summarizeHistoryVideo(
   }
 }
 
+export async function summarizeVideoContent(
+  videoPath: string,
+  byteSize: number,
+  options: HistoryMediaProcessingOptions,
+): Promise<string> {
+  // 小视频直接整体喂给多模态工作模型；过大则抽帧避免请求体爆炸。
+  if (byteSize <= VIDEO_FULL_UPLOAD_MAX_BYTES) {
+    try {
+      const summary = await summarizeVideoByFullVideo(videoPath, options);
+      if (summary) return summary;
+    } catch (err) {
+      getHistoryMediaLogger(options).warn(
+        `[history-media] Full-video summarization failed, falling back to frames: ${err}`,
+      );
+    }
+  }
+  return summarizeVideoByFrames(videoPath, options);
+}
+
+async function summarizeVideoByFullVideo(
+  videoPath: string,
+  options: HistoryMediaProcessingOptions,
+): Promise<string> {
+  const mimeType = await probeVideoMimeType(videoPath);
+  const buffer = await fs.readFile(videoPath);
+  const dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
+
+  const content: any[] = [
+    {
+      type: "text",
+      text: "This is a video sent by someone in a chat. Summarize the video's content in Chinese for later use as chat history context: describe the visible people/objects/actions/scenes/on-screen text, and briefly explain what the video is about. Stay factual and concise; state uncertainty honestly when unclear.",
+    },
+    {
+      type: "video_url",
+      video_url: { url: dataUrl },
+    },
+  ];
+
+  const response = await runHistoryMediaAIRequest(options, () =>
+    options.ai!.complete({
+      model: options.multimodalWorkingModel,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You summarize video content for a chat history. Describe only what the video actually shows, objectively and concisely. Do not invent information that is not present.",
+        },
+        {
+          role: "user",
+          content,
+        },
+      ],
+      temperature: 0.3,
+    }),
+  );
+  if (!response) return "";
+  return normalizeSummary(response.content);
+}
+
+async function summarizeVideoByFrames(
+  videoPath: string,
+  options: HistoryMediaProcessingOptions,
+): Promise<string> {
+  const frames = await extractVideoFrames(
+    videoPath,
+    VIDEO_FRAME_COUNT,
+    options,
+  );
+  if (frames.length === 0) {
+    getHistoryMediaLogger(options).warn(
+      "[history-media] Video frame extraction returned 0 frames",
+    );
+    return VIDEO_FRAME_EXTRACTION_FALLBACK;
+  }
+
+  const content: any[] = [
+    {
+      type: "text",
+      text: `These ${frames.length} frames were sampled evenly from a video sent in a chat. Summarize the video's likely content in Chinese for later use as chat history context: note the visible people/objects/actions/on-screen text, and infer what the video is about. Stay factual and concise; if the frames are ambiguous or insufficient, say so honestly.`,
+    },
+    ...frames.map((frame) => ({
+      type: "image_url",
+      image_url: { url: frame, detail: "auto" },
+    })),
+  ];
+
+  const response = await runHistoryMediaAIRequest(options, () =>
+    options.ai!.complete({
+      model: options.multimodalWorkingModel,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You summarize video content for a chat history from evenly sampled frames. Describe what the frames plausibly show, objectively and concisely. Do not invent information that is not present.",
+        },
+        {
+          role: "user",
+          content,
+        },
+      ],
+      temperature: 0.3,
+    }),
+  );
+  if (!response) return "";
+  return normalizeSummary(response.content);
+}
+
 export async function getCachedHistoryVideoTag(
   videoSource: string | string[],
   options: HistoryMediaProcessingOptions,
 ): Promise<string> {
   const sources = normalizeVideoSources(videoSource);
   if (sources.length === 0) return "[video]";
-  try {
-    const videoFile = await downloadVideoForAnalysis(sources, options);
-    try {
-      const summary = getCachedSummaryByHash(
-        "video",
-        videoFile.contentHash,
-        options,
-      );
-      return summary ? `[video:${summary}]` : "[video]";
-    } finally {
-      await videoFile.cleanup();
+
+  for (const source of sources) {
+    const cached = options.db?.getMediaSummaryBySource?.(source);
+    if (cached?.summary && !isFallbackVideoSummary(cached.summary)) {
+      return `[video:${cached.summary}]`;
     }
-  } catch (err) {
-    getHistoryMediaLogger(options).warn(
-      `[history-media] Failed to resolve cached video by hash: ${err}`,
-    );
-    return "[video]";
   }
+
+  return "[video]";
 }
 
 export async function summarizeHistoryForward(
@@ -315,8 +405,16 @@ async function getOrCreateSummary(
   contentHash: string,
   options: HistoryMediaProcessingOptions,
   producer: () => Promise<string>,
+  sourceAliases: string[] = [],
 ): Promise<SummaryResult> {
   const cacheKey = `${kind}:${contentHash}`;
+  const aliases = Array.from(
+    new Set(
+      [source, ...sourceAliases]
+        .map((s) => String(s || "").trim())
+        .filter(Boolean),
+    ),
+  );
   const cached = options.db?.getMediaSummary(cacheKey);
   if (cached?.summary) {
     if (kind === "video") {
@@ -325,9 +423,11 @@ async function getOrCreateSummary(
         // Old versions cached this probe failure as a valid summary. Ignore it
         // so the new message can be downloaded and diagnosed again.
       } else {
+        writeMediaSummarySources(options, cacheKey, aliases);
         return { summary: cached.summary };
       }
     } else {
+      writeMediaSummarySources(options, cacheKey, aliases);
       return { summary: cached.summary };
     }
   }
@@ -345,6 +445,7 @@ async function getOrCreateSummary(
         summary,
         createdAt: Date.now(),
       });
+      writeMediaSummarySources(options, cacheKey, aliases);
       return { summary };
     }
   } catch (err) {
@@ -356,6 +457,17 @@ async function getOrCreateSummary(
   return {
     summary: kind === "video" ? "用户发送了一个视频。" : "内容暂时无法解析。",
   };
+}
+
+function writeMediaSummarySources(
+  options: HistoryMediaProcessingOptions,
+  summaryKey: string,
+  sources: string[],
+): void {
+  if (!options.db?.saveMediaSummarySource) return;
+  for (const source of sources) {
+    options.db.saveMediaSummarySource!(source, summaryKey);
+  }
 }
 
 function logMediaSummary(
@@ -476,6 +588,39 @@ async function probeVideoDuration(videoUrl: string): Promise<number> {
   );
   const duration = Number(String(stdout).trim());
   return Number.isFinite(duration) && duration > 0 ? duration : 1;
+}
+
+export async function probeVideoMimeType(videoPath: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(
+      "ffprobe",
+      [
+        "-v",
+        "error",
+        "-show_entries",
+        "format=format_name",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        videoPath,
+      ],
+      { timeout: 20_000 },
+    );
+    return mapFormatNameToMimeType(String(stdout).trim());
+  } catch {
+    return "video/mp4";
+  }
+}
+
+function mapFormatNameToMimeType(formatName: string): string {
+  const names = formatName.split(",").map((s) => s.trim().toLowerCase());
+  if (names.some((n) => n === "webm")) return "video/webm";
+  if (names.some((n) => n === "matroska" || n === "mkv"))
+    return "video/x-matroska";
+  if (names.some((n) => n === "avi")) return "video/x-msvideo";
+  if (names.some((n) => n === "flv")) return "video/x-flv";
+  if (names.some((n) => n === "mov" || n === "mp4" || n === "m4v"))
+    return "video/mp4";
+  return "video/mp4";
 }
 
 function buildFfmpegInputArgs(input: string, args: string[]): string[] {
@@ -610,20 +755,23 @@ function truncateText(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }
 
-async function downloadVideoForAnalysis(
+export async function downloadVideoForAnalysis(
   sources: string | string[],
   options: HistoryMediaProcessingOptions,
 ): Promise<{
   path: string;
   source: string;
   contentHash: string;
+  byteSize: number;
   cleanup: () => Promise<void>;
 }> {
   const candidates = normalizeVideoSources(sources);
   let lastError: unknown;
 
   for (const source of candidates) {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "mioku-video-src-"));
+    const tempDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "mioku-video-src-"),
+    );
     const filePath = path.join(tempDir, "video");
 
     try {
@@ -633,6 +781,7 @@ async function downloadVideoForAnalysis(
         path: filePath,
         source,
         contentHash: hashSource(buffer),
+        byteSize: buffer.length,
         cleanup: () => fs.rm(tempDir, { recursive: true, force: true }),
       };
     } catch (err) {
@@ -677,11 +826,7 @@ async function readVideoSource(source: string): Promise<Buffer> {
 function normalizeVideoSources(input: string | string[]): string[] {
   const raw = Array.isArray(input) ? input : [input];
   return Array.from(
-    new Set(
-      raw
-        .map((source) => String(source || "").trim())
-        .filter(Boolean),
-    ),
+    new Set(raw.map((source) => String(source || "").trim()).filter(Boolean)),
   );
 }
 

@@ -179,6 +179,7 @@ export interface ChatConfig {
   workingModel: string;
   multimodalWorkingModel: string;
   isMultimodal: boolean;
+  enableMediaRecognition: boolean;
   nicknames: string[];
   persona: string;
   maxContextTokens: number;

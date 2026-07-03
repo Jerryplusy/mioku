@@ -1,6 +1,7 @@
 import type { AIInstance } from "mioku";
 import type { MiokiContext } from "mioki";
 import { logger } from "mioki";
+import { prepareImageUrlsForModel } from "./media/image-compress";
 
 /**
  * 多模态内容管理器
@@ -46,6 +47,8 @@ export async function describeImage(
         );
       }
     }
+
+    imageUrls = await prepareImageUrlsForModel(imageUrls);
 
     // 构建提示词
     const systemPrompt = `You are an image analysis assistant. Your task is to provide a detailed, accurate description of the image.
@@ -110,36 +113,45 @@ ${context ? `\nUser context: ${context}` : ""}`;
   }
 }
 
+export type MediaByMessageId =
+  | { kind: "image"; url: string }
+  | { kind: "video"; sources: string[] }
+  | null;
+
 /**
- * 获取指定消息 ID 中的图片 URL
+ * 获取指定消息 ID 中的首个媒体（图片或视频）
  * @param ctx Mioki 上下文
  * @param messageId 消息 ID
  * @param e
- * @returns 图片 URL 或 null
+ * @returns 媒体信息或 null
  */
-export async function getImageUrlByMessageId(
+export async function getMediaByMessageId(
   ctx: MiokiContext,
   messageId: number,
   e: any,
-): Promise<string | null> {
+): Promise<MediaByMessageId> {
   try {
-    // 通过 message_id 获取消息详情
     const msg = await ctx.pickBot(e.self_id).getMsg(messageId);
     if (!msg || !msg.message) {
       return null;
     }
 
-    // 查找图片段
-    const imageSeg = msg.message.find((s: any) => s.type === "image");
-    if (!imageSeg) {
-      return null;
+    for (const seg of msg.message as any[]) {
+      if (seg.type === "image") {
+        const url = seg.url || seg.data?.url;
+        if (url) return { kind: "image", url };
+      }
+      if (seg.type === "video") {
+        const { getSegmentSourceCandidates } = await import("./media/history-media");
+        const sources = getSegmentSourceCandidates(seg);
+        if (sources.length > 0) return { kind: "video", sources };
+      }
     }
 
-    // 提取图片 URL
-    return (imageSeg as any).url || (imageSeg as any).data?.url || null;
+    return null;
   } catch (err) {
     logger.error(
-      `[multimodal] Failed to get image URL from message ${messageId}: ${err}`,
+      `[multimodal] Failed to get media from message ${messageId}: ${err}`,
     );
     return null;
   }

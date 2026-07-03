@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, createWriteStream, unlink } from "fs";
 import * as https from "https";
 import * as http from "http";
 import { URL } from "url";
+import { prepareImageUrlsForModel } from "./image-compress";
 
 /**
  * 图片分析结果
@@ -74,27 +75,25 @@ const EMOTION_TAGS = [
 ];
 
 /**
- * 计算图片内容的哈希值
+ * 计算图片内容的哈希值（仅基于下载到的图片字节；URL 不参与哈希）
  */
-export async function calculateImageHash(url: string): Promise<string> {
+export async function calculateImageHash(url: string): Promise<string | null> {
   try {
-    // 下载图片内容
     const response = await fetch(url);
     if (!response.ok) {
-      // 如果下载失败，降级为 URL 哈希
-      return crypto.createHash("md5").update(url).digest("hex");
+      logger.warn(
+        `[image-analyzer] Failed to download image for hashing: ${response.status} ${response.statusText}`,
+      );
+      return null;
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
-
-    // 基于图片内容计算哈希
     return crypto.createHash("md5").update(buffer).digest("hex");
   } catch (err) {
     logger.warn(
-      `[image-analyzer] Failed to calculate content hash, using URL hash: ${err}`,
+      `[image-analyzer] Failed to download image for hashing: ${err}`,
     );
-    // 降级为 URL 哈希
-    return crypto.createHash("md5").update(url).digest("hex");
+    return null;
   }
 }
 
@@ -175,6 +174,8 @@ export async function analyzeImage(
         );
       }
     }
+
+    imageUrls = await prepareImageUrlsForModel(imageUrls);
 
     const systemPrompt = `You are an image classification and analysis assistant. Analyze images and return structured information.
 
@@ -336,6 +337,12 @@ export async function processImage(
   try {
     // 计算哈希（基于图片内容）
     const hash = await calculateImageHash(imageUrl);
+    if (!hash) {
+      logger.warn(
+        `[image-analyzer] Skipping analysis, image content unavailable: ${imageUrl}`,
+      );
+      return null;
+    }
 
     // 检查是否已存在
     const existing = db.getImageByHash(hash);
@@ -343,7 +350,13 @@ export async function processImage(
       logger.info(formatImageRecognitionLog(existing));
       return existing;
     }
-    const analysis = await analyzeImage(ai, imageUrl, model, undefined, options);
+    const analysis = await analyzeImage(
+      ai,
+      imageUrl,
+      model,
+      undefined,
+      options,
+    );
     if (!analysis.success || !analysis.type) {
       logger.warn(`[image-analyzer] Analysis failed: ${analysis.error}`);
       return null;
@@ -436,15 +449,11 @@ export async function processImage(
 
 /**
  * 从图片 URL 获取描述标签
- * 如果图片已在数据库中，返回 [meme:描述] 或 [image:描述]
- * 否则返回 [image]
+ * 命中数据库记录时返回 [meme:描述] 或 [image:描述]，否则返回 [image]。
+ * 收集聊天历史时用它，之前没识别到的图片不会再次触发请求。
  */
-export async function getImageTag(
-  imageUrl: string,
-  db: ChatDatabase,
-): Promise<string> {
-  const hash = await calculateImageHash(imageUrl);
-  const record = db.getImageByHash(hash);
+export function getImageTag(imageUrl: string, db: ChatDatabase): string {
+  const record = db.getImageByUrl(imageUrl);
 
   if (record) {
     return `[${record.type}:${record.description}]`;

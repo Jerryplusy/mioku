@@ -1,5 +1,6 @@
 import type { AIInstance } from "mioku";
 import { logger } from "mioki";
+import { extractJsonObject } from "../utils/json";
 import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
 
 export interface EmotionState {
@@ -132,10 +133,8 @@ ${input.targetMessage.userName}: ${input.targetMessage.content}`;
     });
 
     const content = response.content || "";
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return this.getDefaultEmotion();
-
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = extractJsonObject(content);
+    if (parsed === undefined) return this.getDefaultEmotion();
     return this.resolveEmotion(parsed?.emotion);
   }
 

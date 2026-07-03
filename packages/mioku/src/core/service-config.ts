@@ -1,5 +1,7 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import * as fs from "fs/promises";
+import * as path from "path";
+import { existsSync, mkdirSync } from "fs";
+import { logger } from "./logger";
 
 const SERVICE_CONFIG_ROOT = "service";
 
@@ -13,80 +15,74 @@ function resolveConfigPath(serviceName: string, configName: string): string {
 
 function ensureDir(serviceName: string): void {
   const dir = resolveConfigDir(serviceName);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
-export function registerServiceConfig(
+export async function registerServiceConfig(
   serviceName: string,
   configName: string,
-  defaults: Record<string, any>,
-): void {
+  defaults: Record<string, unknown>,
+): Promise<void> {
   ensureDir(serviceName);
   const configPath = resolveConfigPath(serviceName, configName);
-  if (!fs.existsSync(configPath)) {
-    fs.writeFileSync(configPath, JSON.stringify(defaults, null, 2), "utf-8");
+  if (!existsSync(configPath)) {
+    await fs.writeFile(configPath, JSON.stringify(defaults, null, 2), "utf-8");
   }
 }
 
-export function getServiceConfig(
+export async function getServiceConfig(
   serviceName: string,
   configName: string,
-): Record<string, any> {
+): Promise<Record<string, unknown>> {
   const configPath = resolveConfigPath(serviceName, configName);
   try {
-    if (fs.existsSync(configPath)) {
-      return JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    }
-  } catch {}
-  return {};
+    return JSON.parse(await fs.readFile(configPath, "utf-8"));
+  } catch (error) {
+    if (!existsSync(configPath)) return {};
+    logger.warn(`[service-config] 读取 ${serviceName}/${configName} 失败: ${error}`);
+    return {};
+  }
 }
 
-export function updateServiceConfig(
+export async function updateServiceConfig(
   serviceName: string,
   configName: string,
-  value: Record<string, any>,
-): void {
+  value: Record<string, unknown>,
+): Promise<void> {
   ensureDir(serviceName);
-  fs.writeFileSync(
+  await fs.writeFile(
     resolveConfigPath(serviceName, configName),
     JSON.stringify(value, null, 2),
     "utf-8",
   );
 }
 
-export function getServiceConfigs(
+export async function getServiceConfigs(
   serviceName: string,
-): Record<string, any> {
+): Promise<Record<string, Record<string, unknown>>> {
   const dir = resolveConfigDir(serviceName);
-  if (!fs.existsSync(dir)) {
-    return {};
-  }
+  if (!existsSync(dir)) return {};
 
-  const result: Record<string, any> = {};
-  const files = fs.readdirSync(dir).filter((name) => name.endsWith(".json"));
-
+  const result: Record<string, Record<string, unknown>> = {};
+  const files = (await fs.readdir(dir)).filter((name) => name.endsWith(".json"));
   for (const file of files) {
-    const filePath = path.join(dir, file);
     try {
       result[path.basename(file, ".json")] = JSON.parse(
-        fs.readFileSync(filePath, "utf-8"),
+        await fs.readFile(path.join(dir, file), "utf-8"),
       );
-    } catch {}
+    } catch (error) {
+      logger.warn(`[service-config] 读取 ${serviceName}/${file} 失败: ${error}`);
+    }
   }
-
   return result;
 }
 
-export function deleteServiceConfig(
+export async function deleteServiceConfig(
   serviceName: string,
   configName: string,
-): boolean {
+): Promise<boolean> {
   const configPath = resolveConfigPath(serviceName, configName);
-  if (!fs.existsSync(configPath)) {
-    return false;
-  }
-  fs.unlinkSync(configPath);
+  if (!existsSync(configPath)) return false;
+  await fs.unlink(configPath);
   return true;
 }

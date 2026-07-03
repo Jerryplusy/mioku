@@ -1,184 +1,103 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { mkdirSync } from "fs";
-import type { PluginMetadata } from "./types";
+import type {
+  MiokuRuntimeConfig,
+  PackageJsonLike,
+  PluginMetadata,
+  PluginPackageConfig,
+} from "../types";
 import { DEFAULT_RUNTIME_PLUGINS_DIR } from "./plugin-linker";
 import { logger } from "./logger";
+import {
+  scanLocalDir,
+  scanNodeModules,
+  pathExists,
+  resolveRealpath,
+} from "./module-scanner";
+import { getOrCreate } from "./registry";
 
-const PLUGIN_MANAGER_SYMBOL = Symbol.for("mioku.plugin-manager");
+const PLUGIN_PREFIX = "mioku-plugin-";
 
-async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * 插件管理器
- *
- * Discover and manage plugins from both local directories and node_modules.
- */
 export class PluginManager {
-  private pluginMetadata: Map<string, PluginMetadata> = new Map();
+  private plugins = new Map<string, PluginMetadata>();
 
-  public static getInstance(): PluginManager {
-    const g = global as any;
-    if (!g[PLUGIN_MANAGER_SYMBOL]) {
-      g[PLUGIN_MANAGER_SYMBOL] = new PluginManager();
-    }
-    return g[PLUGIN_MANAGER_SYMBOL];
+  static getInstance(): PluginManager {
+    return getOrCreate("plugin-manager", () => new PluginManager());
   }
 
-  async discoverPlugins(miokuConfig: any = {}): Promise<PluginMetadata[]> {
-    // Resolve pluginsDir dynamically so it uses the current cwd
-    const configuredPluginsDir = miokuConfig.plugins_dir;
+  async discoverPlugins(miokuConfig: MiokuRuntimeConfig = {}): Promise<PluginMetadata[]> {
+    const configuredDir = miokuConfig.plugins_dir;
     const pluginsDir =
-      configuredPluginsDir && configuredPluginsDir !== DEFAULT_RUNTIME_PLUGINS_DIR
-        ? path.resolve(process.cwd(), configuredPluginsDir)
+      configuredDir && configuredDir !== DEFAULT_RUNTIME_PLUGINS_DIR
+        ? path.resolve(process.cwd(), configuredDir)
         : path.resolve(process.cwd(), "plugins");
 
-    this.pluginMetadata.clear();
+    this.plugins.clear();
 
-    // Ensure plugins directory exists
     if (!(await pathExists(pluginsDir))) {
       mkdirSync(pluginsDir, { recursive: true });
     }
 
-    const discovered: PluginMetadata[] = [];
-
-    // Discover from local plugins/ directory
-    if (await pathExists(pluginsDir)) {
-      const localPlugins = await this.discoverFromDir(pluginsDir);
-      discovered.push(...localPlugins);
+    const local = await scanLocalDir(pluginsDir);
+    for (const { name, path: p } of local) {
+      const metadata = await this.loadPluginMetadata(name, p);
+      if (metadata) this.plugins.set(metadata.name, metadata);
     }
 
-    // Discover from node_modules (mioku-plugin-* prefix)
-    const nodeModulesPlugins = await this.discoverFromNodeModules();
-    discovered.push(...nodeModulesPlugins);
-
-    logger.info(`O.o 发现了 ${this.pluginMetadata.size} 个插件`);
-    return Array.from(this.pluginMetadata.values());
-  }
-
-  private async discoverFromDir(pluginsDir: string): Promise<PluginMetadata[]> {
-    const discovered: PluginMetadata[] = [];
-
-    try {
-      const entries = await fs.readdir(pluginsDir, { withFileTypes: true });
-      for (const entry of entries) {
-        const pluginPath = path.join(pluginsDir, entry.name);
-        const metadataPath = await this.resolveDirectoryPath(pluginPath);
-        if (!metadataPath) continue;
-
-        const metadata = await this.loadPluginMetadata(entry.name, pluginPath);
-        if (metadata) {
-          discovered.push(metadata);
-          this.pluginMetadata.set(metadata.name, metadata);
-        }
-      }
-    } catch (error) {
-      logger.error(`扫描插件目录失败: ${error}`);
+    const external = await scanNodeModules(PLUGIN_PREFIX);
+    for (const { name, path: p } of external) {
+      const metadata = await this.loadPluginMetadata(name, p);
+      if (metadata) this.plugins.set(metadata.name, metadata);
     }
 
-    return discovered;
-  }
-
-  private async discoverFromNodeModules(): Promise<PluginMetadata[]> {
-    const discovered: PluginMetadata[] = [];
-    const nodeModulesPath = path.resolve(process.cwd(), "node_modules");
-
-    if (!(await pathExists(nodeModulesPath))) {
-      return discovered;
-    }
-
-    try {
-      const entries = await fs.readdir(nodeModulesPath, { withFileTypes: true });
-      for (const entry of entries) {
-        // Check for mioku-plugin-* prefix (don't check isDirectory - symlinks return false)
-        if (!entry.name.startsWith("mioku-plugin-")) {
-          continue;
-        }
-
-        const pluginName = entry.name.replace(/^mioku-plugin-/, "");
-        const pluginPath = path.join(nodeModulesPath, entry.name);
-        const metadata = await this.loadPluginMetadata(pluginName, pluginPath);
-        if (metadata) {
-          discovered.push(metadata);
-          this.pluginMetadata.set(metadata.name, metadata);
-        }
-      }
-    } catch (error) {
-      logger.debug(`扫描 node_modules 插件失败: ${error}`);
-    }
-
-    return discovered;
-  }
-
-  private async resolveDirectoryPath(entryPath: string): Promise<string | null> {
-    try {
-      const stat = await fs.stat(entryPath);
-      return stat.isDirectory() ? entryPath : null;
-    } catch {
-      return null;
-    }
+    logger.info(`O.o 发现了 ${this.plugins.size} 个插件`);
+    return [...this.plugins.values()];
   }
 
   private async loadPluginMetadata(
     name: string,
     pluginPath: string,
   ): Promise<PluginMetadata | null> {
-    // Resolve symlinks to get actual path
-    let resolvedPath = pluginPath;
+    const resolvedPath = await resolveRealpath(pluginPath);
+    let packageJson: PackageJsonLike | null = null;
     try {
-      resolvedPath = await fs.realpath(pluginPath);
-    } catch {
-      // Not a symlink or doesn't exist, use original path
+      packageJson = JSON.parse(
+        await fs.readFile(path.join(resolvedPath, "package.json"), "utf-8"),
+      );
+    } catch (error) {
+      logger.warn(`[plugin-manager] 读取 ${name} 的 package.json 失败: ${error}`);
     }
 
-    const packageJsonPath = path.join(resolvedPath, "package.json");
-
-    let packageJson: any = null;
-    try {
-      const content = await fs.readFile(packageJsonPath, "utf-8");
-      packageJson = JSON.parse(content);
-    } catch {
-      // File doesn't exist or can't be read - plugin uses defaults
-    }
-
-    const metadata: PluginMetadata = {
+    const config: PluginPackageConfig = packageJson?.mioku ?? {};
+    return {
       name,
-      version: packageJson?.version || "0.0.0",
+      version: packageJson?.version ?? "0.0.0",
       description: packageJson?.description,
       path: resolvedPath,
-      packageJson,
-      config: packageJson?.mioku || {},
+      packageJson: packageJson ?? {},
+      config,
     };
-    return metadata;
   }
 
   collectRequiredServices(): Set<string> {
     const services = new Set<string>();
-    for (const metadata of this.pluginMetadata.values()) {
-      if (metadata.config.services) {
-        metadata.config.services.forEach((s) => services.add(s));
-      }
+    for (const metadata of this.plugins.values()) {
+      for (const service of metadata.config.services ?? []) services.add(service);
     }
     return services;
   }
 
   getPluginMetadata(name: string): PluginMetadata | undefined {
-    return this.pluginMetadata.get(name);
+    return this.plugins.get(name);
   }
 
   getAllMetadata(): PluginMetadata[] {
-    return Array.from(this.pluginMetadata.values());
+    return [...this.plugins.values()];
   }
 
   reset(): void {
-    this.pluginMetadata.clear();
+    this.plugins.clear();
   }
 }
 

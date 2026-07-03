@@ -1,31 +1,21 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import type { PluginMetadata } from "./types";
+import type { PluginMetadata } from "../types";
 import { logger } from "./logger";
+import { pathExists } from "./module-scanner";
 
 export const DEFAULT_RUNTIME_PLUGINS_DIR = ".mioku/plugins";
 
-async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
+type SymlinkState = "ok" | "blocked" | "removed";
 
-async function removeIfBrokenSymlink(entryPath: string): Promise<"ok" | "blocked" | "removed"> {
+async function removeIfBrokenSymlink(entryPath: string): Promise<SymlinkState> {
   let stat;
   try {
     stat = await fs.lstat(entryPath);
   } catch {
     return "removed";
   }
-
-  if (!stat.isSymbolicLink()) {
-    return "blocked";
-  }
-
+  if (!stat.isSymbolicLink()) return "blocked";
   try {
     await fs.realpath(entryPath);
     return "ok";
@@ -37,8 +27,7 @@ async function removeIfBrokenSymlink(entryPath: string): Promise<"ok" | "blocked
 }
 
 function relativeSymlinkTarget(linkPath: string, targetPath: string): string {
-  const relativePath = path.relative(path.dirname(linkPath), targetPath);
-  return relativePath || ".";
+  return path.relative(path.dirname(linkPath), targetPath) || ".";
 }
 
 async function ensurePluginLink(
@@ -59,9 +48,7 @@ async function ensurePluginLink(
     try {
       const currentTarget = await fs.realpath(linkPath);
       const expectedTarget = await fs.realpath(targetPath);
-      if (currentTarget === expectedTarget) {
-        return true;
-      }
+      if (currentTarget === expectedTarget) return true;
       await fs.rm(linkPath, { force: true });
       logger.info(`[plugin-linker] Rebuilding plugin link: ${metadata.name}`);
     } catch {
@@ -82,9 +69,8 @@ async function ensurePluginLink(
     return false;
   }
 
-  // Use junction on Windows (no admin needed), symlink on Unix
+  // Junctions on Windows don't require admin rights; relative dir symlinks elsewhere.
   if (process.platform === "win32") {
-    // Junctions require absolute paths
     await fs.symlink(targetPath, linkPath, "junction");
   } else {
     await fs.symlink(relativeSymlinkTarget(linkPath, targetPath), linkPath, "dir");
@@ -98,16 +84,12 @@ export async function prepareRuntimePluginLinks(
 ): Promise<string[]> {
   await fs.mkdir(runtimePluginsDir, { recursive: true });
 
-  const discoveredNames = new Set(plugins.map((plugin) => plugin.name));
+  const discoveredNames = new Set(plugins.map((p) => p.name));
   const entries = await fs.readdir(runtimePluginsDir, { withFileTypes: true });
 
   for (const entry of entries) {
     const entryPath = path.join(runtimePluginsDir, entry.name);
-    const symlinkState = await removeIfBrokenSymlink(entryPath);
-    if (symlinkState !== "ok") {
-      continue;
-    }
-
+    if ((await removeIfBrokenSymlink(entryPath)) !== "ok") continue;
     if (entry.isSymbolicLink() && !discoveredNames.has(entry.name)) {
       await fs.rm(entryPath, { force: true });
       logger.info(`[plugin-linker] Removed stale plugin link: ${entry.name}`);
@@ -120,6 +102,5 @@ export async function prepareRuntimePluginLinks(
       linkedNames.push(metadata.name);
     }
   }
-
   return linkedNames;
 }

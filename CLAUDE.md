@@ -16,19 +16,21 @@ Bun workspaces (declared in root `package.json`, **not** `pnpm-workspace.yaml` �
 packages/
   mioku/                  # the framework package (builds to dist/, exports the `mioku` bin)
     src/
-      index.ts            # public API + start()
-      cli.ts              # `npx mioku` CLI (scaffold, install, update)
+      index.ts            # public API + thin start() orchestrator
+      cli/                # `npx mioku` CLI: index (dispatch) + scaffold + install + update + shared
       core/
-        plugin-manager.ts     # scans plugins/ + node_modules for mioku-plugin-*
-        service-manager.ts    # scans services/ + node_modules for mioku-service-*
+        bootstrap.ts          # start() steps: prepareEnvironment → discoverAndLinkPlugins → discoverServices → validateServiceDependencies → applyPluginAllowlist → delegateToMioki
+        registry.ts           # getOrCreate() global singleton helper (jiti-safe)
+        module-scanner.ts     # shared scanNodeModules/scanLocalDir + toImportPath
+        plugin-manager.ts     # discovers plugins (uses module-scanner + registry)
+        service-manager.ts    # discovers/loads services (uses module-scanner + registry)
         plugin-linker.ts      # creates symlinks in .mioku/plugins/ for runtime
         plugin-artifact-registry.ts  # auto-loads help manifests + skills.ts per plugin
+        service-config.ts     # async JSON config helpers for services (fs/promises)
         data-paths.ts         # cwd-relative path helpers (re-exported from mioku)
         plugin-runtime-state.ts
         logger.ts
-        types.ts
-      types.ts            # MiokuService, PluginHelp, CommandRole, …
-      service-types.ts    # ConfigService, AIService, HelpService, ScreenshotService, …
+      types.ts            # single source of truth: MiokuService, AIService, AISkill, ChatRuntime*, AIUsage*, PluginHelp, …
   mioku-plugin-*/         # one folder per plugin
   mioku-service-*/        # one folder per service
 example/                  # the dev/run playground (cwd when `bun run start` is invoked)
@@ -128,7 +130,7 @@ Services are discovered by name (`mioku-service-<name>` → service name `<name>
 
 ## AI Skill system
 
-Each plugin can register one `AISkill` (typically named the same as the plugin) containing many `AITool`s. Tools are called by the model as `{skill_name}.{tool_name}` — this avoids the namespace collision that global tool registration would cause. Both types are defined in `packages/mioku/src/service-types.ts` and `packages/mioku/src/core/types.ts`.
+Each plugin can register one `AISkill` (typically named the same as the plugin) containing many `AITool`s. Tools are called by the model as `{skill_name}.{tool_name}` — this avoids the namespace collision that global tool registration would cause. Both types live in `packages/mioku/src/types.ts` (single source of truth; the old `service-types.ts` / `core/types.ts` duplicates were merged into it).
 
 `AISkill` supports an optional `permission: "owner" | "admin" | "member"` field. The AI service uses this to gate tool invocation before the handler runs. Set the permission deliberately; defaulting to `member` is rarely what you want for side-effecting tools.
 
@@ -148,7 +150,7 @@ When you change a plugin or service, run it against `example/` to verify. The `d
 
 ## CLI (`npx mioku`)
 
-`packages/mioku/src/cli.ts` is the entrypoint for the `mioku` bin. Subcommands used during development:
+`packages/mioku/src/cli/` holds the `mioku` bin entrypoints (`index.ts` dispatch + `scaffold.ts` / `install.ts` / `update.ts` / `shared.ts`). Subcommands used during development:
 
 - `npx mioku` — interactive scaffold: asks for project name, NapCat WS host/port/token, master QQ, whether to install WebUI.
 - `npx mioku install plugin <name>` / `npx mioku install service <name>` — installs from the registry.
@@ -167,7 +169,7 @@ These are the rules future-you will trip over most often. Most of them are flagg
 - **Default export of `skills.ts` is `AISkill[]`** (or a single `AISkill`). The registry inspects `moduleExports.default`, then `moduleExports.skills`, then the module itself. Tools end up callable as `{skillName}.{toolName}` — namespace isolation is the whole point. Source: `packages/mioku/src/core/plugin-artifact-registry.ts` `extractSkills`.
 - **All service types come from `"mioku"`, not from the individual `mioku-service-*` packages.** `AIService`, `ConfigService`, `HelpService`, `ScreenshotService`, `WebUIService` are re-exported by `packages/mioku/src/index.ts`. Do not import them from `mioku-service-ai/types` or similar — those are internal type duplicates.
 - **Services may be missing.** Plugins that *declare* a service in `package.json` `mioku.services` are just *requesting* it; the user might not have installed it. Always `as ConfigService | undefined`, always `if (!service) { ctx.logger.warn(...); return; }`. Existing plugins follow this pattern; copy it.
-- **Don't use `AISkill.permission` and `PluginHelp.command.role` interchangeably.** Skill permissions are `"owner" | "admin" | "member"` (defined in `packages/mioku/src/core/types.ts`). Help command roles are `"master" | "admin" | "owner" | "member"` — note the leading `master` for help, `owner` for skills. Mixing them up is a silent authz bug.
+- **Don't use `AISkill.permission` and `PluginHelp.command.role` interchangeably.** Skill permissions are `"owner" | "admin" | "member"` (defined in `packages/mioku/src/types.ts`). Help command roles are `"master" | "admin" | "owner" | "member"` — note the leading `master` for help, `owner` for skills. Mixing them up is a silent authz bug.
 - **`ctx.handle("message", ...)` auto-dedupes across bots.** That's the right default. Pass `{ deduplicate: false }` (third arg) only when each bot really must act on the same event — e.g. the `boot` plugin's `赞我` handler does this so every connected bot likes the user. Source: `docs/developer/plugin-advanced.md` "多实例去重".
 - **Keep `priority: -Infinity` on the `boot` plugin.** It has to load first so it can call `serviceManager.loadAllServices(ctx)` and then `registerPluginArtifacts(ctx)` before any other plugin's `setup()` runs. If you copy the boot plugin's shape, keep that priority.
 - **`@` inside quoted/forwarded messages vs real mentions** — `ctx.text(event)` strips CQ/at segments. If you need to know whether the bot was actually @-mentioned, inspect `event.message` for `type === "at"` with `data.qq === String(event.self_id)`, not the raw text. Several plugins (`60s`, `chat`) do this distinction.
@@ -180,7 +182,7 @@ These are the rules future-you will trip over most often. Most of them are flagg
 - A handful of services ship a prebuilt `dist/` (e.g. `mioku-service-ai`, `mioku-service-webui`); the rest are loaded as `.ts` at runtime.
 - The `skills-lock.json` at the repo root pins a remote Claude skill (`mioku-developer`); don't edit it manually.
 - The `.agents/` and `.claude/` directories are local to the developer — they're gitignored.
-- `mioku-service-config` has a typo in the type filename: `tpyes.ts` (not `types.ts`). Don't "fix" it without updating all the imports.
+- `mioku-service-config`'s types live in `types.ts` (the old `tpyes.ts` typo was fixed) and re-export `ConfigService` from `mioku` — no local duplicate.
 
 ## Coding style
 
@@ -190,7 +192,7 @@ This is the house style the rest of the codebase follows. Match it; don't invent
 
 `index.ts` of a plugin is the wiring file — `definePlugin({...})` and a `setup(ctx)` that registers handlers. It should not contain the actual implementation. Look at how the existing plugins are organized for the canonical shape:
 
-- `mioku-plugin-chat/` — `index.ts` (wiring) + `core/` (chat engine, prompts, multimodal, tools, media) + `manage/` (sessions, rate limiter, cooldown, queue, idle) + `utils/` + `humanize/` + `db.ts` + `types.ts` + `configs/`.
+- `mioku-plugin-chat/` — `index.ts` (wiring: config registration, manager construction, handler registration) + `core/` (`chat-engine`, `chat-turn`, `prompt`, `tools`, `multimodal`, `base` sending, `media/` incl. `segment` helpers, `web/`) + `manage/` (`cooldown`, `idle-check`, `queue-processor`, `rate-limiter`, `rate-limit-guard`, `session`, `skill-session`, `group-structured-history`, `cleanup`) + `handlers/` (`message`, `poke`, `idle-debug`) + `runtime/` (`chat-runtime`) + `humanize/` + `utils/` (`message`, `queue`, `json`) + `db.ts` + `types.ts` + `context.ts` + `configs/`. The 3 managers take a single `ChatPluginContext` (see `context.ts`) instead of ~18 individual params.
 - `mioku-plugin-help/` — `index.ts` + `help/` (intent, info, html, image, role config) + `status/` (intent, samplers, html, image) + `runtime.ts` + `skills.ts` + `theme.ts` + `utils.ts` + `demo-config.ts`.
 - `mioku-plugin-admin/` — `index.ts` + `commands/` + `notify/` + `skills/` + `skills.ts` + `config.ts`.
 

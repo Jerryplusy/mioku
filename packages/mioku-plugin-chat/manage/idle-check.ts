@@ -16,6 +16,7 @@ import type {
   RunChat,
   BuildToolContext,
 } from "./types";
+import type { ChatPluginContext } from "../context";
 import { getBotRole, isGroupAllowed } from "../utils";
 
 export class IdleCheckManager {
@@ -28,26 +29,45 @@ export class IdleCheckManager {
   private groupBotsMapping = new Map<string, Set<number>>();
   private intervalHandle: NodeJS.Timeout | null = null;
 
-  constructor(
-    private ctx: MiokiContext,
-    private cfg: ChatConfig,
-    private db: ChatDatabase,
-    private humanize: HumanizeEngine,
-    private aiInstance: AIInstance,
-    private aiService: import("mioku").AIService,
-    private skillManager: SkillSessionManager,
-    private groupStructuredHistory: GroupStructuredHistoryManager,
-    private sessionManager: SessionManager,
-    private runWithRateLimitGuard: RunRateLimitGuard,
-    private buildHistoryMediaOptions: (ai: AIInstance, cfg: ChatConfig) => HistoryMediaOptions,
-    private getGroupHistoryMessages: GetGroupHistoryMessages,
-    private getGroupInfoData: GetGroupInfoData,
-    private sendAIResponse: SendAIResponse,
-    private saveBotMessages: SaveBotMessages,
-    private runChat: RunChat,
-    private buildToolContext: BuildToolContext,
-    private startCooldownTimer: (groupSessionId: string, groupId: number, selfId: number) => void,
-  ) {}
+  private ctx: MiokiContext;
+  private cfg: ChatConfig;
+  private db: ChatDatabase;
+  private humanize: HumanizeEngine;
+  private aiInstance: AIInstance;
+  private aiService: import("mioku").AIService;
+  private skillManager: SkillSessionManager;
+  private groupStructuredHistory: GroupStructuredHistoryManager;
+  private sessionManager: SessionManager;
+  private runWithRateLimitGuard: RunRateLimitGuard;
+  private buildHistoryMediaOptions: (ai: AIInstance, cfg: ChatConfig) => HistoryMediaOptions;
+  private getGroupHistoryMessages: GetGroupHistoryMessages;
+  private getGroupInfoData: GetGroupInfoData;
+  private sendAIResponse: SendAIResponse;
+  private saveBotMessages: SaveBotMessages;
+  private runChat: RunChat;
+  private buildToolContext: BuildToolContext;
+  private startCooldownTimer: (groupSessionId: string, groupId: number, selfId: number) => void;
+
+  constructor(pluginCtx: ChatPluginContext) {
+    this.ctx = pluginCtx.ctx;
+    this.cfg = pluginCtx.config;
+    this.db = pluginCtx.db;
+    this.humanize = pluginCtx.humanize;
+    this.aiInstance = pluginCtx.aiInstance;
+    this.aiService = pluginCtx.aiService;
+    this.skillManager = pluginCtx.skillManager;
+    this.groupStructuredHistory = pluginCtx.groupStructuredHistory;
+    this.sessionManager = pluginCtx.sessionManager;
+    this.runWithRateLimitGuard = pluginCtx.runWithRateLimitGuard;
+    this.buildHistoryMediaOptions = pluginCtx.buildHistoryMediaOptions;
+    this.getGroupHistoryMessages = pluginCtx.getGroupHistoryMessages;
+    this.getGroupInfoData = pluginCtx.getGroupInfoData;
+    this.sendAIResponse = pluginCtx.sendAIResponse;
+    this.saveBotMessages = pluginCtx.saveBotMessages;
+    this.runChat = pluginCtx.runChat;
+    this.buildToolContext = pluginCtx.buildToolContext;
+    this.startCooldownTimer = pluginCtx.startCooldownTimer;
+  }
 
   recordActivity(groupSessionId: string): void {
     this.groupLastActivityTime.set(groupSessionId, Date.now());

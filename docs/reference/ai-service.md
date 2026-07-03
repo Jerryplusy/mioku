@@ -366,13 +366,17 @@ interface MultimodalMessage {
 
 ### MultimodalContentItem
 
-> 多模态消息内容项
+> 多模态消息内容项。`messages` 的 `content` 数组中允许出现的项：文本、图片、视频。除 `text` 外，其余项是否被模型支持取决于具体模型/接口（多模态工作模型或主模型）。
 
 ```typescript
 interface MultimodalContentItem {
-  type: "text" | "image_url";
+  type: "text" | "image_url" | "video_url";
   text?: string;
   image_url?: {
+    url: string;
+    detail?: "auto" | "low" | "high";
+  };
+  video_url?: {
     url: string;
     detail?: "auto" | "low" | "high";
   };
@@ -381,7 +385,8 @@ interface MultimodalContentItem {
 
 > - `type`: 内容类型
 > - `text?`: 文本内容
-> - `image_url?`: 图片URL对象
+> - `image_url?`: 图片对象，`url` 可以是 http(s) 链接或 `data:image/...;base64,...`
+> - `video_url?`: 视频对象，`url` 可以是 http(s) 链接或 `data:video/...;base64,...`
 
 ### CompleteOptions
 
