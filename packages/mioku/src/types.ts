@@ -308,6 +308,8 @@ export interface ChatRuntimeResult {
 
 export type AIUsageRange = "today" | "7d" | "30d";
 
+export type AIUsageScope = "all" | "bot";
+
 export interface AIUsageContext {
   usageId?: string;
   source?: string;
@@ -333,23 +335,88 @@ export interface AIUsageFinalization {
   breakdown?: AIUsageBreakdown;
 }
 
+export interface AIUsageBotOption {
+  botId: number;
+  label: string;
+}
+
 export interface AIUsageSummary {
+  generatedAt: number;
   range: AIUsageRange;
-  total: {
+  scope: AIUsageScope;
+  botId?: number;
+  bots: AIUsageBotOption[];
+  totals: {
     requests: number;
+    successfulRequests: number;
+    failedRequests: number;
+    userMessages: number;
+    assistantMessages: number;
+    systemMessages: number;
+    toolMessages: number;
+    sentUserMessages: number;
+    sentAssistantMessages: number;
     inputTokens: number;
     outputTokens: number;
+    systemPromptTokens: number;
+    totalTokens: number;
     cacheWriteTokens: number;
     cacheReadTokens: number;
-    totalTokens: number;
+    toolDefinitionTokens: number;
+    toolUseTokens: number;
+    chatHistoryTokens: number;
+    otherContextTokens: number;
+    durationMs: number;
+    toolCalls: number;
   };
-  byBot: Array<{
-    botId: number | null;
+  rates: {
+    throughputTokPerMin: number;
+    averageTokensPerUserMessage: number;
+    averageTokensPerSentMessage: number;
+    errorRate: number;
+    cacheHitRate: number;
+  };
+  toolRanking: Array<{ name: string; count: number }>;
+  groupRanking: Array<{
+    groupId: number;
+    groupName: string;
     requests: number;
-    inputTokens: number;
-    outputTokens: number;
-    cacheWriteTokens: number;
-    cacheReadTokens: number;
     totalTokens: number;
+    userMessages: number;
+    assistantMessages: number;
+    errorRate: number;
+  }>;
+  tokenFlow: Array<{ name: "输入" | "输出" | "缓存写入" | "缓存读取"; value: number }>;
+  tokenCategories: Array<{
+    name: "系统提示词" | "工具定义" | "工具使用" | "聊天上下文" | "其他上下文";
+    value: number;
+  }>;
+  dailyActivity: Array<{
+    day: string;
+    requests: number;
+    userMessages: number;
+    assistantMessages: number;
+    totalTokens: number;
+    inputTokens: number;
+    cacheReadTokens: number;
+    throughputTokPerMin: number;
+    averageTokensPerUserMessage: number;
+    averageTokensPerSentMessage: number;
+    errorRate: number;
+    cacheHitRate: number;
+  }>;
+  hourlyActivity: Array<{
+    hour: string;
+    requests: number;
+    userMessages: number;
+    assistantMessages: number;
+    totalTokens: number;
+    inputTokens: number;
+    cacheReadTokens: number;
+    throughputTokPerMin: number;
+    averageTokensPerUserMessage: number;
+    averageTokensPerSentMessage: number;
+    errorRate: number;
+    cacheHitRate: number;
   }>;
 }

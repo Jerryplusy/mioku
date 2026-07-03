@@ -64,6 +64,8 @@ export type {
   ChatRuntimeCollectedInfo,
   ChatRuntimeResult,
   AIUsageRange,
+  AIUsageScope,
+  AIUsageBotOption,
   AIUsageContext,
   AIUsageBreakdown,
   AIUsageFinalization,
