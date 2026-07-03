@@ -203,6 +203,138 @@ export async function getBotRole(
   }
 }
 
+interface FormattedHistoryMessage {
+  userId: number;
+  userName: string;
+  userRole: string;
+  content: string;
+  messageId: number;
+  timestamp: number;
+}
+
+interface HistoryFormatContext {
+  db:
+    | {
+        getImageByUrl?(url: string): ImageRecord | null;
+      }
+    | undefined;
+  historyMediaOptions: HistoryMediaProcessingOptions;
+  botUin: number;
+}
+
+async function formatHistoryMessage(
+  msg: any,
+  ctx: HistoryFormatContext,
+): Promise<FormattedHistoryMessage | null> {
+  if (String(msg.user_id) === String(ctx.botUin)) return null;
+
+  let content = "";
+  try {
+    content = await buildMessageContent(msg, ctx);
+  } catch (err) {
+    logger.error("[getGroupHistory] process message error:", err);
+    return null;
+  }
+
+  if (!content.trim()) return null;
+
+  return {
+    userId: msg.user_id,
+    userName: msg.sender?.card || msg.sender?.nickname || String(msg.user_id),
+    userRole: msg.sender?.role || "member",
+    content,
+    messageId: msg.message_id,
+    timestamp: msg.time ? msg.time * 1000 : Date.now(),
+  };
+}
+
+async function buildMessageContent(
+  msg: any,
+  ctx: HistoryFormatContext,
+): Promise<string> {
+  if (!msg.message || !Array.isArray(msg.message) || msg.message.length === 0) {
+    return "";
+  }
+  const { db, historyMediaOptions } = ctx;
+  const parts: string[] = [];
+
+  const textSegs = msg.message.filter((seg: any) => seg.type === "text");
+  const textContent = textSegs
+    .map((seg: any) => seg.data?.text || "")
+    .join("")
+    .trim();
+
+  const atContent = msg.message
+    .filter((seg: any) => seg.type === "at")
+    .map((seg: any) => {
+      const atUid = seg.qq || seg.data?.qq || seg.data?.id || seg.data?.user_id;
+      if (!atUid) return null;
+      if (atUid === "all" || atUid === "everyone") return "@全体成员";
+      return `@${atUid}`;
+    })
+    .filter((v: string | null) => v !== null)
+    .join(" ");
+
+  if (atContent) parts.push(atContent);
+  if (textContent) parts.push(textContent);
+
+  for (const imageSeg of msg.message.filter((seg: any) => seg.type === "image")) {
+    const imageUrl = imageSeg.url || imageSeg.data?.url;
+    if (imageUrl) {
+      parts.push(
+        db?.getImageByUrl
+          ? getImageTag(String(imageUrl), db as any)
+          : "[image]",
+      );
+    }
+  }
+
+  for (const videoSeg of msg.message.filter(
+    (seg: MediaMessageSegment) => seg.type === "video",
+  )) {
+    const videoSources = getSegmentSourceCandidates(videoSeg);
+    if (videoSources.length > 0) {
+      parts.push(await getCachedHistoryVideoTag(videoSources, historyMediaOptions));
+    } else {
+      parts.push("[video]");
+    }
+  }
+
+  for (const forwardSeg of msg.message.filter((seg: any) => seg.type === "forward")) {
+    const forwardId = forwardSeg.id || forwardSeg.data?.id;
+    if (forwardId) {
+      parts.push(
+        await getCachedHistoryForwardTag(String(forwardId), historyMediaOptions),
+      );
+    } else {
+      parts.push("[forward]");
+    }
+  }
+
+  for (const cardSeg of msg.message.filter((seg: any) =>
+    ["xml", "json", "lightapp", "ark"].includes(seg.type),
+  )) {
+    const cardData =
+      cardSeg.data?.data || cardSeg.data?.xml || cardSeg.data || cardSeg.xml || "";
+    if (cardData) {
+      parts.push(
+        getCachedHistoryCardTag(
+          typeof cardData === "string" ? cardData : JSON.stringify(cardData),
+          historyMediaOptions,
+        ),
+      );
+    } else {
+      parts.push("[card]");
+    }
+  }
+
+  if (parts.length > 0) return parts.join(" ");
+
+  const segTypes = msg.message.map((seg: any) => seg.type);
+  const nonTextTypes = segTypes.filter((t: string) => t !== "text" && t !== "at");
+  return nonTextTypes.length > 0 ? `[${nonTextTypes.join(", ")}]` : "";
+}
+
 /**
  * 从 OneBot API 获取群聊历史消息
  * 返回格式化为 ChatMessage 数组
@@ -313,181 +445,15 @@ export async function getGroupHistory(
 
     const botUin = selfId;
 
-    // 格式化消息
+    const formatCtx: HistoryFormatContext = { db, historyMediaOptions, botUin };
+
     const formattedResults = await mapWithConcurrency(
       messages,
       HISTORY_MEDIA_CONCURRENCY,
-      async (msg) => {
-        // 跳过自己的消息
-        if (String(msg.user_id) === String(botUin)) {
-          return null;
-        }
-
-        // 提取文本内容
-        let content = "";
-        try {
-          if (
-            msg.message &&
-            Array.isArray(msg.message) &&
-            msg.message.length > 0
-          ) {
-            const textSegs = msg.message.filter(
-              (seg: any) => seg.type === "text",
-            );
-            const textContent = textSegs
-              .map((seg: any) => seg.data?.text || "")
-              .join("")
-              .trim();
-            const atSegs = msg.message.filter((seg: any) => seg.type === "at");
-            const atContent = atSegs
-              .map((seg: any) => {
-                // OneBot v11 格式: seg.qq
-                const atUid =
-                  seg.qq || seg.data?.qq || seg.data?.id || seg.data?.user_id;
-                if (!atUid) {
-                  return null;
-                }
-                if (atUid === "all" || atUid === "everyone") {
-                  return "@全体成员";
-                }
-                return `@${atUid}`;
-              })
-              .filter((v: string | null) => v !== null)
-              .join(" ");
-            const parts: string[] = [];
-            if (atContent) {
-              parts.push(atContent);
-            }
-            if (textContent) {
-              parts.push(textContent);
-            }
-
-            // 处理图片消息
-            const imageSegs = msg.message.filter(
-              (seg: any) => seg.type === "image",
-            );
-            if (imageSegs.length > 0) {
-              for (const imageSeg of imageSegs) {
-                const imageUrl =
-                  (imageSeg as any).url || (imageSeg as any).data?.url;
-                if (imageUrl) {
-                  parts.push(
-                    db?.getImageByUrl
-                      ? getImageTag(String(imageUrl), db as any)
-                      : "[image]",
-                  );
-                }
-              }
-            }
-
-            // 处理视频消息：历史里只读取已缓存摘要，不触发旧视频分析。
-            const videoSegs = msg.message.filter(
-              (seg: MediaMessageSegment) => seg.type === "video",
-            );
-            for (const videoSeg of videoSegs) {
-              const videoSources = getSegmentSourceCandidates(videoSeg);
-              if (videoSources.length > 0) {
-                parts.push(
-                  await getCachedHistoryVideoTag(
-                    videoSources,
-                    historyMediaOptions,
-                  ),
-                );
-              } else {
-                parts.push("[video]");
-              }
-            }
-
-            // 处理合并转发消息
-            const forwardSegs = msg.message.filter(
-              (seg: any) => seg.type === "forward",
-            );
-            for (const forwardSeg of forwardSegs) {
-              const forwardId =
-                (forwardSeg as any).id || (forwardSeg as any).data?.id;
-              if (forwardId) {
-                parts.push(
-                  await getCachedHistoryForwardTag(
-                    String(forwardId),
-                    historyMediaOptions,
-                  ),
-                );
-              } else {
-                parts.push("[forward]");
-              }
-            }
-
-            // 处理 XML/JSON/轻应用/Ark 卡片消息
-            const cardSegs = msg.message.filter((seg: any) =>
-              ["xml", "json", "lightapp", "ark"].includes(seg.type),
-            );
-            for (const cardSeg of cardSegs) {
-              const cardData =
-                (cardSeg as any).data?.data ||
-                (cardSeg as any).data?.xml ||
-                (cardSeg as any).data ||
-                (cardSeg as any).xml ||
-                "";
-              if (cardData) {
-                parts.push(
-                  getCachedHistoryCardTag(
-                    typeof cardData === "string"
-                      ? cardData
-                      : JSON.stringify(cardData),
-                    historyMediaOptions,
-                  ),
-                );
-              } else {
-                parts.push("[card]");
-              }
-            }
-
-            if (parts.length > 0) {
-              content = parts.join(" ");
-            } else if (Array.isArray(msg.message)) {
-              const segTypes = msg.message.map((seg: any) => seg.type);
-              const nonTextTypes = segTypes.filter(
-                (t: string) => t !== "text" && t !== "at",
-              );
-              if (nonTextTypes.length > 0) {
-                content = `[${nonTextTypes.join(", ")}]`;
-              } else {
-                return null;
-              }
-            }
-          }
-        } catch (err) {
-          logger.error("[getGroupHistory] process message error:", err);
-          return null;
-        }
-
-        // 跳过空消息
-        if (!content.trim()) {
-          return null;
-        }
-
-        return {
-          userId: msg.user_id,
-          userName:
-            msg.sender?.card || msg.sender?.nickname || String(msg.user_id),
-          userRole: msg.sender?.role || "member",
-          content,
-          messageId: msg.message_id,
-          timestamp: msg.time ? msg.time * 1000 : Date.now(),
-        };
-      },
+      (msg: any) => formatHistoryMessage(msg, formatCtx),
     );
     const formatted = formattedResults.filter(
-      (
-        msg,
-      ): msg is {
-        userId: number;
-        userName: string;
-        userRole: string;
-        content: string;
-        messageId: number;
-        timestamp: number;
-      } => Boolean(msg),
+      (msg): msg is FormattedHistoryMessage => Boolean(msg),
     );
 
     // 合并 bot 消息
