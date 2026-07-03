@@ -1,5 +1,6 @@
 import type { AIInstance } from "mioku";
 import { logger } from "mioki";
+import { extractJsonObject } from "../utils/json";
 import type { ChatDatabase } from "../db";
 import type { ChatConfig } from "../types";
 
@@ -123,10 +124,8 @@ Output strictly in JSON format:
         max_tokens: 300,
       });
 
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return;
-
-      const parsed = JSON.parse(jsonMatch[0]);
+      const parsed = extractJsonObject(content);
+      if (parsed === undefined) return;
       const summary = String(parsed.summary || "").trim();
       if (!summary) return;
 

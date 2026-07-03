@@ -1,5 +1,6 @@
 import type { AIInstance } from "mioku";
 import { logger } from "mioki";
+import { extractJsonObject } from "../utils/json";
 import type { ChatDatabase } from "../db";
 import type { ChatConfig, ChatMessage } from "../types";
 
@@ -132,10 +133,8 @@ If nothing reliable can be extracted, keep stable previous habits when possible.
       max_tokens: 600,
     });
 
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return;
-
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = extractJsonObject(content);
+    if (parsed === undefined) return;
     if (!parsed.expressions || !Array.isArray(parsed.expressions)) return;
 
     const normalized = parsed.expressions
