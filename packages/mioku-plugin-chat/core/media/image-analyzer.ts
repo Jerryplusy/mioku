@@ -90,7 +90,9 @@ export async function calculateImageHash(url: string): Promise<string | null> {
     const buffer = Buffer.from(await response.arrayBuffer());
     return crypto.createHash("md5").update(buffer).digest("hex");
   } catch (err) {
-    logger.warn(`[image-analyzer] Failed to download image for hashing: ${err}`);
+    logger.warn(
+      `[image-analyzer] Failed to download image for hashing: ${err}`,
+    );
     return null;
   }
 }
@@ -348,7 +350,13 @@ export async function processImage(
       logger.info(formatImageRecognitionLog(existing));
       return existing;
     }
-    const analysis = await analyzeImage(ai, imageUrl, model, undefined, options);
+    const analysis = await analyzeImage(
+      ai,
+      imageUrl,
+      model,
+      undefined,
+      options,
+    );
     if (!analysis.success || !analysis.type) {
       logger.warn(`[image-analyzer] Analysis failed: ${analysis.error}`);
       return null;
@@ -441,17 +449,11 @@ export async function processImage(
 
 /**
  * 从图片 URL 获取描述标签
- * 如果图片已在数据库中，返回 [meme:描述] 或 [image:描述]
- * 否则返回 [image]
+ * 命中数据库记录时返回 [meme:描述] 或 [image:描述]，否则返回 [image]。
+ * 收集聊天历史时用它，之前没识别到的图片不会再次触发请求。
  */
-export async function getImageTag(
-  imageUrl: string,
-  db: ChatDatabase,
-): Promise<string> {
-  const hash = await calculateImageHash(imageUrl);
-  if (!hash) return "[image]";
-
-  const record = db.getImageByHash(hash);
+export function getImageTag(imageUrl: string, db: ChatDatabase): string {
+  const record = db.getImageByUrl(imageUrl);
 
   if (record) {
     return `[${record.type}:${record.description}]`;

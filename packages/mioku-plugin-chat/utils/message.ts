@@ -372,8 +372,8 @@ export async function getGroupHistory(
                   (imageSeg as any).url || (imageSeg as any).data?.url;
                 if (imageUrl) {
                   parts.push(
-                    db?.getImageByHash
-                      ? await getImageTag(String(imageUrl), db as any)
+                    db?.getImageByUrl
+                      ? getImageTag(String(imageUrl), db as any)
                       : "[image]",
                   );
                 }

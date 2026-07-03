@@ -108,8 +108,7 @@ export async function summarizeHistoryVideo(
       videoFile.source,
       videoFile.contentHash,
       options,
-      () =>
-        summarizeVideoContent(videoFile.path, videoFile.byteSize, options),
+      () => summarizeVideoContent(videoFile.path, videoFile.byteSize, options),
       sources,
     );
 
@@ -241,24 +240,7 @@ export async function getCachedHistoryVideoTag(
     }
   }
 
-  try {
-    const videoFile = await downloadVideoForAnalysis(sources, options);
-    try {
-      const summary = getCachedSummaryByHash(
-        "video",
-        videoFile.contentHash,
-        options,
-      );
-      return summary ? `[video:${summary}]` : "[video]";
-    } finally {
-      await videoFile.cleanup();
-    }
-  } catch (err) {
-    getHistoryMediaLogger(options).warn(
-      `[history-media] Failed to resolve cached video by hash: ${err}`,
-    );
-    return "[video]";
-  }
+  return "[video]";
 }
 
 export async function summarizeHistoryForward(
@@ -632,7 +614,8 @@ export async function probeVideoMimeType(videoPath: string): Promise<string> {
 function mapFormatNameToMimeType(formatName: string): string {
   const names = formatName.split(",").map((s) => s.trim().toLowerCase());
   if (names.some((n) => n === "webm")) return "video/webm";
-  if (names.some((n) => n === "matroska" || n === "mkv")) return "video/x-matroska";
+  if (names.some((n) => n === "matroska" || n === "mkv"))
+    return "video/x-matroska";
   if (names.some((n) => n === "avi")) return "video/x-msvideo";
   if (names.some((n) => n === "flv")) return "video/x-flv";
   if (names.some((n) => n === "mov" || n === "mp4" || n === "m4v"))
@@ -786,7 +769,9 @@ export async function downloadVideoForAnalysis(
   let lastError: unknown;
 
   for (const source of candidates) {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "mioku-video-src-"));
+    const tempDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "mioku-video-src-"),
+    );
     const filePath = path.join(tempDir, "video");
 
     try {
@@ -841,11 +826,7 @@ async function readVideoSource(source: string): Promise<Buffer> {
 function normalizeVideoSources(input: string | string[]): string[] {
   const raw = Array.isArray(input) ? input : [input];
   return Array.from(
-    new Set(
-      raw
-        .map((source) => String(source || "").trim())
-        .filter(Boolean),
-    ),
+    new Set(raw.map((source) => String(source || "").trim()).filter(Boolean)),
   );
 }
 
