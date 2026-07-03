@@ -328,55 +328,7 @@ function buildSummary(
     .prepare(`SELECT * FROM ai_usage_records ${whereSql}`)
     .all(params) as UsageRow[];
 
-  const totals = rows.reduce(
-    (acc, row) => {
-      acc.requests += 1;
-      acc.successfulRequests += row.success ? 1 : 0;
-      acc.failedRequests += row.success ? 0 : 1;
-      acc.userMessages += row.user_messages;
-      acc.assistantMessages += row.assistant_messages;
-      acc.systemMessages += row.system_messages;
-      acc.toolMessages += row.tool_messages;
-      acc.sentUserMessages += row.sent_user_messages;
-      acc.sentAssistantMessages += row.sent_assistant_messages;
-      acc.inputTokens += row.input_tokens;
-      acc.outputTokens += row.output_tokens;
-      acc.totalTokens += row.total_tokens;
-      acc.systemPromptTokens += row.system_prompt_tokens;
-      acc.cacheWriteTokens += row.cache_write_tokens;
-      acc.cacheReadTokens += row.cache_read_tokens;
-      acc.toolDefinitionTokens += row.tool_definition_tokens;
-      acc.toolUseTokens += row.tool_use_tokens;
-      acc.chatHistoryTokens += row.chat_history_tokens;
-      acc.otherContextTokens += row.other_context_tokens;
-      acc.durationMs += row.duration_ms;
-      acc.toolCalls += parseToolCalls(row.tool_calls).length;
-      return acc;
-    },
-    {
-      requests: 0,
-      successfulRequests: 0,
-      failedRequests: 0,
-      userMessages: 0,
-      assistantMessages: 0,
-      systemMessages: 0,
-      toolMessages: 0,
-      sentUserMessages: 0,
-      sentAssistantMessages: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-      cacheWriteTokens: 0,
-      cacheReadTokens: 0,
-      systemPromptTokens: 0,
-      toolDefinitionTokens: 0,
-      toolUseTokens: 0,
-      chatHistoryTokens: 0,
-      otherContextTokens: 0,
-      durationMs: 0,
-      toolCalls: 0,
-    },
-  );
+  const totals = computeTotals(rows);
 
   return {
     generatedAt: Date.now(),
@@ -385,43 +337,112 @@ function buildSummary(
     botId,
     bots,
     totals,
-    rates: {
-      throughputTokPerMin:
-        totals.requests > 0
-          ? getTokenConsumptionRate(totals.totalTokens, startedAt, now)
-          : 0,
-      averageTokensPerUserMessage: getAverageTokensPerUserMessage(
-        totals.totalTokens,
-        totals.userMessages,
-      ),
-      averageTokensPerSentMessage: getAverageTokensPerUserMessage(
-        totals.totalTokens,
-        totals.requests,
-      ),
-      errorRate:
-        totals.requests > 0
-          ? round(totals.failedRequests / totals.requests, 4)
-          : 0,
-      cacheHitRate: getCacheHitRate(totals.cacheReadTokens, totals.inputTokens),
-    },
+    rates: computeRates(totals, startedAt, now),
     toolRanking: buildToolRanking(rows),
     groupRanking: getGroupRanking(db, whereSql, params),
-    tokenFlow: [
-      { name: "输入", value: totals.inputTokens },
-      { name: "输出", value: totals.outputTokens },
-      { name: "缓存写入", value: totals.cacheWriteTokens },
-      { name: "缓存读取", value: totals.cacheReadTokens },
-    ],
-    tokenCategories: [
-      { name: "系统提示词", value: totals.systemPromptTokens },
-      { name: "工具定义", value: totals.toolDefinitionTokens },
-      { name: "工具使用", value: totals.toolUseTokens },
-      { name: "聊天上下文", value: totals.chatHistoryTokens },
-      { name: "其他上下文", value: totals.otherContextTokens },
-    ],
+    tokenFlow: buildTokenFlow(totals),
+    tokenCategories: buildTokenCategories(totals),
     dailyActivity: getDailyActivity(db, whereSql, params, now),
     hourlyActivity: getHourlyActivity(db, whereSql, params, now),
   };
+}
+
+function computeTotals(rows: UsageRow[]): AIUsageSummary["totals"] {
+  const totals: AIUsageSummary["totals"] = {
+    requests: 0,
+    successfulRequests: 0,
+    failedRequests: 0,
+    userMessages: 0,
+    assistantMessages: 0,
+    systemMessages: 0,
+    toolMessages: 0,
+    sentUserMessages: 0,
+    sentAssistantMessages: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    cacheWriteTokens: 0,
+    cacheReadTokens: 0,
+    systemPromptTokens: 0,
+    toolDefinitionTokens: 0,
+    toolUseTokens: 0,
+    chatHistoryTokens: 0,
+    otherContextTokens: 0,
+    durationMs: 0,
+    toolCalls: 0,
+  };
+
+  for (const row of rows) {
+    totals.requests += 1;
+    totals.successfulRequests += row.success ? 1 : 0;
+    totals.failedRequests += row.success ? 0 : 1;
+    totals.userMessages += row.user_messages;
+    totals.assistantMessages += row.assistant_messages;
+    totals.systemMessages += row.system_messages;
+    totals.toolMessages += row.tool_messages;
+    totals.sentUserMessages += row.sent_user_messages;
+    totals.sentAssistantMessages += row.sent_assistant_messages;
+    totals.inputTokens += row.input_tokens;
+    totals.outputTokens += row.output_tokens;
+    totals.totalTokens += row.total_tokens;
+    totals.systemPromptTokens += row.system_prompt_tokens;
+    totals.cacheWriteTokens += row.cache_write_tokens;
+    totals.cacheReadTokens += row.cache_read_tokens;
+    totals.toolDefinitionTokens += row.tool_definition_tokens;
+    totals.toolUseTokens += row.tool_use_tokens;
+    totals.chatHistoryTokens += row.chat_history_tokens;
+    totals.otherContextTokens += row.other_context_tokens;
+    totals.durationMs += row.duration_ms;
+    totals.toolCalls += parseToolCalls(row.tool_calls).length;
+  }
+  return totals;
+}
+
+function computeRates(
+  totals: AIUsageSummary["totals"],
+  startedAt: number,
+  now: number,
+): AIUsageSummary["rates"] {
+  return {
+    throughputTokPerMin:
+      totals.requests > 0
+        ? getTokenConsumptionRate(totals.totalTokens, startedAt, now)
+        : 0,
+    averageTokensPerUserMessage: getAverageTokensPerUserMessage(
+      totals.totalTokens,
+      totals.userMessages,
+    ),
+    averageTokensPerSentMessage: getAverageTokensPerUserMessage(
+      totals.totalTokens,
+      totals.requests,
+    ),
+    errorRate:
+      totals.requests > 0 ? round(totals.failedRequests / totals.requests, 4) : 0,
+    cacheHitRate: getCacheHitRate(totals.cacheReadTokens, totals.inputTokens),
+  };
+}
+
+function buildTokenFlow(
+  totals: AIUsageSummary["totals"],
+): AIUsageSummary["tokenFlow"] {
+  return [
+    { name: "输入", value: totals.inputTokens },
+    { name: "输出", value: totals.outputTokens },
+    { name: "缓存写入", value: totals.cacheWriteTokens },
+    { name: "缓存读取", value: totals.cacheReadTokens },
+  ];
+}
+
+function buildTokenCategories(
+  totals: AIUsageSummary["totals"],
+): AIUsageSummary["tokenCategories"] {
+  return [
+    { name: "系统提示词", value: totals.systemPromptTokens },
+    { name: "工具定义", value: totals.toolDefinitionTokens },
+    { name: "工具使用", value: totals.toolUseTokens },
+    { name: "聊天上下文", value: totals.chatHistoryTokens },
+    { name: "其他上下文", value: totals.otherContextTokens },
+  ];
 }
 
 function getRangeStart(range: AIUsageRange): number {
@@ -566,17 +587,17 @@ function getGroupRanking(
     }));
 }
 
-function getDailyActivity(
+function fetchTimeline(
   db: UsageDatabase,
   whereSql: string,
   params: Record<string, number>,
-  now: number,
-): AIUsageSummary["dailyActivity"] {
-  const rows = db
+  format: string,
+): TimelineRow[] {
+  return db
     .prepare(
       `
       SELECT
-        strftime('%Y-%m-%d', datetime(started_at / 1000, 'unixepoch', 'localtime')) as bucket,
+        strftime('${format}', datetime(started_at / 1000, 'unixepoch', 'localtime')) as bucket,
         COUNT(*) as requests,
         SUM(user_messages) as user_messages,
         SUM(assistant_messages) as assistant_messages,
@@ -594,36 +615,61 @@ function getDailyActivity(
     `,
     )
     .all(params) as TimelineRow[];
+}
 
-  return rows.map((row) => ({
-    day: row.bucket,
-    requests: Number(row.requests || 0),
+function mapTimelineMetrics(
+  row: TimelineRow,
+  now: number,
+  bucketStart: number,
+  windowMs: number,
+) {
+  const requests = Number(row.requests || 0);
+  const totalTokens = Number(row.total_tokens || 0);
+  return {
+    requests,
     userMessages: Number(row.user_messages || 0),
     assistantMessages: Number(row.assistant_messages || 0),
-    totalTokens: Number(row.total_tokens || 0),
+    totalTokens,
     inputTokens: Number(row.input_tokens || 0),
     cacheReadTokens: Number(row.cache_read_tokens || 0),
     throughputTokPerMin: getTokenConsumptionRate(
-      Number(row.total_tokens || 0),
-      getLocalDateBucketStart(row.bucket),
+      totalTokens,
+      bucketStart,
       now,
-      24 * 60 * 60 * 1000,
+      windowMs,
     ),
     averageTokensPerUserMessage: getAverageTokensPerUserMessage(
-      Number(row.total_tokens || 0),
+      totalTokens,
       Number(row.user_messages || 0),
     ),
     averageTokensPerSentMessage: getAverageTokensPerUserMessage(
-      Number(row.total_tokens || 0),
-      Number(row.requests || 0),
+      totalTokens,
+      requests,
     ),
     errorRate:
-      Number(row.requests || 0) > 0
-        ? round(Number(row.failed_requests || 0) / Number(row.requests), 4)
+      requests > 0
+        ? round(Number(row.failed_requests || 0) / requests, 4)
         : 0,
     cacheHitRate: getCacheHitRate(
       Number(row.cache_read_tokens || 0),
       Number(row.input_tokens || 0),
+    ),
+  };
+}
+
+function getDailyActivity(
+  db: UsageDatabase,
+  whereSql: string,
+  params: Record<string, number>,
+  now: number,
+): AIUsageSummary["dailyActivity"] {
+  return fetchTimeline(db, whereSql, params, "%Y-%m-%d").map((row) => ({
+    day: row.bucket,
+    ...mapTimelineMetrics(
+      row,
+      now,
+      getLocalDateBucketStart(row.bucket),
+      24 * 60 * 60 * 1000,
     ),
   }));
 }
@@ -634,58 +680,13 @@ function getHourlyActivity(
   params: Record<string, number>,
   now: number,
 ): AIUsageSummary["hourlyActivity"] {
-  const rows = db
-    .prepare(
-      `
-      SELECT
-        strftime('%H:00', datetime(started_at / 1000, 'unixepoch', 'localtime')) as bucket,
-        COUNT(*) as requests,
-        SUM(user_messages) as user_messages,
-        SUM(assistant_messages) as assistant_messages,
-        SUM(sent_user_messages) as sent_user_messages,
-        SUM(sent_assistant_messages) as sent_assistant_messages,
-        SUM(total_tokens) as total_tokens,
-        SUM(duration_ms) as duration_ms,
-        SUM(input_tokens) as input_tokens,
-        SUM(cache_read_tokens) as cache_read_tokens,
-        SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed_requests
-      FROM ai_usage_records
-      ${whereSql}
-      GROUP BY bucket
-      ORDER BY bucket ASC
-    `,
-    )
-    .all(params) as TimelineRow[];
-
-  return rows.map((row) => ({
+  return fetchTimeline(db, whereSql, params, "%H:00").map((row) => ({
     hour: row.bucket,
-    requests: Number(row.requests || 0),
-    userMessages: Number(row.user_messages || 0),
-    assistantMessages: Number(row.assistant_messages || 0),
-    totalTokens: Number(row.total_tokens || 0),
-    inputTokens: Number(row.input_tokens || 0),
-    cacheReadTokens: Number(row.cache_read_tokens || 0),
-    throughputTokPerMin: getTokenConsumptionRate(
-      Number(row.total_tokens || 0),
-      getLocalHourBucketStart(row.bucket, now),
+    ...mapTimelineMetrics(
+      row,
       now,
+      getLocalHourBucketStart(row.bucket, now),
       60 * 60 * 1000,
-    ),
-    averageTokensPerUserMessage: getAverageTokensPerUserMessage(
-      Number(row.total_tokens || 0),
-      Number(row.user_messages || 0),
-    ),
-    averageTokensPerSentMessage: getAverageTokensPerUserMessage(
-      Number(row.total_tokens || 0),
-      Number(row.requests || 0),
-    ),
-    errorRate:
-      Number(row.requests || 0) > 0
-        ? round(Number(row.failed_requests || 0) / Number(row.requests), 4)
-        : 0,
-    cacheHitRate: getCacheHitRate(
-      Number(row.cache_read_tokens || 0),
-      Number(row.input_tokens || 0),
     ),
   }));
 }
