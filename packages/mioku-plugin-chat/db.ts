@@ -29,7 +29,18 @@ function toChatMessage(row: any): ChatMessage {
 }
 
 function toTopicRecord(row: any): TopicRecord {
-  return toTopicRecord(row);
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    title: row.title,
+    keywords: row.keywords,
+    summary: row.summary,
+    messageCount: row.message_count,
+    windowStartAt: row.window_start_at ?? undefined,
+    windowEndAt: row.window_end_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 function toExpressionRecord(row: any): ExpressionRecord {
