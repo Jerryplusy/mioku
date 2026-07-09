@@ -36,8 +36,14 @@ export function canInvokeCommand(
  *   mioki's `isOwner` allowlist.
  * - Private chat skips the `isAdmin` check and defaults to `admin`,
  *   so anyone DM-ing the bot can see admin-level commands.
- * - Group chat keeps the full hierarchy: admin (mioki allowlist) →
- *   owner (group owner via `getGroupMemberInfo`) → member.
+ * - Group chat resolves bot admin (mioki `isAdmin` allowlist), group
+ *   owner (群主) and group admin (群管理) all to `admin`. This mirrors
+ *   the admin plugin's execution gating (`isMaster || senderRole ===
+ *   "owner" || senderRole === "admin"`) so the help image only hides
+ *   commands the viewer genuinely can't run. `sender.role` is checked
+ *   first (populated by OneBot on group events), with
+ *   `getGroupMemberInfo` as a fallback when it's missing. Everyone else
+ *   is `member`.
  */
 export async function resolveViewerRole(
   ctx: any,
@@ -54,6 +60,11 @@ export async function resolveViewerRole(
       return "admin";
     }
 
+    const senderRole = event?.sender?.role;
+    if (senderRole === "owner" || senderRole === "admin") {
+      return "admin";
+    }
+
     if (event?.group_id != null && event?.user_id != null) {
       const selfId =
         event?.self_id != null ? Number(event.self_id) : undefined;
@@ -67,8 +78,8 @@ export async function resolveViewerRole(
             event.group_id,
             event.user_id,
           );
-          if (info?.role === "owner") {
-            return "owner";
+          if (info?.role === "owner" || info?.role === "admin") {
+            return "admin";
           }
         } catch {
           // fall through to member
