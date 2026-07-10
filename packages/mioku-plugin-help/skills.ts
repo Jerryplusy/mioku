@@ -5,6 +5,7 @@ import {
   buildHelpInfoText,
   generateHelpImage,
   resolveHelpBotProfile,
+  resolveViewerRole,
   sendImageFromSkillContext,
 } from "./help";
 import { getRenderVersions } from "./utils";
@@ -61,6 +62,7 @@ const helpSkill: AISkill = {
             ctx,
             event,
           );
+          const viewerRole = await resolveViewerRole(ctx, event);
           const imagePath = await generateHelpImage({
             helpService,
             screenshotService,
@@ -68,6 +70,7 @@ const helpSkill: AISkill = {
             miokuVersion,
             botNickname,
             botAvatarUrl,
+            viewerRole,
           });
 
           if (!imagePath) {
