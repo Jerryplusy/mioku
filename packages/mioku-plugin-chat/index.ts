@@ -156,6 +156,22 @@ export default definePlugin({
     });
     aiService.setDefault("main");
 
+    const registerPersona = (persona: string) => {
+      mainAIInstance.registerPrompt("persona", persona);
+      workAIInstance.registerPrompt("persona", persona);
+    };
+    registerPersona(String(config.persona ?? ""));
+    if (configService) {
+      configService.onConfigChange("chat", "personalization", async () => {
+        try {
+          const p = await configService.getConfig("chat", "personalization");
+          registerPersona(String(p?.persona ?? ""));
+        } catch (err) {
+          ctx.logger.error(`更新 persona 提示词失败: ${err}`);
+        }
+      });
+    }
+
     const humanize = new HumanizeEngine(mainAIInstance, workAIInstance, config, db);
     await humanize.init();
 
