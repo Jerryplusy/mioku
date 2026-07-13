@@ -393,7 +393,7 @@ async function buildMessageContent(
   }
 
   for (const cardSeg of msg.message.filter((seg: any) =>
-    ["xml", "json", "lightapp", "ark"].includes(cardSeg.type),
+    ["xml", "json", "lightapp", "ark"].includes(seg.type),
   )) {
     const cardData =
       cardSeg.data?.data || cardSeg.data?.xml || cardSeg.data || cardSeg.xml || "";
