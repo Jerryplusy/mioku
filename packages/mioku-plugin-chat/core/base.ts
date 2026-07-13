@@ -662,7 +662,7 @@ export async function getGroupHistoryMessages(
   );
   const history: ChatMessage[] = rawHistory.map((msg) => ({
     sessionId: groupSessionId,
-    role: "user" as const,
+    role: msg.role || ("user" as const),
     content: msg.content,
     userId: msg.userId,
     userName: msg.userName,

@@ -11,10 +11,17 @@ import type {
   ChatResult,
 } from "../types";
 import type { HumanizeEngine } from "../humanize";
-import type { PromptContext } from "./prompt";
+import type {
+  StaticPromptContext,
+  DynamicPromptContext,
+} from "./prompt";
 import type { SkillSessionManager } from "../manage/skill-session";
 import { createTools } from "./tools";
-import { buildSystemPrompt } from "./prompt";
+import {
+  buildStaticSystemPrompt,
+  buildDynamicUserContext,
+} from "./prompt";
+import type { PromptCtxForRunChat } from "../manage/types";
 import {
   isExternalSkillAllowed,
   isSkillAllowedForRole,
@@ -49,10 +56,7 @@ export async function runChat(
   toolCtx: ToolContext,
   history: ChatMessage[],
   targetMessage: TargetMessage,
-  promptCtx: Omit<
-    PromptContext,
-    "activeSkillsInfo" | "chatHistory" | "targetMessage"
-  >,
+  promptCtx: PromptCtxForRunChat,
   humanize: HumanizeEngine,
   skillManager: SkillSessionManager,
   structuredHistory?: StructuredHistoryRunContext,
@@ -79,25 +83,37 @@ export async function runChat(
     chatHistory: history,
     targetMessage,
   });
-  const prompt = buildSystemPrompt({
-    ...promptCtx,
+
+  const staticCtx: StaticPromptContext = {
+    config: promptCtx.config,
+    botNickname: promptCtx.botNickname,
+    aiService: promptCtx.aiService,
+    enableExternalSkills: promptCtx.config.enableExternalSkills,
     triggerSkillRole: toolCtx.triggerSkillRole,
-    activeSkillsInfo: activeSkillsInfo || undefined,
-    chatHistory: history,
-    targetMessage,
-    currentEmotion: emotionState.current,
     emojiAgent: humanize.emojiAgent,
     skillManager,
     sessionId: toolCtx.sessionId,
-  });
+  };
+  const dynamicCtx: DynamicPromptContext = {
+    ...promptCtx,
+    chatHistory: history,
+    targetMessage,
+    currentEmotion: emotionState.current,
+    activeSkillsInfo: activeSkillsInfo || undefined,
+  };
+
+  const staticPrompt = buildStaticSystemPrompt(staticCtx);
+  const dynamicUserContext = buildDynamicUserContext(dynamicCtx);
 
   logger.info(
     `[chat-engine] Session ${toolCtx.sessionId} | target: ${targetMessage.userName}(${targetMessage.userId}): "${targetMessage.content}"`,
   );
   if (toolCtx.config.debug) {
-    logger.info("[chat-engine] === Prompt ===");
-    logger.info(prompt);
-    logger.info("[chat-engine] === End Prompt ===");
+    logger.info("[chat-engine] === Static System Prompt ===");
+    logger.info(staticPrompt);
+    logger.info("[chat-engine] === Dynamic User Context ===");
+    logger.info(dynamicUserContext);
+    logger.info("[chat-engine] === End Prompts ===");
   }
 
   const hasStructuredHistory =
@@ -120,11 +136,12 @@ export async function runChat(
   const usageId = `chat:${toolCtx.sessionId}:${Date.now()}:${Math.random()
     .toString(36)
     .slice(2, 10)}`;
-  const systemPromptTokens = estimateTextTokens(prompt);
+  const systemPromptTokens = estimateTextTokens(staticPrompt);
   const chatHistoryTokens = estimateChatHistoryTokens(history);
   const currentUserTokens = estimateMessageContentTokens(
     buildCurrentMessages(
-      "",
+      staticPrompt,
+      dynamicUserContext,
       targetMessage,
       [],
       currentUserMessages,
@@ -207,7 +224,8 @@ export async function runChat(
     ai.complete({
       model: toolCtx.config.model,
       messages: buildCurrentMessages(
-        prompt,
+        staticPrompt,
+        dynamicUserContext,
         targetMessage,
         cachedHistory,
         currentUserMessages,
@@ -313,7 +331,7 @@ export async function runChat(
     cleanedText = await generateToolFailureReply(
       ai,
       toolCtx,
-      prompt,
+      staticPrompt,
       targetMessage,
       failedToolCalls,
     );
@@ -439,19 +457,21 @@ function estimateTextTokens(text: string): number {
 }
 
 function buildCurrentMessages(
-  prompt: string,
+  staticPrompt: string,
+  dynamicUserContext: string,
   targetMessage: TargetMessage,
   cachedHistory: any[] = [],
   currentUserMessages: any[] = [],
   pendingImageUrls?: string[],
 ): any[] {
-  const messages: any[] = [{ role: "system", content: prompt }];
+  const messages: any[] = [{ role: "system", content: staticPrompt }];
   messages.push(...cachedHistory);
 
   if (currentUserMessages.length > 0) {
     messages.push(
-      ...attachImagesToCurrentUserMessages(
-        currentUserMessages,
+      ...prependDynamicContextToFirstUserMessage(
+        attachImagesToCurrentUserMessages(currentUserMessages, pendingImageUrls),
+        dynamicUserContext,
         pendingImageUrls,
       ),
     );
@@ -459,16 +479,17 @@ function buildCurrentMessages(
   }
 
   const hasImages = Boolean(pendingImageUrls && pendingImageUrls.length > 0);
+  const userText = `${dynamicUserContext}\n\n---\n\n[User message]\n${targetMessage.content || ""}`;
 
   if (!hasImages) {
     messages.push({
       role: "user",
-      content: targetMessage.content,
+      content: userText,
     });
     return messages;
   }
 
-  const userContent: any[] = [{ type: "text", text: targetMessage.content }];
+  const userContent: any[] = [{ type: "text", text: userText }];
   for (const url of pendingImageUrls || []) {
     userContent.push({ type: "image_url", image_url: { url } });
   }
@@ -478,6 +499,57 @@ function buildCurrentMessages(
     content: userContent,
   });
   return messages;
+}
+
+function prependDynamicContextToFirstUserMessage(
+  messages: any[],
+  dynamicUserContext: string,
+  pendingImageUrls?: string[],
+): any[] {
+  if (messages.length === 0) return messages;
+  const result = [...messages];
+  const firstIndex = 0;
+  const first = result[firstIndex];
+  if (!first || first.role !== "user") return result;
+
+  const hasImages = Boolean(pendingImageUrls && pendingImageUrls.length > 0);
+
+  if (typeof first.content === "string") {
+    result[firstIndex] = {
+      role: "user",
+      content: `${dynamicUserContext}\n\n---\n\n[User message]\n${first.content}`,
+    };
+    return result;
+  }
+
+  if (Array.isArray(first.content) && hasImages) {
+    const content = [...first.content];
+    const originalText =
+      content
+        .filter((part: any) => part?.type === "text")
+        .map((part: any) => part.text)
+        .join("\n") || "";
+    content[0] = {
+      type: "text",
+      text: `${dynamicUserContext}\n\n---\n\n[User message]\n${originalText}`,
+    };
+    result[firstIndex] = { role: "user", content };
+    return result;
+  }
+
+  if (Array.isArray(first.content)) {
+    const text = first.content
+      .filter((part: any) => part?.type === "text")
+      .map((part: any) => part.text)
+      .join("\n");
+    result[firstIndex] = {
+      role: "user",
+      content: `${dynamicUserContext}\n\n---\n\n[User message]\n${text}`,
+    };
+    return result;
+  }
+
+  return result;
 }
 
 const RATE_LIMITED_TOOL_NAMES = new Set(["web_search", "web_read_page"]);

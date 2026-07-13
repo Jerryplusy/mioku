@@ -166,7 +166,10 @@ export function createWebSearchTool(toolCtx: ToolContext): AITool {
   return {
     name: "web_search",
     description:
-      "Search the web using SearXNG. Use this for current events, external facts, documentation, or anything not in chat history. This tool can only be called a limited number of times per conversation.",
+      "Search the web using SearXNG. Use this for current events, external facts, documentation, or anything not in chat history. " +
+      "If facts may be outdated or uncertain, prefer calling this tool over guessing. " +
+      "If repeated searches still do not produce a useful answer after about 2-3 attempts, stop searching and give a direct reply based on what you already know. " +
+      "This tool can only be called a limited number of times per conversation.",
     parameters: {
       type: "object",
       properties: {
@@ -207,7 +210,10 @@ export function createWebReadPageTool(toolCtx: ToolContext): AITool {
   return {
     name: "web_read_page",
     description:
-      "Read a webpage by URL, extract its main content, and compress the content into a short, information-dense passage. Use this directly when the user already provides a URL, or combine with web_search when you need to discover relevant pages first.",
+      "Read a webpage by URL, extract its main content, and compress the content into a short, information-dense passage. " +
+      "Use this directly when the user already provides a URL, or combine with web_search when you need to discover relevant pages first. " +
+      "web_search and web_read_page are independent: use web_search when you need to discover URLs; use web_read_page directly when the user already gave a URL. " +
+      "Only set render_js=true when the page clearly needs JavaScript rendering, because it costs much more CPU and memory.",
     parameters: {
       type: "object",
       properties: {
@@ -250,7 +256,10 @@ export function createRecallMemoryTool(toolCtx: ToolContext): AITool {
   return {
     name: "recall_memory",
     description:
-      "Ask the memory worker model to retrieve historical chat context for a recall question. Use only when recall is explicitly needed and the answer is not already in current context.",
+      "Ask the memory worker model to retrieve historical chat context for a recall question. " +
+      "Use ONLY when there is explicit need to recall past content and the required information is clearly missing from current context. " +
+      "Do NOT call recall_memory for every question. " +
+      "The worker returns historical logs with timestamps; treat them as past records, not newly sent messages.",
     parameters: {
       type: "object",
       properties: {

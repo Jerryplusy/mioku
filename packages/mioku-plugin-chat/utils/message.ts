@@ -210,6 +210,7 @@ interface FormattedHistoryMessage {
   content: string;
   messageId: number;
   timestamp: number;
+  role: "user" | "assistant";
 }
 
 interface HistoryFormatContext {
@@ -220,6 +221,79 @@ interface HistoryFormatContext {
     | undefined;
   historyMediaOptions: HistoryMediaProcessingOptions;
   botUin: number;
+  memberNameCache: Map<string, string>;
+}
+
+async function resolveMemberName(
+  userId: string | number,
+  ctx: HistoryFormatContext,
+): Promise<string> {
+  const key = String(userId);
+  if (ctx.memberNameCache.has(key)) {
+    return ctx.memberNameCache.get(key) || key;
+  }
+  ctx.memberNameCache.set(key, key);
+  try {
+    const bot = ctx.historyMediaOptions.bot as any;
+    if (!bot || typeof bot.getGroupMemberInfo !== "function") return key;
+    const info = await bot.getGroupMemberInfo(
+      ctx.historyMediaOptions.groupId,
+      Number(userId),
+    );
+    const name = info?.card || info?.nickname || key;
+    ctx.memberNameCache.set(key, name);
+    return name;
+  } catch {
+    return key;
+  }
+}
+
+function extractQuotedText(messageSegs: any): string {
+  if (!Array.isArray(messageSegs) || messageSegs.length === 0) return "";
+  const parts: string[] = [];
+  for (const seg of messageSegs) {
+    if (!seg || typeof seg !== "object") continue;
+    const type = seg.type;
+    const data = seg.data || {};
+    if (type === "text") {
+      const t = String(data.text || "").trim();
+      if (t) parts.push(t);
+    } else if (type === "at") {
+      const uid = seg.qq || data.qq || data.id || data.user_id;
+      if (uid === "all" || uid === "everyone") parts.push("@全体成员");
+      else if (uid) parts.push(`@${uid}`);
+    } else if (type === "image") {
+      parts.push("[image]");
+    } else if (type === "video") {
+      parts.push("[video]");
+    } else if (type === "reply") {
+      continue;
+    } else {
+      parts.push(`[${type}]`);
+    }
+  }
+  return parts.join(" ").trim();
+}
+
+function buildReplyAnnotation(source: any, ctx: HistoryFormatContext): string | null {
+  if (!source || typeof source !== "object") return null;
+  const sourceId = source.id ?? source.message_id ?? source.message_seq;
+  const sourceUserId = source.user_id;
+  const sourceNickname =
+    source.sender?.card || source.sender?.nickname || source.nickname;
+  const sourceText = extractQuotedText(source.message);
+
+  if (sourceUserId == null && !sourceText && !sourceNickname) return null;
+
+  const idStr = sourceId != null ? String(sourceId) : "?";
+  let displayName = sourceNickname;
+  if (sourceUserId != null) {
+    displayName = ctx.memberNameCache.get(String(sourceUserId)) || String(sourceUserId);
+  }
+  if (!displayName) displayName = sourceNickname || "unknown";
+
+  const text = sourceText || "(empty)";
+  return `↪ reply to #${idStr} ${displayName}: "${text}"`;
 }
 
 async function formatHistoryMessage(
@@ -245,6 +319,7 @@ async function formatHistoryMessage(
     content,
     messageId: msg.message_id,
     timestamp: msg.time ? msg.time * 1000 : Date.now(),
+    role: "user",
   };
 }
 
@@ -258,22 +333,28 @@ async function buildMessageContent(
   const { db, historyMediaOptions } = ctx;
   const parts: string[] = [];
 
+  const replyAnnotation = buildReplyAnnotation(msg.source, ctx);
+  if (replyAnnotation) parts.push(replyAnnotation);
+
   const textSegs = msg.message.filter((seg: any) => seg.type === "text");
   const textContent = textSegs
     .map((seg: any) => seg.data?.text || "")
     .join("")
     .trim();
 
-  const atContent = msg.message
-    .filter((seg: any) => seg.type === "at")
-    .map((seg: any) => {
-      const atUid = seg.qq || seg.data?.qq || seg.data?.id || seg.data?.user_id;
-      if (!atUid) return null;
-      if (atUid === "all" || atUid === "everyone") return "@全体成员";
-      return `@${atUid}`;
-    })
-    .filter((v: string | null) => v !== null)
-    .join(" ");
+  const atSegments = msg.message.filter((seg: any) => seg.type === "at");
+  const atDisplayParts: string[] = [];
+  for (const seg of atSegments) {
+    const atUid = seg.qq || seg.data?.qq || seg.data?.id || seg.data?.user_id;
+    if (!atUid) continue;
+    if (atUid === "all" || atUid === "everyone") {
+      atDisplayParts.push("@全体成员");
+      continue;
+    }
+    const name = await resolveMemberName(String(atUid), ctx);
+    atDisplayParts.push(`@${name}(${atUid})`);
+  }
+  const atContent = atDisplayParts.join(" ");
 
   if (atContent) parts.push(atContent);
   if (textContent) parts.push(textContent);
@@ -312,7 +393,7 @@ async function buildMessageContent(
   }
 
   for (const cardSeg of msg.message.filter((seg: any) =>
-    ["xml", "json", "lightapp", "ark"].includes(seg.type),
+    ["xml", "json", "lightapp", "ark"].includes(cardSeg.type),
   )) {
     const cardData =
       cardSeg.data?.data || cardSeg.data?.xml || cardSeg.data || cardSeg.xml || "";
@@ -370,6 +451,7 @@ export async function getGroupHistory(
     content: string;
     messageId: number;
     timestamp: number;
+    role: "user" | "assistant";
   }>
 > {
   // 先获取 bot 从数据库发送的消息
@@ -380,6 +462,7 @@ export async function getGroupHistory(
     content: string;
     messageId: number;
     timestamp: number;
+    role: "user" | "assistant";
   }> = [];
 
   if (db) {
@@ -392,6 +475,7 @@ export async function getGroupHistory(
         content: msg.content,
         messageId: msg.messageId ?? 0,
         timestamp: msg.timestamp,
+        role: "assistant",
       });
     }
 
@@ -405,6 +489,7 @@ export async function getGroupHistory(
         content: msg.content,
         messageId: msg.messageId ?? 0,
         timestamp: msg.timestamp,
+        role: "user",
       });
     }
   }
@@ -444,8 +529,22 @@ export async function getGroupHistory(
     }
 
     const botUin = selfId;
+    const memberNameCache = new Map<string, string>();
 
-    const formatCtx: HistoryFormatContext = { db, historyMediaOptions, botUin };
+    for (const m of messages) {
+      const uid = m?.user_id;
+      const senderName = m?.sender?.card || m?.sender?.nickname;
+      if (uid != null && senderName && !memberNameCache.has(String(uid))) {
+        memberNameCache.set(String(uid), String(senderName));
+      }
+    }
+
+    const formatCtx: HistoryFormatContext = {
+      db,
+      historyMediaOptions,
+      botUin,
+      memberNameCache,
+    };
 
     const formattedResults = await mapWithConcurrency(
       messages,
