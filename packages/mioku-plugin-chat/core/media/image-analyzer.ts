@@ -27,6 +27,13 @@ export interface ImageAnalysisResult {
 
 export interface ImageAnalysisOptions {
   runAIRequest?<T>(request: () => Promise<T>): Promise<T | null>;
+  /**
+   * When non-empty, only memes whose detected character is in this list
+   * get downloaded into `data/chat/meme/<character>/<emotion>/`. Other
+   * characters still get a DB record but no local file.
+   * Empty (default) = no restriction; save for every detected character.
+   */
+  allowedCharacters?: string[];
 }
 
 function formatImageRecognitionLog(record: {
@@ -382,8 +389,29 @@ export async function processImage(
           ? analysis.characters
           : [analysis.character || "unknown"];
 
-      // 为每个角色创建文件夹并保存图片
-      const savePromises = characters.map(async (character) => {
+      // 应用 allowedCharacters 过滤：配置非空时只对列表内角色本地保存
+      const allowed = options?.allowedCharacters;
+      const hasRestriction = Array.isArray(allowed) && allowed.length > 0;
+      const normalizeName = (s: string) => String(s || "").trim().toLowerCase();
+      const allowedSet = hasRestriction
+        ? new Set((allowed as string[]).map(normalizeName))
+        : null;
+
+      const saveableCharacters = allowedSet
+        ? characters.filter((c) => allowedSet.has(normalizeName(c)))
+        : characters;
+
+      const skipped = characters.filter(
+        (c) => !saveableCharacters.includes(c),
+      );
+      if (skipped.length > 0) {
+        logger.info(
+          `[image-analyzer] Skipping local file save for characters outside allowedCharacters: ${skipped.join(", ")}`,
+        );
+      }
+
+      // 为每个允许保存的角色创建文件夹并保存图片
+      const savePromises = saveableCharacters.map(async (character) => {
         const memeDir = path.join(
           process.cwd(),
           "data",
@@ -429,7 +457,7 @@ export async function processImage(
     // 保存到数据库
     const record: ImageRecord = {
       hash,
-      url: imageUrl,
+      url: normalizeImageUrl(imageUrl) || imageUrl,
       type: analysis.type,
       description: analysis.description || "未知",
       emotion: analysis.emotion,
@@ -452,12 +480,64 @@ export async function processImage(
  * 命中数据库记录时返回 [meme:描述] 或 [image:描述]，否则返回 [image]。
  * 收集聊天历史时用它，之前没识别到的图片不会再次触发请求。
  */
-export function getImageTag(imageUrl: string, db: ChatDatabase): string {
-  const record = db.getImageByUrl(imageUrl);
+export async function getImageTag(imageUrl: string, db: ChatDatabase): Promise<string> {
+  const exact = db.getImageByUrl(imageUrl);
+  if (exact) {
+    return `[${exact.type}:${exact.description}]`;
+  }
 
-  if (record) {
-    return `[${record.type}:${record.description}]`;
+  const normalized = normalizeImageUrl(imageUrl);
+  if (normalized && normalized !== imageUrl) {
+    const normalizedHit = db.getImageByUrl(normalized);
+    if (normalizedHit) {
+      return `[${normalizedHit.type}:${normalizedHit.description}]`;
+    }
+  }
+
+  const hash = await calculateImageHash(imageUrl);
+  if (hash) {
+    const byHash = db.getImageByHash(hash);
+    if (byHash) {
+      try {
+        db.saveImage({
+          hash: byHash.hash,
+          url: normalized || imageUrl,
+          type: byHash.type,
+          description: byHash.description,
+          emotion: byHash.emotion,
+          character: byHash.character,
+          filePath: byHash.filePath,
+          createdAt: byHash.createdAt,
+        });
+      } catch {
+        // ignore — best-effort URL caching for next time
+      }
+      return `[${byHash.type}:${byHash.description}]`;
+    }
   }
 
   return "[image]";
+}
+
+/**
+ * Strip query string and hash so URLs from different NapCat code paths
+ * (live vs. get_group_msg_history) still match. QQ gchat.qpic.cn URLs
+ * include varying `?term=2`, `?spec=0`, signed tokens, etc.
+ */
+export function normalizeImageUrl(url: string): string {
+  if (!url || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  try {
+    const u = new URL(trimmed);
+    return `${u.protocol}//${u.host}${u.pathname}`;
+  } catch {
+    const qIdx = trimmed.indexOf("?");
+    const hashIdx = trimmed.indexOf("#");
+    let cutAt = -1;
+    if (qIdx >= 0 && hashIdx >= 0) cutAt = Math.min(qIdx, hashIdx);
+    else if (qIdx >= 0) cutAt = qIdx;
+    else if (hashIdx >= 0) cutAt = hashIdx;
+    return cutAt >= 0 ? trimmed.slice(0, cutAt) : trimmed;
+  }
 }

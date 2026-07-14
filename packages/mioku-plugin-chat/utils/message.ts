@@ -14,7 +14,10 @@ import {
   type HistoryMediaProcessingOptions,
   type MediaMessageSegment,
 } from "../core/media/history-media";
-import { getImageTag } from "../core/media/image-analyzer";
+import {
+  calculateImageHash,
+  normalizeImageUrl,
+} from "../core/media/image-analyzer";
 
 const HISTORY_MEDIA_CONCURRENCY = 8;
 
@@ -210,16 +213,136 @@ interface FormattedHistoryMessage {
   content: string;
   messageId: number;
   timestamp: number;
+  role: "user" | "assistant";
 }
 
 interface HistoryFormatContext {
   db:
     | {
         getImageByUrl?(url: string): ImageRecord | null;
+        getImageByHash?(hash: string): ImageRecord | null;
+        saveImage?(image: ImageRecord): void;
       }
     | undefined;
   historyMediaOptions: HistoryMediaProcessingOptions;
   botUin: number;
+  memberNameCache: Map<string, string>;
+  hashLookupCache: Map<string, string | null>;
+}
+
+async function resolveMemberName(
+  userId: string | number,
+  ctx: HistoryFormatContext,
+): Promise<string> {
+  const key = String(userId);
+  if (ctx.memberNameCache.has(key)) {
+    return ctx.memberNameCache.get(key) || key;
+  }
+  ctx.memberNameCache.set(key, key);
+  try {
+    const bot = ctx.historyMediaOptions.bot as any;
+    if (!bot || typeof bot.getGroupMemberInfo !== "function") return key;
+    const info = await bot.getGroupMemberInfo(
+      ctx.historyMediaOptions.groupId,
+      Number(userId),
+    );
+    const name = info?.card || info?.nickname || key;
+    ctx.memberNameCache.set(key, name);
+    return name;
+  } catch {
+    return key;
+  }
+}
+
+function extractQuotedText(messageSegs: any): string {
+  if (!Array.isArray(messageSegs) || messageSegs.length === 0) return "";
+  const parts: string[] = [];
+  for (const seg of messageSegs) {
+    if (!seg || typeof seg !== "object") continue;
+    const type = seg.type;
+    const data = seg.data || {};
+    if (type === "text") {
+      const t = String(data.text || "").trim();
+      if (t) parts.push(t);
+    } else if (type === "at") {
+      const uid = seg.qq || data.qq || data.id || data.user_id;
+      if (uid === "all" || uid === "everyone") parts.push("@全体成员");
+      else if (uid) parts.push(`@${uid}`);
+    } else if (type === "image") {
+      parts.push("[image]");
+    } else if (type === "video") {
+      parts.push("[video]");
+    } else if (type === "reply") {
+      continue;
+    } else {
+      parts.push(`[${type}]`);
+    }
+  }
+  return parts.join(" ").trim();
+}
+
+function buildReplyAnnotation(source: any, ctx: HistoryFormatContext): string | null {
+  if (!source || typeof source !== "object") return null;
+  const sourceId = source.id ?? source.message_id ?? source.message_seq;
+  const sourceUserId = source.user_id;
+  const sourceNickname =
+    source.sender?.card || source.sender?.nickname || source.nickname;
+  const sourceText = extractQuotedText(source.message);
+
+  if (sourceUserId == null && !sourceText && !sourceNickname) return null;
+
+  const idStr = sourceId != null ? String(sourceId) : "?";
+  let displayName: string | undefined;
+  if (sourceUserId != null) {
+    displayName = ctx.memberNameCache.get(String(sourceUserId)) || String(sourceUserId);
+  }
+  if (!displayName) displayName = sourceNickname || "unknown";
+
+  const text = sourceText || "(empty)";
+  return `↪ reply to #${idStr} ${displayName}: "${text}"`;
+}
+
+async function getImageTagWithHashCache(
+  imageUrl: string,
+  db: NonNullable<HistoryFormatContext["db"]>,
+  ctx: HistoryFormatContext,
+): Promise<string> {
+  const exact = db.getImageByUrl?.(imageUrl);
+  if (exact) return `[${exact.type}:${exact.description}]`;
+
+  const normalized = normalizeImageUrl(imageUrl);
+  if (normalized && normalized !== imageUrl) {
+    const hit = db.getImageByUrl?.(normalized);
+    if (hit) return `[${hit.type}:${hit.description}]`;
+  }
+
+  let hash = ctx.hashLookupCache.get(`hash:${imageUrl}`);
+  if (hash === undefined) {
+    hash = (await calculateImageHash(imageUrl)) || null;
+    ctx.hashLookupCache.set(`hash:${imageUrl}`, hash);
+  }
+  if (!hash) return "[image]";
+
+  const byHash = db.getImageByHash?.(hash);
+  if (byHash) {
+    try {
+      db.saveImage?.({
+        hash: byHash.hash,
+        url: normalized || imageUrl,
+        type: byHash.type,
+        description: byHash.description,
+        emotion: byHash.emotion,
+        character: byHash.character,
+        filePath: byHash.filePath,
+        createdAt: byHash.createdAt,
+      });
+    } catch {
+      // best-effort URL caching for next call
+    }
+    return `[${byHash.type}:${byHash.description}]`;
+  }
+
+  return "[image]";
 }
 
 async function formatHistoryMessage(
@@ -245,6 +368,7 @@ async function formatHistoryMessage(
     content,
     messageId: msg.message_id,
     timestamp: msg.time ? msg.time * 1000 : Date.now(),
+    role: "user",
   };
 }
 
@@ -258,35 +382,56 @@ async function buildMessageContent(
   const { db, historyMediaOptions } = ctx;
   const parts: string[] = [];
 
+  const replyAnnotation = buildReplyAnnotation(msg.source, ctx);
+  if (replyAnnotation) parts.push(replyAnnotation);
+
   const textSegs = msg.message.filter((seg: any) => seg.type === "text");
   const textContent = textSegs
     .map((seg: any) => seg.data?.text || "")
     .join("")
     .trim();
 
-  const atContent = msg.message
-    .filter((seg: any) => seg.type === "at")
-    .map((seg: any) => {
-      const atUid = seg.qq || seg.data?.qq || seg.data?.id || seg.data?.user_id;
-      if (!atUid) return null;
-      if (atUid === "all" || atUid === "everyone") return "@全体成员";
-      return `@${atUid}`;
-    })
-    .filter((v: string | null) => v !== null)
-    .join(" ");
+  const atSegments = msg.message.filter((seg: any) => seg.type === "at");
+  const atDisplayParts: string[] = [];
+  for (const seg of atSegments) {
+    const atUid = seg.qq || seg.data?.qq || seg.data?.id || seg.data?.user_id;
+    if (!atUid) continue;
+    if (atUid === "all" || atUid === "everyone") {
+      atDisplayParts.push("@全体成员");
+      continue;
+    }
+    const name = await resolveMemberName(String(atUid), ctx);
+    atDisplayParts.push(`@${name}(${atUid})`);
+  }
+  const atContent = atDisplayParts.join(" ");
 
   if (atContent) parts.push(atContent);
   if (textContent) parts.push(textContent);
 
-  for (const imageSeg of msg.message.filter((seg: any) => seg.type === "image")) {
-    const imageUrl = imageSeg.url || imageSeg.data?.url;
-    if (imageUrl) {
-      parts.push(
-        db?.getImageByUrl
-          ? getImageTag(String(imageUrl), db as any)
-          : "[image]",
-      );
-    }
+  const imageSegments = msg.message.filter((seg: any) => seg.type === "image");
+  if (imageSegments.length > 0 && db?.getImageByUrl) {
+    const imageTags = await Promise.all(
+      imageSegments.map(async (seg: any) => {
+        const imageUrl = seg.url || seg.data?.url;
+        if (!imageUrl) return "[image]";
+
+        const cached = ctx.hashLookupCache.get(imageUrl);
+        if (cached !== undefined) {
+          return cached;
+        }
+
+        const tag = await getImageTagWithHashCache(
+          String(imageUrl),
+          db as any,
+          ctx,
+        );
+        ctx.hashLookupCache.set(imageUrl, tag);
+        return tag;
+      }),
+    );
+    for (const tag of imageTags) parts.push(tag);
+  } else if (imageSegments.length > 0) {
+    for (const _ of imageSegments) parts.push("[image]");
   }
 
   for (const videoSeg of msg.message.filter(
@@ -370,6 +515,7 @@ export async function getGroupHistory(
     content: string;
     messageId: number;
     timestamp: number;
+    role: "user" | "assistant";
   }>
 > {
   // 先获取 bot 从数据库发送的消息
@@ -380,6 +526,7 @@ export async function getGroupHistory(
     content: string;
     messageId: number;
     timestamp: number;
+    role: "user" | "assistant";
   }> = [];
 
   if (db) {
@@ -392,6 +539,7 @@ export async function getGroupHistory(
         content: msg.content,
         messageId: msg.messageId ?? 0,
         timestamp: msg.timestamp,
+        role: "assistant",
       });
     }
 
@@ -405,6 +553,7 @@ export async function getGroupHistory(
         content: msg.content,
         messageId: msg.messageId ?? 0,
         timestamp: msg.timestamp,
+        role: "user",
       });
     }
   }
@@ -444,8 +593,24 @@ export async function getGroupHistory(
     }
 
     const botUin = selfId;
+    const memberNameCache = new Map<string, string>();
+    const hashLookupCache = new Map<string, string | null>();
 
-    const formatCtx: HistoryFormatContext = { db, historyMediaOptions, botUin };
+    for (const m of messages) {
+      const uid = m?.user_id;
+      const senderName = m?.sender?.card || m?.sender?.nickname;
+      if (uid != null && senderName && !memberNameCache.has(String(uid))) {
+        memberNameCache.set(String(uid), String(senderName));
+      }
+    }
+
+    const formatCtx: HistoryFormatContext = {
+      db,
+      historyMediaOptions,
+      botUin,
+      memberNameCache,
+      hashLookupCache,
+    };
 
     const formattedResults = await mapWithConcurrency(
       messages,

@@ -221,7 +221,7 @@ class AIInstanceImpl implements AIInstance {
       model: args.model,
       messages: args.messages,
       tools: args.tools,
-      temperature: args.temperature,
+      top_p: args.temperature,
       ...(args.max_tokens != null && { max_completion_tokens: args.max_tokens }),
     });
 
@@ -267,7 +267,7 @@ class AIInstanceImpl implements AIInstance {
       model: args.model,
       messages: args.messages,
       tools: args.tools,
-      temperature: args.temperature,
+      top_p: args.temperature,
       stream: true,
       ...(args.max_tokens != null && { max_completion_tokens: args.max_tokens }),
     });

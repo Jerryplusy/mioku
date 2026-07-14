@@ -248,7 +248,7 @@ export async function processChat(
       : [];
     const history: ChatMessage[] = rawHistory.map((msg: any) => ({
       sessionId: groupSessionId,
-      role: "user" as const,
+      role: msg.role || ("user" as const),
       content: msg.content,
       userId: msg.userId,
       userName: msg.userName,
@@ -420,7 +420,7 @@ export async function executeChatRuntimeRequest(
     : [];
   const history: ChatMessage[] = rawHistory.map((msg) => ({
     sessionId,
-    role: "user",
+    role: msg.role || ("user" as const),
     content: msg.content,
     userId: msg.userId,
     userName: msg.userName,

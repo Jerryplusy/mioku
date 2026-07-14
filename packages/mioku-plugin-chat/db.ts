@@ -29,7 +29,18 @@ function toChatMessage(row: any): ChatMessage {
 }
 
 function toTopicRecord(row: any): TopicRecord {
-  return toTopicRecord(row);
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    title: row.title,
+    keywords: row.keywords,
+    summary: row.summary,
+    messageCount: row.message_count,
+    windowStartAt: row.window_start_at ?? undefined,
+    windowEndAt: row.window_end_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 function toExpressionRecord(row: any): ExpressionRecord {
@@ -366,8 +377,11 @@ export async function initDatabase(): Promise<ChatDatabase> {
     `),
     // 图片记录
     insertImage: db.prepare(`
-      INSERT OR IGNORE INTO images (hash, url, type, description, emotion, character, file_path, created_at)
+      INSERT INTO images (hash, url, type, description, emotion, character, file_path, created_at)
       VALUES ($hash, $url, $type, $description, $emotion, $character, $filePath, $createdAt)
+      ON CONFLICT(hash) DO UPDATE SET
+        url = excluded.url,
+        created_at = excluded.created_at
     `),
     getImageByHash: db.prepare(`SELECT * FROM images WHERE hash = $hash`),
     getImageByUrl: db.prepare(`SELECT * FROM images WHERE url = $url`),
