@@ -5,6 +5,26 @@ import { logger } from "mioki";
 import type { MiokuService, ConfigService } from "mioku";
 
 /**
+ * Shallow merge: defaults fill in missing top-level keys; for any top-level
+ * key the user has set, the user's value (object, array, primitive) wins
+ * whole. This means:
+ *   - User removing a top-level key from JSON → default restores it.
+ *   - User shrinking an array → array stays shrunk (no index-based re-fill
+ *     from defaults like _.merge does).
+ *   - User replacing a nested object → replacement is total, not deep-merged
+ *     with defaults. The caller is expected to provide the full nested value.
+ */
+function shallowMerge(defaults: Record<string, any>, overrides: Record<string, any>): Record<string, any> {
+  if (!defaults || typeof defaults !== "object") return { ...(overrides || {}) };
+  if (!overrides || typeof overrides !== "object") return { ...defaults };
+  const result: Record<string, any> = { ...defaults };
+  for (const key of Object.keys(overrides)) {
+    result[key] = overrides[key];
+  }
+  return result;
+}
+
+/**
  * 配置管理器实现
  */
 class ConfigManager implements ConfigService {
@@ -123,7 +143,7 @@ class ConfigManager implements ConfigService {
 
       if (fs.existsSync(configPath)) {
         const existingConfig = await this.loadConfig(pluginName, configName);
-        const mergedConfig = _.merge({}, config, existingConfig);
+        const mergedConfig = shallowMerge(config, existingConfig);
         if (JSON.stringify(existingConfig) === JSON.stringify(mergedConfig)) {
           this.configCache.set(cacheKey, existingConfig);
           this.watchConfig(pluginName, configName);
@@ -160,7 +180,7 @@ class ConfigManager implements ConfigService {
         return false;
       }
 
-      const updatedConfig = _.merge({}, currentConfig, updates);
+      const updatedConfig = shallowMerge(currentConfig, updates);
       await this.saveConfig(pluginName, configName, updatedConfig);
       this.configCache.set(cacheKey, updatedConfig);
       return true;
