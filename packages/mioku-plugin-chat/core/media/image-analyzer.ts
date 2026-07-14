@@ -27,6 +27,13 @@ export interface ImageAnalysisResult {
 
 export interface ImageAnalysisOptions {
   runAIRequest?<T>(request: () => Promise<T>): Promise<T | null>;
+  /**
+   * When non-empty, only memes whose detected character is in this list
+   * get downloaded into `data/chat/meme/<character>/<emotion>/`. Other
+   * characters still get a DB record but no local file.
+   * Empty (default) = no restriction; save for every detected character.
+   */
+  allowedCharacters?: string[];
 }
 
 function formatImageRecognitionLog(record: {
@@ -382,8 +389,29 @@ export async function processImage(
           ? analysis.characters
           : [analysis.character || "unknown"];
 
-      // 为每个角色创建文件夹并保存图片
-      const savePromises = characters.map(async (character) => {
+      // 应用 allowedCharacters 过滤：配置非空时只对列表内角色本地保存
+      const allowed = options?.allowedCharacters;
+      const hasRestriction = Array.isArray(allowed) && allowed.length > 0;
+      const normalizeName = (s: string) => String(s || "").trim().toLowerCase();
+      const allowedSet = hasRestriction
+        ? new Set((allowed as string[]).map(normalizeName))
+        : null;
+
+      const saveableCharacters = allowedSet
+        ? characters.filter((c) => allowedSet.has(normalizeName(c)))
+        : characters;
+
+      const skipped = characters.filter(
+        (c) => !saveableCharacters.includes(c),
+      );
+      if (skipped.length > 0) {
+        logger.info(
+          `[image-analyzer] Skipping local file save for characters outside allowedCharacters: ${skipped.join(", ")}`,
+        );
+      }
+
+      // 为每个允许保存的角色创建文件夹并保存图片
+      const savePromises = saveableCharacters.map(async (character) => {
         const memeDir = path.join(
           process.cwd(),
           "data",
