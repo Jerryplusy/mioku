@@ -429,7 +429,7 @@ export async function processImage(
     // 保存到数据库
     const record: ImageRecord = {
       hash,
-      url: imageUrl,
+      url: normalizeImageUrl(imageUrl) || imageUrl,
       type: analysis.type,
       description: analysis.description || "未知",
       emotion: analysis.emotion,
@@ -452,12 +452,64 @@ export async function processImage(
  * 命中数据库记录时返回 [meme:描述] 或 [image:描述]，否则返回 [image]。
  * 收集聊天历史时用它，之前没识别到的图片不会再次触发请求。
  */
-export function getImageTag(imageUrl: string, db: ChatDatabase): string {
-  const record = db.getImageByUrl(imageUrl);
+export async function getImageTag(imageUrl: string, db: ChatDatabase): Promise<string> {
+  const exact = db.getImageByUrl(imageUrl);
+  if (exact) {
+    return `[${exact.type}:${exact.description}]`;
+  }
 
-  if (record) {
-    return `[${record.type}:${record.description}]`;
+  const normalized = normalizeImageUrl(imageUrl);
+  if (normalized && normalized !== imageUrl) {
+    const normalizedHit = db.getImageByUrl(normalized);
+    if (normalizedHit) {
+      return `[${normalizedHit.type}:${normalizedHit.description}]`;
+    }
+  }
+
+  const hash = await calculateImageHash(imageUrl);
+  if (hash) {
+    const byHash = db.getImageByHash(hash);
+    if (byHash) {
+      try {
+        db.saveImage({
+          hash: byHash.hash,
+          url: normalized || imageUrl,
+          type: byHash.type,
+          description: byHash.description,
+          emotion: byHash.emotion,
+          character: byHash.character,
+          filePath: byHash.filePath,
+          createdAt: byHash.createdAt,
+        });
+      } catch {
+        // ignore — best-effort URL caching for next time
+      }
+      return `[${byHash.type}:${byHash.description}]`;
+    }
   }
 
   return "[image]";
+}
+
+/**
+ * Strip query string and hash so URLs from different NapCat code paths
+ * (live vs. get_group_msg_history) still match. QQ gchat.qpic.cn URLs
+ * include varying `?term=2`, `?spec=0`, signed tokens, etc.
+ */
+export function normalizeImageUrl(url: string): string {
+  if (!url || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  try {
+    const u = new URL(trimmed);
+    return `${u.protocol}//${u.host}${u.pathname}`;
+  } catch {
+    const qIdx = trimmed.indexOf("?");
+    const hashIdx = trimmed.indexOf("#");
+    let cutAt = -1;
+    if (qIdx >= 0 && hashIdx >= 0) cutAt = Math.min(qIdx, hashIdx);
+    else if (qIdx >= 0) cutAt = qIdx;
+    else if (hashIdx >= 0) cutAt = hashIdx;
+    return cutAt >= 0 ? trimmed.slice(0, cutAt) : trimmed;
+  }
 }

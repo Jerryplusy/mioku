@@ -377,8 +377,11 @@ export async function initDatabase(): Promise<ChatDatabase> {
     `),
     // 图片记录
     insertImage: db.prepare(`
-      INSERT OR IGNORE INTO images (hash, url, type, description, emotion, character, file_path, created_at)
+      INSERT INTO images (hash, url, type, description, emotion, character, file_path, created_at)
       VALUES ($hash, $url, $type, $description, $emotion, $character, $filePath, $createdAt)
+      ON CONFLICT(hash) DO UPDATE SET
+        url = excluded.url,
+        created_at = excluded.created_at
     `),
     getImageByHash: db.prepare(`SELECT * FROM images WHERE hash = $hash`),
     getImageByUrl: db.prepare(`SELECT * FROM images WHERE url = $url`),

@@ -14,7 +14,10 @@ import {
   type HistoryMediaProcessingOptions,
   type MediaMessageSegment,
 } from "../core/media/history-media";
-import { getImageTag } from "../core/media/image-analyzer";
+import {
+  calculateImageHash,
+  normalizeImageUrl,
+} from "../core/media/image-analyzer";
 
 const HISTORY_MEDIA_CONCURRENCY = 8;
 
@@ -217,11 +220,14 @@ interface HistoryFormatContext {
   db:
     | {
         getImageByUrl?(url: string): ImageRecord | null;
+        getImageByHash?(hash: string): ImageRecord | null;
+        saveImage?(image: ImageRecord): void;
       }
     | undefined;
   historyMediaOptions: HistoryMediaProcessingOptions;
   botUin: number;
   memberNameCache: Map<string, string>;
+  hashLookupCache: Map<string, string | null>;
 }
 
 async function resolveMemberName(
@@ -286,7 +292,7 @@ function buildReplyAnnotation(source: any, ctx: HistoryFormatContext): string | 
   if (sourceUserId == null && !sourceText && !sourceNickname) return null;
 
   const idStr = sourceId != null ? String(sourceId) : "?";
-  let displayName = sourceNickname;
+  let displayName: string | undefined;
   if (sourceUserId != null) {
     displayName = ctx.memberNameCache.get(String(sourceUserId)) || String(sourceUserId);
   }
@@ -294,6 +300,49 @@ function buildReplyAnnotation(source: any, ctx: HistoryFormatContext): string | 
 
   const text = sourceText || "(empty)";
   return `↪ reply to #${idStr} ${displayName}: "${text}"`;
+}
+
+async function getImageTagWithHashCache(
+  imageUrl: string,
+  db: NonNullable<HistoryFormatContext["db"]>,
+  ctx: HistoryFormatContext,
+): Promise<string> {
+  const exact = db.getImageByUrl?.(imageUrl);
+  if (exact) return `[${exact.type}:${exact.description}]`;
+
+  const normalized = normalizeImageUrl(imageUrl);
+  if (normalized && normalized !== imageUrl) {
+    const hit = db.getImageByUrl?.(normalized);
+    if (hit) return `[${hit.type}:${hit.description}]`;
+  }
+
+  let hash = ctx.hashLookupCache.get(`hash:${imageUrl}`);
+  if (hash === undefined) {
+    hash = (await calculateImageHash(imageUrl)) || null;
+    ctx.hashLookupCache.set(`hash:${imageUrl}`, hash);
+  }
+  if (!hash) return "[image]";
+
+  const byHash = db.getImageByHash?.(hash);
+  if (byHash) {
+    try {
+      db.saveImage?.({
+        hash: byHash.hash,
+        url: normalized || imageUrl,
+        type: byHash.type,
+        description: byHash.description,
+        emotion: byHash.emotion,
+        character: byHash.character,
+        filePath: byHash.filePath,
+        createdAt: byHash.createdAt,
+      });
+    } catch {
+      // best-effort URL caching for next call
+    }
+    return `[${byHash.type}:${byHash.description}]`;
+  }
+
+  return "[image]";
 }
 
 async function formatHistoryMessage(
@@ -359,15 +408,30 @@ async function buildMessageContent(
   if (atContent) parts.push(atContent);
   if (textContent) parts.push(textContent);
 
-  for (const imageSeg of msg.message.filter((seg: any) => seg.type === "image")) {
-    const imageUrl = imageSeg.url || imageSeg.data?.url;
-    if (imageUrl) {
-      parts.push(
-        db?.getImageByUrl
-          ? getImageTag(String(imageUrl), db as any)
-          : "[image]",
-      );
-    }
+  const imageSegments = msg.message.filter((seg: any) => seg.type === "image");
+  if (imageSegments.length > 0 && db?.getImageByUrl) {
+    const imageTags = await Promise.all(
+      imageSegments.map(async (seg: any) => {
+        const imageUrl = seg.url || seg.data?.url;
+        if (!imageUrl) return "[image]";
+
+        const cached = ctx.hashLookupCache.get(imageUrl);
+        if (cached !== undefined) {
+          return cached;
+        }
+
+        const tag = await getImageTagWithHashCache(
+          String(imageUrl),
+          db as any,
+          ctx,
+        );
+        ctx.hashLookupCache.set(imageUrl, tag);
+        return tag;
+      }),
+    );
+    for (const tag of imageTags) parts.push(tag);
+  } else if (imageSegments.length > 0) {
+    for (const _ of imageSegments) parts.push("[image]");
   }
 
   for (const videoSeg of msg.message.filter(
@@ -530,6 +594,7 @@ export async function getGroupHistory(
 
     const botUin = selfId;
     const memberNameCache = new Map<string, string>();
+    const hashLookupCache = new Map<string, string | null>();
 
     for (const m of messages) {
       const uid = m?.user_id;
@@ -544,6 +609,7 @@ export async function getGroupHistory(
       historyMediaOptions,
       botUin,
       memberNameCache,
+      hashLookupCache,
     };
 
     const formattedResults = await mapWithConcurrency(
