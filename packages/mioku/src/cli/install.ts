@@ -3,8 +3,10 @@ import {
   ensurePackageManager,
   appendToMiokiPlugins,
   execAdd,
+  fetchNpmKeywords,
   PLUGIN_PREFIX,
   SERVICE_PREFIX,
+  confirm,
 } from "./shared";
 
 export async function installCommand(
@@ -32,6 +34,14 @@ export async function installCommand(
   const prefix = type === "plugin" ? PLUGIN_PREFIX : SERVICE_PREFIX;
   const normalized = `${prefix}${name}`;
 
+  if (type === "plugin") {
+    const proceed = await warnIfPrivatePlugin(normalized);
+    if (!proceed) {
+      consola.info("已取消安装");
+      return 1;
+    }
+  }
+
   try {
     execAdd([normalized], cwd);
     consola.success(`已安装 ${normalized}`);
@@ -49,4 +59,14 @@ export async function installCommand(
     consola.error(`安装失败: ${normalized}`);
     return 1;
   }
+}
+
+async function warnIfPrivatePlugin(pkgName: string): Promise<boolean> {
+  const keywords = await fetchNpmKeywords(pkgName);
+  if (keywords === null) return true;
+  if (keywords.includes("mioku")) return true;
+
+  consola.warn(`${pkgName} 看起来是私有插件"`);
+  consola.warn("该插件未上架插件市场，可能存在风险");
+  return confirm("仍要继续安装吗？", { initial: false });
 }

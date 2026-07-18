@@ -22,6 +22,7 @@ export interface PackageJsonLike {
   name?: string;
   version?: string;
   description?: string;
+  keywords?: string[];
   mioki?: MiokuRuntimeConfig;
   mioku?: PluginPackageConfig;
   dependencies?: Record<string, string>;

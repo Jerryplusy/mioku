@@ -205,6 +205,7 @@ async function mergeResults(officialRegistry, npmObjects) {
     if (!type) continue
 
     const keywords = Array.isArray(pkg.keywords) ? pkg.keywords.map(String) : []
+    if (!keywords.includes('mioku')) continue
 
     seen.set(name, {
       name: stripPrefix(name, type),

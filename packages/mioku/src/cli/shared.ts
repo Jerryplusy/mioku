@@ -164,6 +164,27 @@ export function withRoot(p: string): string {
   return path.resolve(process.cwd(), p);
 }
 
+const NPM_REGISTRY = "https://registry.npmjs.org";
+
+export async function fetchNpmKeywords(
+  packageName: string,
+): Promise<string[] | null> {
+  try {
+    const res = await fetch(`${NPM_REGISTRY}/${encodeURIComponent(packageName)}`, {
+      headers: { Accept: "application/json", "User-Agent": "mioku-cli" },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as any;
+    const latestVersion = String(data?.["dist-tags"]?.latest || "").trim();
+    const keywords = latestVersion
+      ? data?.versions?.[latestVersion]?.keywords
+      : data?.keywords;
+    return Array.isArray(keywords) ? keywords.map(String) : [];
+  } catch {
+    return null;
+  }
+}
+
 export function gracefullyExit(): void {
   console.log("Bye!");
   process.exit(0);
