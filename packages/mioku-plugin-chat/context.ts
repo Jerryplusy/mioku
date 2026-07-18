@@ -2,7 +2,7 @@ import type { MiokiContext } from "mioki";
 import type { AIInstance, AIService } from "mioku";
 import type { ChatConfig } from "./types";
 import type { ChatDatabase } from "./db";
-import type { HumanizeEngine } from "./humanize";
+import type { HumanizeEngine, ChatConfigProvider } from "./humanize";
 import type { SessionManager } from "./manage/session";
 import type { SkillSessionManager } from "./manage/skill-session";
 import type { RateLimiter } from "./manage/rate-limiter";
@@ -39,7 +39,9 @@ import type { ChatMessage } from "./types";
 export interface ChatPluginContext {
   // Core context
   ctx: MiokiContext;
-  config: ChatConfig;
+  defaultConfig: ChatConfig;
+  configProvider: ChatConfigProvider;
+  getConfig: (groupId?: number) => Promise<ChatConfig>;
   db: ChatDatabase;
   aiInstance: AIInstance;
   workAIInstance: AIInstance;
@@ -98,7 +100,7 @@ export interface ChatRuntimeState {
  * Closure state shared with the extracted message/poke handlers.
  */
 export interface ChatHandlerState {
-  getConfig: () => Promise<ChatConfig>;
+  getConfig: (groupId?: number) => Promise<ChatConfig>;
   matchMessageCommands?: (
     text: string,
   ) => Array<{ plugin: string; command: string }>;

@@ -1,7 +1,9 @@
 import type { AIInstance } from "mioku";
 import { logger } from "mioki";
 import type { ChatDatabase } from "../db";
-import type { ChatConfig, ChatMessage } from "../types";
+import type { ChatMessage } from "../types";
+import { extractGroupIdFromSession } from "../utils/group-config";
+import type { ChatConfigProvider } from "./index";
 
 export interface MemoryUserHistoryChunk {
   userId: number;
@@ -18,17 +20,18 @@ export interface MemoryRecallInput {
 
 export class MemoryRetrieval {
   private ai: AIInstance;
-  private config: ChatConfig;
+  private getConfig: ChatConfigProvider;
   private db: ChatDatabase;
 
-  constructor(ai: AIInstance, config: ChatConfig, db: ChatDatabase) {
+  constructor(ai: AIInstance, configProvider: ChatConfigProvider, db: ChatDatabase) {
     this.ai = ai;
-    this.config = config;
+    this.getConfig = configProvider;
     this.db = db;
   }
 
   async retrieveByQuestion(input: MemoryRecallInput): Promise<string | null> {
-    if (!this.config.memory?.enabled) return null;
+    const cfg = this.getConfig(extractGroupIdFromSession(input.sessionId));
+    if (!cfg.memory?.enabled) return null;
 
     const question = String(input.question || "").trim();
     if (!question) return null;
@@ -68,7 +71,7 @@ Output requirements:
 - If useful evidence exists, summarize key facts with timestamps.
 - If no useful memory exists, output exactly: NO_USEFUL_MEMORY_FOUND`,
         messages: [],
-        model: this.config.workingModel || this.config.model,
+        model: cfg.workingModel || cfg.model,
         temperature: 0.2,
         max_tokens: 700,
       });

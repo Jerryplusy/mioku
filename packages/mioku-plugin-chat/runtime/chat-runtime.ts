@@ -12,7 +12,7 @@ import { executeChatRuntimeRequest } from "../core/chat-turn";
 
 export function createChatRuntime(
   pluginCtx: ChatPluginContext,
-  getConfig: () => Promise<ChatConfig>,
+  getConfig: (groupId?: number) => Promise<ChatConfig>,
 ): ChatRuntime {
   return {
     async requestInformation(

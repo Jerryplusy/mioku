@@ -1,24 +1,25 @@
 import type { AIInstance } from "mioku";
 import { logger } from "mioki";
 import type {
-  ChatConfig,
   ChatMessage,
   PlannerAction,
   PlannerResult,
 } from "../types";
+import { extractGroupIdFromSession } from "../utils/group-config";
+import type { ChatConfigProvider } from "./index";
 
 export class ActionPlanner {
   private ai: AIInstance;
-  private config: ChatConfig;
+  private getConfig: ChatConfigProvider;
   private actionHistory: Map<
     string,
     { action: PlannerAction; time: number }[]
   > = new Map();
   private pendingPlans: Map<string, Promise<PlannerResult>> = new Map();
 
-  constructor(ai: AIInstance, config: ChatConfig) {
+  constructor(ai: AIInstance, configProvider: ChatConfigProvider) {
     this.ai = ai;
-    this.config = config;
+    this.getConfig = configProvider;
   }
 
   async plan(
@@ -28,18 +29,18 @@ export class ActionPlanner {
     lastTriggerMessage: string,
     isIdleCheck: boolean = false,
   ): Promise<PlannerResult> {
-    if (!this.config.planner?.enabled) {
+    const cfg = this.getConfig(extractGroupIdFromSession(sessionId));
+    if (!cfg.planner?.enabled) {
       return { action: "reply", reason: "planner disabled" };
     }
 
-    // Guard: if a plan call is already in-flight for this session, wait for it
     const existing = this.pendingPlans.get(sessionId);
     if (existing) {
       logger.info(`[ActionPlanner] Session ${sessionId} has a plan already in-flight, waiting...`);
       return existing;
     }
 
-    const planPromise = this.doPlan(sessionId, botName, recentHistory, lastTriggerMessage, isIdleCheck);
+    const planPromise = this.doPlan(sessionId, botName, recentHistory, lastTriggerMessage, isIdleCheck, cfg);
     this.pendingPlans.set(sessionId, planPromise);
 
     try {
@@ -55,8 +56,9 @@ export class ActionPlanner {
     recentHistory: ChatMessage[],
     lastTriggerMessage: string,
     isIdleCheck: boolean,
+    cfg = this.getConfig(extractGroupIdFromSession(sessionId)),
   ): Promise<PlannerResult> {
-    if (!this.config.planner?.enabled) {
+    if (!cfg.planner?.enabled) {
       return { action: "reply", reason: "planner disabled" };
     }
 
@@ -81,7 +83,6 @@ export class ActionPlanner {
     let prompt: string;
 
     if (isIdleCheck) {
-      // 空闲检测模式：没有明确触发消息，观察群友聊天并决定是否要融入对话
       prompt = `It is ${timeStr}. Your name is ${botName}.
 
 Here is the recent chat content (from oldest to most recent):
@@ -120,7 +121,6 @@ OR for complete:
 
 DO NOT include any explanation, markdown formatting, or additional text. Only output the JSON.`;
     } else {
-      // 正常模式：由触发消息驱动的 planner
       prompt = `It is ${timeStr}. Your name is ${botName}.
 
 Here is the chat content:
@@ -169,12 +169,11 @@ DO NOT include any explanation, markdown formatting, or additional text. Only ou
       const content = await this.ai.generateText({
         prompt,
         messages: [],
-        model: this.config.workingModel || this.config.model,
+        model: cfg.workingModel || cfg.model,
         temperature: isIdleCheck ? 0.3 : 0.2,
         max_tokens: isIdleCheck ? 300 : 500,
       });
 
-      // 如果返回内容为空，使用默认值
       if (!content || !content.trim()) {
         logger.warn(
           `[ActionPlanner] Empty response from AI, using default reply`,
@@ -182,7 +181,6 @@ DO NOT include any explanation, markdown formatting, or additional text. Only ou
         return { action: "reply", reason: "empty response" };
       }
 
-      // 尝试提取 JSON 块
       let jsonStr = "";
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -196,14 +194,11 @@ DO NOT include any explanation, markdown formatting, or additional text. Only ou
         return { action: "reply", reason: "parse failed" };
       }
 
-      // 尝试解析 JSON
       let parsed: any;
       try {
         parsed = JSON.parse(jsonStr);
       } catch {
-        // 尝试修复常见的 JSON 错误
         try {
-          // 移除可能存在的尾随逗号
           jsonStr = jsonStr.replace(/,\s*}/g, "}").replace(/,\s*]/g, "]");
           parsed = JSON.parse(jsonStr);
         } catch (e) {

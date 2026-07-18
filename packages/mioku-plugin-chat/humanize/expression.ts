@@ -2,23 +2,25 @@ import type { AIInstance } from "mioku";
 import { logger } from "mioki";
 import { extractJsonObject } from "../utils/json";
 import type { ChatDatabase } from "../db";
-import type { ChatConfig, ChatMessage } from "../types";
+import type { ChatMessage } from "../types";
+import type { ChatConfigProvider } from "./index";
 
 export class ExpressionLearner {
   private ai: AIInstance;
-  private config: ChatConfig;
+  private getConfig: ChatConfigProvider;
   private db: ChatDatabase;
   private pendingMessagesByUser: Map<number, ChatMessage[]> = new Map();
   private learningUsers: Set<number> = new Set();
 
-  constructor(ai: AIInstance, config: ChatConfig, db: ChatDatabase) {
+  constructor(ai: AIInstance, configProvider: ChatConfigProvider, db: ChatDatabase) {
     this.ai = ai;
-    this.config = config;
+    this.getConfig = configProvider;
     this.db = db;
   }
 
   async onMessage(message: ChatMessage): Promise<void> {
-    if (!this.config.expression?.enabled) return;
+    const cfg = this.getConfig(message.groupId);
+    if (!cfg.expression?.enabled) return;
     if (message.role !== "user") return;
     if (!message.content || message.content.length < 4) return;
     if (!message.userId) return;
@@ -27,13 +29,18 @@ export class ExpressionLearner {
     pending.push(message);
     this.pendingMessagesByUser.set(message.userId, pending);
 
-    await this.tryLearn(message.userId);
+    await this.tryLearn(message.userId, cfg);
   }
 
-  getExpressionContextForUser(userId: number, userName: string): string {
-    if (!this.config.expression?.enabled) return "";
+  getExpressionContextForUser(
+    userId: number,
+    userName: string,
+    groupId?: number,
+  ): string {
+    const cfg = this.getConfig(groupId);
+    if (!cfg.expression?.enabled) return "";
 
-    const sampleSize = this.config.expression?.sampleSize ?? 8;
+    const sampleSize = cfg.expression?.sampleSize ?? 8;
     const expressions = this.db.getExpressionsByUser(userId, sampleSize);
     if (expressions.length === 0) {
       logger.info(
@@ -55,12 +62,12 @@ export class ExpressionLearner {
     return context;
   }
 
-  private async tryLearn(userId: number): Promise<void> {
+  private async tryLearn(userId: number, cfg = this.getConfig()): Promise<void> {
     if (this.learningUsers.has(userId)) return;
 
     const threshold = Math.max(
       1,
-      this.config.expression?.learnAfterMessages ?? 100,
+      cfg.expression?.learnAfterMessages ?? 100,
     );
     const pending = this.pendingMessagesByUser.get(userId) ?? [];
     logger.debug(
@@ -76,7 +83,7 @@ export class ExpressionLearner {
 
         const batch = current.slice(0, threshold);
         this.pendingMessagesByUser.set(userId, current.slice(threshold));
-        await this.learnForUser(userId, batch);
+        await this.learnForUser(userId, batch, cfg);
       }
     } catch (err) {
       logger.warn(
@@ -90,10 +97,11 @@ export class ExpressionLearner {
   private async learnForUser(
     userId: number,
     messages: ChatMessage[],
+    cfg = this.getConfig(),
   ): Promise<void> {
     if (messages.length === 0) return;
 
-    const maxHabits = Math.max(1, this.config.expression?.sampleSize ?? 8);
+    const maxHabits = Math.max(1, cfg.expression?.sampleSize ?? 8);
     const userName = messages[messages.length - 1].userName || `User${userId}`;
     const msgTexts = messages.map((m) => m.content).join("\n");
 
@@ -128,7 +136,7 @@ Output strictly in JSON:
 
 If nothing reliable can be extracted, keep stable previous habits when possible. If still nothing, output {"expressions":[]}.`,
       messages: [],
-      model: this.config.workingModel || this.config.model,
+      model: cfg.workingModel || cfg.model,
       temperature: 0.2,
       max_tokens: 600,
     });
@@ -154,7 +162,7 @@ If nothing reliable can be extracted, keep stable previous habits when possible.
 
     const keepCount = Math.max(
       1,
-      this.config.retention?.expressionKeepPerUser ?? maxHabits,
+      cfg.retention?.expressionKeepPerUser ?? maxHabits,
     );
     const pruned = this.db.pruneExpressionsBySession(
       `user:${userId}`,

@@ -32,6 +32,10 @@ async function resolveSkillsEntry(pluginPath: string): Promise<string | null> {
   return null;
 }
 
+function hasPublicKeyword(keywords: unknown): boolean {
+  return Array.isArray(keywords) && keywords.includes("mioku");
+}
+
 export async function registerPluginArtifacts(ctx: MiokiContext): Promise<void> {
   const enabledPlugins = new Set<string>(botConfig.plugins ?? []);
   const pluginMetadata = pluginManager.getAllMetadata().filter((metadata) =>
@@ -45,6 +49,7 @@ export async function registerPluginArtifacts(ctx: MiokiContext): Promise<void> 
     let helpCount = 0;
     for (const metadata of pluginMetadata) {
       if (!metadata.config.help) continue;
+      if (!hasPublicKeyword(metadata.packageJson?.keywords)) continue;
       helpService.registerHelp(metadata.name, metadata.config.help);
       helpCount += 1;
     }

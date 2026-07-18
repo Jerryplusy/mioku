@@ -33,13 +33,13 @@ export function createMessageHandler(
   const { getConfig, matchMessageCommands, runtimeState } = state;
 
   return async (e: any) => {
-    const cfg = await getConfig();
+    const isGroup = e.message_type === "group";
+    const groupId: number | undefined = isGroup ? e.group_id : undefined;
+    const cfg = await getConfig(groupId);
     if (!cfg.apiKey) return;
     if (!e?.message || !Array.isArray(e.message)) return;
 
     const text = ctx.text(e) || "";
-    const isGroup = e.message_type === "group";
-    const groupId: number | undefined = isGroup ? e.group_id : undefined;
     const userId: number = e.user_id || e.sender?.user_id;
 
     if (userId === e.self_id) return;

@@ -60,6 +60,22 @@ class ScreenshotServiceImpl implements ScreenshotService {
       }
     }
 
+    if (!executablePath && process.platform === "darwin") {
+      const macPaths = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+      ];
+
+      for (const p of macPaths) {
+        if (fs.existsSync(p)) {
+          executablePath = p;
+          break;
+        }
+      }
+    }
+
     if (!executablePath && isLinux) {
       const linuxPaths = [
         "/usr/bin/chromium",

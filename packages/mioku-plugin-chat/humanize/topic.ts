@@ -2,25 +2,28 @@ import type { AIInstance } from "mioku";
 import { logger } from "mioki";
 import { extractJsonObject } from "../utils/json";
 import type { ChatDatabase } from "../db";
-import type { ChatConfig } from "../types";
+import type { ChatMessage } from "../types";
+import { extractGroupIdFromSession } from "../utils/group-config";
+import type { ChatConfigProvider } from "./index";
 
 export class TopicTracker {
   private ai: AIInstance;
-  private config: ChatConfig;
+  private getConfig: ChatConfigProvider;
   private db: ChatDatabase;
   private lastAnalyzedWindowEnd: Map<string, number> = new Map();
 
-  constructor(ai: AIInstance, config: ChatConfig, db: ChatDatabase) {
+  constructor(ai: AIInstance, configProvider: ChatConfigProvider, db: ChatDatabase) {
     this.ai = ai;
-    this.config = config;
+    this.getConfig = configProvider;
     this.db = db;
   }
 
   async onMessage(sessionId: string): Promise<void> {
-    if (!this.config.topic?.enabled) return;
+    const cfg = this.getConfig(extractGroupIdFromSession(sessionId));
+    if (!cfg.topic?.enabled) return;
     if (!sessionId.startsWith("group:")) return;
 
-    const windowMs = this.getWindowMs();
+    const windowMs = this.getWindowMs(cfg);
     const completedWindowEnd = Math.floor(Date.now() / windowMs) * windowMs;
     if (completedWindowEnd <= 0) return;
 
@@ -32,18 +35,19 @@ export class TopicTracker {
     this.lastAnalyzedWindowEnd.set(sessionId, completedWindowEnd);
     const windowStartAt = completedWindowEnd - windowMs;
 
-    this.analyzeWindow(sessionId, windowStartAt, completedWindowEnd).catch(
+    this.analyzeWindow(sessionId, windowStartAt, completedWindowEnd, cfg).catch(
       (err) => logger.warn(`[TopicTracker] Analysis failed: ${err}`),
     );
   }
 
   getTopicContext(sessionId: string, historyStartAt?: number): string {
-    if (!this.config.topic?.enabled) return "";
+    const cfg = this.getConfig(extractGroupIdFromSession(sessionId));
+    if (!cfg.topic?.enabled) return "";
     if (!sessionId.startsWith("group:")) return "";
     if (!historyStartAt) return "";
 
-    const windowMs = this.getWindowMs();
-    const windowCount = this.getHistoryWindowCount();
+    const windowMs = this.getWindowMs(cfg);
+    const windowCount = this.getHistoryWindowCount(cfg);
     const firstWindowEnd = Math.floor(historyStartAt / windowMs) * windowMs;
     if (firstWindowEnd <= 0) return "";
 
@@ -79,6 +83,7 @@ export class TopicTracker {
     sessionId: string,
     windowStartAt: number,
     windowEndAt: number,
+    cfg = this.getConfig(extractGroupIdFromSession(sessionId)),
   ): Promise<void> {
     if (windowEndAt <= windowStartAt) return;
 
@@ -119,7 +124,7 @@ Output strictly in JSON format:
   "summary": "one concise abstract summary sentence"
 }`,
         messages: [],
-        model: this.config.workingModel || this.config.model,
+        model: cfg.workingModel || cfg.model,
         temperature: 0.2,
         max_tokens: 300,
       });
@@ -163,14 +168,14 @@ Output strictly in JSON format:
     }
   }
 
-  private getWindowMs(): number {
-    const hours = Number(this.config.topic?.windowHours);
+  private getWindowMs(cfg = this.getConfig()): number {
+    const hours = Number(cfg.topic?.windowHours);
     const safeHours = Number.isFinite(hours) && hours > 0 ? hours : 5;
     return Math.max(1, Math.floor(safeHours)) * 3600_000;
   }
 
-  private getHistoryWindowCount(): number {
-    const count = Number(this.config.topic?.historyWindowCount);
+  private getHistoryWindowCount(cfg = this.getConfig()): number {
+    const count = Number(cfg.topic?.historyWindowCount);
     if (!Number.isFinite(count) || count <= 0) return 3;
     return Math.max(1, Math.floor(count));
   }
@@ -202,3 +207,5 @@ Output strictly in JSON format:
     return `${year}-${month}-${day} ${hour}:${minute}`;
   }
 }
+
+export type { ChatMessage };

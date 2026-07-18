@@ -16,6 +16,8 @@ import { TopicTracker } from "./topic";
 import { ActionPlanner } from "./planner";
 import { ExpressionLearner } from "./expression";
 
+export type ChatConfigProvider = (groupId?: number) => ChatConfig;
+
 export class HumanizeEngine {
   readonly memoryRetrieval: MemoryRetrieval;
   readonly topicTracker: TopicTracker;
@@ -27,15 +29,15 @@ export class HumanizeEngine {
   constructor(
     mainAI: AIInstance,
     workAI: AIInstance,
-    config: ChatConfig,
     db: ChatDatabase,
+    configProvider: ChatConfigProvider,
   ) {
-    this.memoryRetrieval = new MemoryRetrieval(workAI, config, db);
-    this.topicTracker = new TopicTracker(workAI, config, db);
-    this.actionPlanner = new ActionPlanner(workAI, config);
-    this.emotionAgent = new EmotionAgent(workAI, config);
-    this.emojiAgent = new EmojiAgent(workAI, config, db);
-    this.expressionLearner = new ExpressionLearner(workAI, config, db);
+    this.memoryRetrieval = new MemoryRetrieval(workAI, configProvider, db);
+    this.topicTracker = new TopicTracker(workAI, configProvider, db);
+    this.actionPlanner = new ActionPlanner(workAI, configProvider);
+    this.emotionAgent = new EmotionAgent(workAI, configProvider);
+    this.emojiAgent = new EmojiAgent(workAI, configProvider, db);
+    this.expressionLearner = new ExpressionLearner(workAI, configProvider, db);
   }
 
   async init(): Promise<void> {

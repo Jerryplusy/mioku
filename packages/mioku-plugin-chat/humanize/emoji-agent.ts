@@ -5,6 +5,8 @@ import { logger } from "mioki";
 import * as fs from "fs/promises";
 import { existsSync, readdirSync } from "fs";
 import * as path from "path";
+import { extractGroupIdFromSession } from "../utils/group-config";
+import type { ChatConfigProvider } from "./index";
 
 export interface EmojiPickResult {
   success: boolean;
@@ -33,13 +35,13 @@ const AVAILABLE_EMOTIONS = [
 
 export class EmojiAgent {
   private ai: AIInstance;
-  private config: ChatConfig;
+  private getConfig: ChatConfigProvider;
   private db: ChatDatabase;
   private readonly memeBaseDir: string;
 
-  constructor(ai: AIInstance, config: ChatConfig, db: ChatDatabase) {
+  constructor(ai: AIInstance, configProvider: ChatConfigProvider, db: ChatDatabase) {
     this.ai = ai;
-    this.config = config;
+    this.getConfig = configProvider;
     this.db = db;
     this.memeBaseDir = path.join(process.cwd(), "data", "chat", "meme");
   }
@@ -77,6 +79,14 @@ export class EmojiAgent {
     aiResponseText: string,
     sessionId: string,
   ): Promise<EmojiPickResult> {
+    const cfg = this.getConfig(extractGroupIdFromSession(sessionId));
+    if (!cfg.emoji?.enabled) {
+      return {
+        success: false,
+        error: "emoji disabled",
+      };
+    }
+
     const intents = this.parseAllMemeIntents(aiResponseText);
     if (intents.length === 0) {
       return {
@@ -88,7 +98,7 @@ export class EmojiAgent {
     const chatHistory = this.db.getMessages(sessionId, 20);
 
     // 获取配置中的角色列表
-    const configChars = this.config.emoji?.characters || [];
+    const configChars = cfg.emoji?.characters || [];
 
     // 决定使用哪些角色
     let targetCharacters: string[];
@@ -112,6 +122,7 @@ export class EmojiAgent {
       targetCharacters,
       intent.emotion,
       chatHistory,
+      cfg,
     );
 
     if (!emojiResult.success || !emojiResult.emojiPath) {
@@ -135,6 +146,7 @@ export class EmojiAgent {
     characters: string[],
     emotion: string,
     chatHistory: ChatMessage[],
+    cfg: ChatConfig = this.getConfig(),
   ): Promise<{
     success: boolean;
     emojiPath?: string;
@@ -228,7 +240,7 @@ export class EmojiAgent {
       }
 
       // 检查是否使用 AI 选择
-      const useAI = this.config.emoji?.useAISelection;
+      const useAI = cfg.emoji?.useAISelection;
       if (!useAI) {
         // 不使用 AI，直接随机选择
         logger.info(`[emoji-agent] useAISelection=false, random pick`);
@@ -236,7 +248,7 @@ export class EmojiAgent {
       }
 
       // 使用 AI 选择最合适的表情包
-      return this.selectByAI(allEmojis, normalizedEmotion, chatHistory);
+      return this.selectByAI(allEmojis, normalizedEmotion, chatHistory, cfg);
     } catch (err) {
       logger.error(`[emoji-agent] Failed to pick emoji: ${err}`);
       return {
@@ -274,13 +286,14 @@ export class EmojiAgent {
     emojis: { path: string; character: string; file: string }[],
     emotion: string,
     chatHistory: ChatMessage[],
+    cfg: ChatConfig = this.getConfig(),
   ): Promise<{
     success: boolean;
     emojiPath?: string;
     description?: string;
     error?: string;
   }> {
-    const model = this.config.workingModel || this.config.model;
+    const model = cfg.workingModel || cfg.model;
 
     const systemPrompt = `You are an emoji/sticker selection assistant. Your task is to select the most appropriate emoji/sticker from a given list based on the chat context.
 

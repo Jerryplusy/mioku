@@ -220,6 +220,29 @@ export interface ChatConfig {
 }
 
 /**
+ * 每群单独的开关覆盖
+ * 不填写的开关回退到全局默认；私聊会话不使用此覆盖
+ */
+export interface ChatGroupOverrides {
+  emoji?: { enabled?: boolean };
+  expression?: { enabled?: boolean };
+  retention?: { enabled?: boolean };
+  memory?: { enabled?: boolean };
+  topic?: { enabled?: boolean };
+  planner?: { enabled?: boolean };
+  audio?: { enabled?: boolean };
+  searxng?: { enabled?: boolean };
+  webReader?: { enabled?: boolean };
+  dynamicDelay?: { enabled?: boolean };
+  enableMarkdownScreenshot?: boolean;
+  enableMediaRecognition?: boolean;
+}
+
+export type ChatGroupsFile = {
+  groups: Record<string, ChatGroupOverrides>;
+};
+
+/**
  * 会话类型
  */
 export type SessionType = "group" | "personal";

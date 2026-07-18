@@ -2,7 +2,7 @@ import type { MiokiContext } from "mioki";
 import type { AIInstance } from "mioku";
 import type { ChatConfig, TargetMessage } from "../types";
 import type { ChatDatabase } from "../db";
-import type { HumanizeEngine } from "../humanize";
+import type { HumanizeEngine, ChatConfigProvider } from "../humanize";
 import type { SkillSessionManager } from "./skill-session";
 import type { GroupStructuredHistoryManager, StructuredUserInput } from "./group-structured-history";
 import { buildStructuredUserInputFromEvent } from "./group-structured-history";
@@ -35,7 +35,8 @@ export class QueueProcessor {
   private dynamicDelayQueues = new Map<string, DynamicDelayQueueData>();
 
   private ctx: MiokiContext;
-  private cfg: ChatConfig;
+  private configProvider: ChatConfigProvider;
+  private defaultConfig: ChatConfig;
   private db: ChatDatabase;
   private humanize: HumanizeEngine;
   private aiInstance: AIInstance;
@@ -60,7 +61,8 @@ export class QueueProcessor {
 
   constructor(pluginCtx: ChatPluginContext) {
     this.ctx = pluginCtx.ctx;
-    this.cfg = pluginCtx.config;
+    this.configProvider = pluginCtx.configProvider;
+    this.defaultConfig = pluginCtx.defaultConfig;
     this.db = pluginCtx.db;
     this.humanize = pluginCtx.humanize;
     this.aiInstance = pluginCtx.aiInstance;
@@ -147,14 +149,15 @@ export class QueueProcessor {
       content: mergedContent, messageId: firstMsg.messageId, timestamp: Date.now(),
     };
 
+    const cfg = this.configProvider(groupId);
     const botRole = await getBotRole(groupId, this.ctx, selfId);
-    const botNickname = this.cfg.nicknames[0] || this.ctx.pickBot(selfId).nickname || "Bot";
+    const botNickname = cfg.nicknames[0] || this.ctx.pickBot(selfId).nickname || "Bot";
     const { groupName, memberCount } = await this.getGroupInfoData(this.ctx, groupId, selfId, String(groupId));
-    const { history } = await this.getGroupHistoryMessages(groupId, groupSessionId, this.ctx, this.cfg.historyCount, this.db, selfId, this.buildHistoryMediaOptions(this.aiInstance, this.cfg));
+    const { history } = await this.getGroupHistoryMessages(groupId, groupSessionId, this.ctx, cfg.historyCount, this.db, selfId, this.buildHistoryMediaOptions(this.aiInstance, cfg));
 
     const toolCtx = this.buildToolContext({
       ctx: this.ctx, event: firstMsg.event, groupSessionId, groupId, userId: firstMsg.userId,
-      config: this.cfg, aiService: this.aiService, db: this.db, botRole, humanize: this.humanize, targetMessage, selfId,
+      config: cfg, aiService: this.aiService, db: this.db, botRole, humanize: this.humanize, targetMessage, selfId,
     });
 
     this.sessionManager.getOrCreate(groupSessionId, "group", groupId);
@@ -162,18 +165,18 @@ export class QueueProcessor {
 
     const result = await this.runWithRateLimitGuard(
       () => this.runChat(this.aiInstance, toolCtx, history, targetMessage, {
-        config: this.cfg, groupName, memberCount, botNickname, botRole, aiService: this.aiService, isGroup: true,
+        config: cfg, groupName, memberCount, botNickname, botRole, aiService: this.aiService, isGroup: true,
         memoryContext: contexts.memoryContext, topicContext: contexts.topicContext, expressionContext: contexts.expressionContext,
         replyContext: { type: "review", targetUser: targetMessage.userName, targetMessage: targetMessage.content },
         reviewMessages: { contents: mergedContents, userNames, messageIds },
       }, this.humanize, this.skillManager, {
-        manager: this.groupStructuredHistory, ttlMs: this.cfg.groupStructuredHistoryTtlMs, currentUserInputs: structuredUserInputs,
+        manager: this.groupStructuredHistory, ttlMs: cfg.groupStructuredHistoryTtlMs, currentUserInputs: structuredUserInputs,
       }),
       { userId: targetMessage.userId, groupId, label: "dynamic-delay" },
     );
     if (!result) return;
 
-    await this.sendAIResponse({ ctx: this.ctx, groupId, messages: result.messages, config: this.cfg, sentIndices: toolCtx.sentMessageIndices }, selfId);
+    await this.sendAIResponse({ ctx: this.ctx, groupId, messages: result.messages, config: cfg, sentIndices: toolCtx.sentMessageIndices }, selfId);
     this.startCooldownTimer(groupSessionId, groupId, selfId);
   }
 
@@ -191,8 +194,10 @@ export class QueueProcessor {
       const queuedContents: string[] = [];
       const structuredUserInputs: StructuredUserInput[] = [];
 
+      const cfg = this.configProvider(groupId);
+
       for (const item of queue) {
-        const { text: extractedText, multimodal } = extractContent(item.event, this.cfg, this.ctx);
+        const { text: extractedText, multimodal } = extractContent(item.event, cfg, this.ctx);
         const content = multimodal ? JSON.stringify(multimodal) : extractedText;
         if (content) {
           queuedContents.push(content);
@@ -219,32 +224,32 @@ export class QueueProcessor {
       };
 
       const botRole = await getBotRole(groupId, this.ctx, selfId);
-      const botNickname = this.cfg.nicknames[0] || this.ctx.pickBot(selfId).nickname || "Bot";
+      const botNickname = cfg.nicknames[0] || this.ctx.pickBot(selfId).nickname || "Bot";
       const toolCtx = this.buildToolContext({
         ctx: this.ctx, event: null, groupSessionId, groupId, userId: targetMessage.userId,
-        config: this.cfg, aiService: this.aiService, db: this.db, botRole, humanize: this.humanize, targetMessage, selfId,
+        config: cfg, aiService: this.aiService, db: this.db, botRole, humanize: this.humanize, targetMessage, selfId,
       });
 
-      const { history } = await this.getGroupHistoryMessages(groupId, groupSessionId, this.ctx, this.cfg.historyCount, this.db, selfId, this.buildHistoryMediaOptions(this.aiInstance, this.cfg));
+      const { history } = await this.getGroupHistoryMessages(groupId, groupSessionId, this.ctx, cfg.historyCount, this.db, selfId, this.buildHistoryMediaOptions(this.aiInstance, cfg));
       const contexts = await this.getHumanizeContexts(this.humanize, groupSessionId, targetMessage.userName, history, targetMessage.userId);
       const { groupName, memberCount } = await this.getGroupInfoData(this.ctx, groupId, selfId);
 
       const result = await this.runWithRateLimitGuard(
         () => this.runChat(this.aiInstance, toolCtx, history, targetMessage, {
-          config: this.cfg, groupName, memberCount, botNickname, botRole: toolCtx.botRole, aiService: this.aiService, isGroup: true,
+          config: cfg, groupName, memberCount, botNickname, botRole: toolCtx.botRole, aiService: this.aiService, isGroup: true,
           memoryContext: contexts.memoryContext, topicContext: contexts.topicContext, expressionContext: contexts.expressionContext,
           replyContext: { type: "comment", targetUser: targetMessage.userName, targetMessage: targetMessage.content },
         }, this.humanize, this.skillManager, {
-          manager: this.groupStructuredHistory, ttlMs: this.cfg.groupStructuredHistoryTtlMs, currentUserInputs: structuredUserInputs,
+          manager: this.groupStructuredHistory, ttlMs: cfg.groupStructuredHistoryTtlMs, currentUserInputs: structuredUserInputs,
         }),
         { userId: targetMessage.userId, groupId, label: "queue" },
       );
       if (!result) return;
 
-      await this.sendAIResponse({ ctx: this.ctx, groupId, messages: result.messages, config: this.cfg, sentIndices: toolCtx.sentMessageIndices }, selfId);
+      await this.sendAIResponse({ ctx: this.ctx, groupId, messages: result.messages, config: cfg, sentIndices: toolCtx.sentMessageIndices }, selfId);
       await this.sendEmoji(this.ctx, groupId, result.emojiPath, selfId);
       const now = Date.now();
-      this.saveBotMessages(groupId, groupSessionId, result.messages, now, this.cfg, this.db, this.ctx, selfId);
+      this.saveBotMessages(groupId, groupSessionId, result.messages, now, cfg, this.db, this.ctx, selfId);
       this.sessionManager.touch(groupSessionId);
       this.ctx.logger.info(`[Queue] group ${groupSessionId} done`);
     } catch (err) {

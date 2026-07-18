@@ -2,7 +2,7 @@ import type { MiokiContext } from "mioki";
 import type { AIInstance } from "mioku";
 import type { ChatConfig, TargetMessage } from "../types";
 import type { ChatDatabase } from "../db";
-import type { HumanizeEngine } from "../humanize";
+import type { HumanizeEngine, ChatConfigProvider } from "../humanize";
 import type { SkillSessionManager } from "./skill-session";
 import type { GroupStructuredHistoryManager } from "./group-structured-history";
 import { buildStructuredUserInputFromEvent } from "./group-structured-history";
@@ -41,7 +41,8 @@ export class CooldownManager {
   private cooldownTimeoutIds = new Map<string, NodeJS.Timeout>();
 
   private ctx: MiokiContext;
-  private cfg: ChatConfig;
+  private configProvider: ChatConfigProvider;
+  private defaultConfig: ChatConfig;
   private db: ChatDatabase;
   private humanize: HumanizeEngine;
   private aiInstance: AIInstance;
@@ -68,7 +69,8 @@ export class CooldownManager {
 
   constructor(pluginCtx: ChatPluginContext) {
     this.ctx = pluginCtx.ctx;
-    this.cfg = pluginCtx.config;
+    this.configProvider = pluginCtx.configProvider;
+    this.defaultConfig = pluginCtx.defaultConfig;
     this.db = pluginCtx.db;
     this.humanize = pluginCtx.humanize;
     this.aiInstance = pluginCtx.aiInstance;
@@ -99,7 +101,8 @@ export class CooldownManager {
     const existingTimer = this.cooldownTimeoutIds.get(groupSessionId);
     if (existingTimer) clearTimeout(existingTimer);
 
-    const cooldownMs = this.cfg.cooldownAfterReplyMs ?? 20_000;
+    const cfg = this.configProvider(groupId);
+    const cooldownMs = cfg.cooldownAfterReplyMs ?? this.defaultConfig.cooldownAfterReplyMs ?? 20_000;
 
     const timer = setTimeout(async () => {
       this.cooldownTimeoutIds.delete(groupSessionId);
@@ -196,17 +199,19 @@ export class CooldownManager {
       timestamp: Date.now(),
     };
 
+    const cfg = this.configProvider(groupId);
+
     const { history } = await this.getGroupHistoryMessages(
       groupId,
       groupSessionId,
       this.ctx,
-      this.cfg.historyCount,
+      cfg.historyCount,
       this.db,
       selfId,
-      this.buildHistoryMediaOptions(this.aiInstance, this.cfg),
+      this.buildHistoryMediaOptions(this.aiInstance, cfg),
     );
     const botNickname =
-      this.cfg.nicknames[0] || this.ctx.pickBot(selfId).nickname || "Bot";
+      cfg.nicknames[0] || this.ctx.pickBot(selfId).nickname || "Bot";
     const botRole = await getBotRole(groupId, this.ctx, selfId);
     const { groupName, memberCount } = await this.getGroupInfoData(
       this.ctx,
@@ -220,7 +225,7 @@ export class CooldownManager {
       groupSessionId,
       groupId,
       userId: targetMessage.userId,
-      config: this.cfg,
+      config: cfg,
       aiService: this.aiService,
       db: this.db,
       botRole,
@@ -245,7 +250,7 @@ export class CooldownManager {
           history,
           targetMessage,
           {
-            config: this.cfg,
+            config: cfg,
             groupName,
             memberCount,
             botNickname,
@@ -266,7 +271,7 @@ export class CooldownManager {
           this.skillManager,
           {
             manager: this.groupStructuredHistory,
-            ttlMs: this.cfg.groupStructuredHistoryTtlMs,
+            ttlMs: cfg.groupStructuredHistoryTtlMs,
             currentUserInputs: collected.map((msg) =>
               this.buildStructuredUserInputFromEvent(
                 msg.event,
@@ -285,7 +290,7 @@ export class CooldownManager {
         ctx: this.ctx,
         groupId,
         messages: result.messages,
-        config: this.cfg,
+        config: cfg,
         sentIndices: toolCtx.sentMessageIndices,
       },
       selfId,
@@ -298,7 +303,7 @@ export class CooldownManager {
       groupSessionId,
       result.messages,
       now,
-      this.cfg,
+      cfg,
       this.db,
       this.ctx,
       selfId,
@@ -321,17 +326,19 @@ export class CooldownManager {
     const mergedContent = collected.map((m) => m.content).join("\n");
     const firstMsg = collected[0];
 
+    const cfg = this.configProvider(groupId);
+
     const { history } = await this.getGroupHistoryMessages(
       groupId,
       groupSessionId,
       this.ctx,
-      this.cfg.historyCount,
+      cfg.historyCount,
       this.db,
       selfId,
-      this.buildHistoryMediaOptions(this.aiInstance, this.cfg),
+      this.buildHistoryMediaOptions(this.aiInstance, cfg),
     );
     const botNickname =
-      this.cfg.nicknames[0] || this.ctx.pickBot(selfId).nickname || "Bot";
+      cfg.nicknames[0] || this.ctx.pickBot(selfId).nickname || "Bot";
 
     const planResult = await this.humanize.actionPlanner.plan(
       groupSessionId,
@@ -362,7 +369,7 @@ export class CooldownManager {
       groupSessionId,
       groupId,
       userId: targetMessage.userId,
-      config: this.cfg,
+      config: cfg,
       aiService: this.aiService,
       db: this.db,
       botRole,
@@ -392,7 +399,7 @@ export class CooldownManager {
           history,
           targetMessage,
           {
-            config: this.cfg,
+            config: cfg,
             groupName,
             memberCount,
             botNickname,
@@ -418,7 +425,7 @@ export class CooldownManager {
           this.skillManager,
           {
             manager: this.groupStructuredHistory,
-            ttlMs: this.cfg.groupStructuredHistoryTtlMs,
+            ttlMs: cfg.groupStructuredHistoryTtlMs,
             currentUserInputs: collected.map((msg) =>
               this.buildStructuredUserInputFromEvent(
                 msg.event,
@@ -442,7 +449,7 @@ export class CooldownManager {
         ctx: this.ctx,
         groupId,
         messages: result.messages,
-        config: this.cfg,
+        config: cfg,
         sentIndices: toolCtx.sentMessageIndices,
       },
       selfId,
@@ -454,7 +461,7 @@ export class CooldownManager {
       groupSessionId,
       result.messages,
       now,
-      this.cfg,
+      cfg,
       this.db,
       this.ctx,
       selfId,

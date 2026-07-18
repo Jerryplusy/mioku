@@ -488,6 +488,7 @@ export async function getMarketItems(
 
   const items = metas
     .filter((entry) => entry.meta !== null)
+    .filter((entry) => (entry.meta?.keywords ?? []).includes("mioku"))
     .map((entry) =>
       buildMarketItem(entry.pkgName, entry.meta, entry.official),
     );
