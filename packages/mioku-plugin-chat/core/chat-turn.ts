@@ -190,11 +190,12 @@ export async function processChat(
   pluginCtx: ChatPluginContext,
   runtimeState: ChatRuntimeState,
 ): Promise<void> {
-  const { ctx, config: cfg } = pluginCtx;
+  const { ctx } = pluginCtx;
   const isGroup = e.message_type === "group";
   const groupId: number | undefined = isGroup ? e.group_id : undefined;
   const userId: number = e.user_id || e.sender?.user_id;
   const selfId = e.self_id;
+  const cfg = await pluginCtx.getConfig(groupId);
 
   const personalSessionId = `personal:${userId}`;
   const groupSessionId = groupId ? `group:${groupId}` : personalSessionId;

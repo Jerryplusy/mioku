@@ -2,6 +2,8 @@ import type { AIInstance } from "mioku";
 import { logger } from "mioki";
 import { extractJsonObject } from "../utils/json";
 import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
+import { extractGroupIdFromSession } from "../utils/group-config";
+import type { ChatConfigProvider } from "./index";
 
 export interface EmotionState {
   current: string;
@@ -18,41 +20,43 @@ export interface EmotionAnalysisInput {
 
 export class EmotionAgent {
   private readonly ai: AIInstance;
-  private readonly config: ChatConfig;
+  private readonly getConfig: ChatConfigProvider;
   private readonly states = new Map<string, EmotionState>();
 
-  constructor(ai: AIInstance, config: ChatConfig) {
+  constructor(ai: AIInstance, configProvider: ChatConfigProvider) {
     this.ai = ai;
-    this.config = config;
+    this.getConfig = configProvider;
   }
 
   getCurrent(sessionId: string): EmotionState {
     const existing = this.states.get(sessionId);
     if (existing) return existing;
 
-    const current = this.getDefaultEmotion();
+    const current = this.getDefaultEmotion(extractGroupIdFromSession(sessionId));
     const state = { current, updatedAt: 0 };
     this.states.set(sessionId, state);
     return state;
   }
 
-  getAvailableEmotions(): string[] {
-    const emotions = Object.keys(this.config.emotion?.emotions || {})
+  getAvailableEmotions(groupId?: number): string[] {
+    const cfg = this.getConfig(groupId);
+    const emotions = Object.keys(cfg.emotion?.emotions || {})
       .map((name) => name.trim().toLowerCase())
       .filter(Boolean);
     return Array.from(new Set(["default", ...emotions]));
   }
 
-  getReferenceExamples(emotion: string): string[] {
+  getReferenceExamples(emotion: string, groupId?: number): string[] {
+    const cfg = this.getConfig(groupId);
     const normalized = this.normalizeEmotionName(emotion);
-    const emotions = this.config.emotion?.emotions || {};
+    const emotions = cfg.emotion?.emotions || {};
     const examples = this.normalizeExamples(emotions[normalized]?.examples);
     if (examples.length > 0) return examples;
-    return this.normalizeExamples(emotions[this.getDefaultEmotion()]?.examples);
+    return this.normalizeExamples(emotions[this.getDefaultEmotion(groupId)]?.examples);
   }
 
-  setEmotion(sessionId: string, emotion: string): EmotionState {
-    const current = this.resolveEmotion(emotion);
+  setEmotion(sessionId: string, emotion: string, groupId?: number): EmotionState {
+    const current = this.resolveEmotion(emotion, groupId);
     const state = { current, updatedAt: Date.now() };
     this.states.set(sessionId, state);
     return state;
@@ -69,28 +73,30 @@ export class EmotionAgent {
   }
 
   async refreshIfNeeded(input: EmotionAnalysisInput): Promise<EmotionState> {
+    const groupId = extractGroupIdFromSession(input.sessionId);
+    const cfg = this.getConfig(groupId);
     const current = this.getCurrent(input.sessionId);
-    const intervalMs = Number(this.config.emotion?.updateIntervalMs ?? 60 * 60_000);
+    const intervalMs = Number(cfg.emotion?.updateIntervalMs ?? 60 * 60_000);
     const shouldRefresh =
       Boolean(input.force) || current.updatedAt <= 0 || Date.now() - current.updatedAt >= intervalMs;
 
     if (!shouldRefresh) return current;
 
     try {
-      const nextEmotion = await this.analyzeEmotion(input);
-      return this.setEmotion(input.sessionId, nextEmotion);
+      const nextEmotion = await this.analyzeEmotion(input, cfg);
+      return this.setEmotion(input.sessionId, nextEmotion, groupId);
     } catch (err) {
       logger.warn(`[emotion-agent] emotion analysis failed: ${err}`);
       if (current.updatedAt <= 0) {
-        return this.setEmotion(input.sessionId, this.getDefaultEmotion());
+        return this.setEmotion(input.sessionId, this.getDefaultEmotion(groupId), groupId);
       }
       return current;
     }
   }
 
-  private async analyzeEmotion(input: EmotionAnalysisInput): Promise<string> {
-    const availableEmotions = this.getAvailableEmotions();
-    const model = this.config.workingModel || this.config.model;
+  private async analyzeEmotion(input: EmotionAnalysisInput, cfg: ChatConfig = this.getConfig(extractGroupIdFromSession(input.sessionId))): Promise<string> {
+    const availableEmotions = this.getAvailableEmotions(extractGroupIdFromSession(input.sessionId));
+    const model = cfg.workingModel || cfg.model;
     const systemPrompt = `You are an emotion state selector for a chat bot.
 
 Task:
@@ -134,20 +140,21 @@ ${input.targetMessage.userName}: ${input.targetMessage.content}`;
 
     const content = response.content || "";
     const parsed = extractJsonObject(content);
-    if (parsed === undefined) return this.getDefaultEmotion();
-    return this.resolveEmotion(parsed?.emotion);
+    if (parsed === undefined) return this.getDefaultEmotion(extractGroupIdFromSession(input.sessionId));
+    return this.resolveEmotion(parsed?.emotion, extractGroupIdFromSession(input.sessionId));
   }
 
-  private resolveEmotion(emotion: unknown): string {
+  private resolveEmotion(emotion: unknown, groupId?: number): string {
     const normalized = this.normalizeEmotionName(emotion);
-    const available = this.getAvailableEmotions();
+    const available = this.getAvailableEmotions(groupId);
     if (available.includes(normalized)) return normalized;
-    return this.getDefaultEmotion();
+    return this.getDefaultEmotion(groupId);
   }
 
-  private getDefaultEmotion(): string {
-    const configured = this.normalizeEmotionName(this.config.emotion?.defaultEmotion);
-    const available = this.getAvailableEmotions();
+  private getDefaultEmotion(groupId?: number): string {
+    const cfg = this.getConfig(groupId);
+    const configured = this.normalizeEmotionName(cfg.emotion?.defaultEmotion);
+    const available = this.getAvailableEmotions(groupId);
     return available.includes(configured) ? configured : "default";
   }
 

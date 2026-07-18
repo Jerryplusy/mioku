@@ -2,7 +2,7 @@ import type { MiokiContext } from "mioki";
 import type { AIInstance } from "mioku";
 import type { ChatConfig, TargetMessage } from "../types";
 import type { ChatDatabase } from "../db";
-import type { HumanizeEngine } from "../humanize";
+import type { HumanizeEngine, ChatConfigProvider } from "../humanize";
 import type { SkillSessionManager } from "./skill-session";
 import type { GroupStructuredHistoryManager } from "./group-structured-history";
 import type { SessionManager } from "./session";
@@ -30,7 +30,8 @@ export class IdleCheckManager {
   private intervalHandle: NodeJS.Timeout | null = null;
 
   private ctx: MiokiContext;
-  private cfg: ChatConfig;
+  private configProvider: ChatConfigProvider;
+  private defaultConfig: ChatConfig;
   private db: ChatDatabase;
   private humanize: HumanizeEngine;
   private aiInstance: AIInstance;
@@ -50,7 +51,8 @@ export class IdleCheckManager {
 
   constructor(pluginCtx: ChatPluginContext) {
     this.ctx = pluginCtx.ctx;
-    this.cfg = pluginCtx.config;
+    this.configProvider = pluginCtx.configProvider;
+    this.defaultConfig = pluginCtx.defaultConfig;
     this.db = pluginCtx.db;
     this.humanize = pluginCtx.humanize;
     this.aiInstance = pluginCtx.aiInstance;
@@ -106,23 +108,26 @@ export class IdleCheckManager {
 
   private async tick(): Promise<void> {
     try {
-      const cfg = this.cfg;
-      if (!cfg.apiKey || !cfg.planner?.enabled) return;
+      const baseCfg = this.defaultConfig;
+      if (!baseCfg.apiKey) return;
 
       const now = Date.now();
-      const idleThreshold = cfg.planner.idleThresholdMs ?? 30 * 60_000;
-      const messageCountThreshold = cfg.planner.idleMessageCount ?? 100;
       const checkInterval = 60_000;
       const allBotIds = Array.from(this.ctx.bots).map((bot) => bot.uin);
-      const idleCheckBotIds = cfg.planner.idleCheckBotIds ?? allBotIds;
-      const enabledBotIds = idleCheckBotIds.filter((id) => allBotIds.includes(id));
 
       for (const [groupSessionId, lastTime] of this.groupLastActivityTime) {
         const lastCheckTime = this.groupLastIdleCheckTime.get(groupSessionId) ?? 0;
         if (now - lastCheckTime < checkInterval) continue;
 
         const groupId = parseInt(groupSessionId.split(":")[1], 10);
+        const cfg = this.configProvider(groupId);
+        if (!cfg.planner?.enabled) continue;
         if (!isGroupAllowed(groupId, cfg)) continue;
+
+        const idleThreshold = cfg.planner.idleThresholdMs ?? baseCfg.planner?.idleThresholdMs ?? 30 * 60_000;
+        const messageCountThreshold = cfg.planner.idleMessageCount ?? baseCfg.planner?.idleMessageCount ?? 100;
+        const idleCheckBotIds = cfg.planner.idleCheckBotIds ?? baseCfg.planner?.idleCheckBotIds ?? allBotIds;
+        const enabledBotIds = idleCheckBotIds.filter((id: number) => allBotIds.includes(id));
 
         let lastBotTime = this.groupLastBotMessageTime.get(groupSessionId) ?? 0;
         if (lastBotTime === 0) {

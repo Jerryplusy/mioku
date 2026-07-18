@@ -287,7 +287,7 @@ export function createRecallMemoryTool(toolCtx: ToolContext): AITool {
         messages: toolCtx.db.getMessagesByUser(userId, toolCtx.sessionId, userHistoryLimit),
       }));
 
-      const retriever = new MemoryRetrieval(ai, toolCtx.config, toolCtx.db);
+      const retriever = new MemoryRetrieval(ai, () => toolCtx.config, toolCtx.db);
       const answer = await retriever.retrieveByQuestion({
         sessionId: toolCtx.sessionId,
         question,

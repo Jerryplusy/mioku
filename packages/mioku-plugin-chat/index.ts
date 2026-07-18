@@ -2,7 +2,7 @@ import { definePlugin } from "mioki";
 import type { MiokiContext } from "mioki";
 import type { AIInstance, AIService, ConfigService, ScreenshotService } from "mioku";
 import { getPluginRuntimeState } from "mioku";
-import type { ChatConfig, ChatMessage, TargetMessage } from "./types";
+import type { ChatConfig, ChatMessage, ChatGroupsFile, TargetMessage } from "./types";
 import { initDatabase } from "./db";
 import { SessionManager } from "./manage/session";
 import { RateLimiter } from "./manage/rate-limiter";
@@ -32,12 +32,15 @@ import {
 import { BASE_CONFIG } from "./configs/base";
 import { SETTINGS_CONFIG } from "./configs/settings";
 import { PERSONALIZATION_CONFIG } from "./configs/personalization";
+import { DEFAULT_GROUPS_CONFIG } from "./configs/groups";
 import { RateLimitGuard } from "./manage/rate-limit-guard";
 import { createChatRuntime } from "./runtime/chat-runtime";
 import { createMessageHandler } from "./handlers/message";
 import { createPokeHandler } from "./handlers/poke";
 import { buildHistoryMediaOptions } from "./core/media/segment";
+import type { ChatConfigProvider } from "./humanize";
 import type { ChatPluginContext, ChatHandlerState } from "./context";
+import { mergeGroupOverrides } from "./utils/group-config";
 
 function normalizeIdList(input: unknown): number[] {
   if (!Array.isArray(input)) return [];
@@ -48,6 +51,20 @@ function normalizeIdList(input: unknown): number[] {
         .filter((id) => Number.isFinite(id) && id > 0),
     ),
   );
+}
+
+function shallowMergeTopLevel<T extends Record<string, any>>(
+  defaults: T,
+  overrides: Record<string, any>,
+): T {
+  const result: Record<string, any> = { ...defaults };
+  for (const key of Object.keys(overrides)) {
+    const value = overrides[key];
+    if (value !== undefined && value !== null) {
+      result[key] = value;
+    }
+  }
+  return result as T;
 }
 
 export default definePlugin({
@@ -66,27 +83,36 @@ export default definePlugin({
       await configService.registerConfig("chat", "base", BASE_CONFIG);
       await configService.registerConfig("chat", "settings", SETTINGS_CONFIG);
       await configService.registerConfig("chat", "personalization", PERSONALIZATION_CONFIG);
+      await configService.registerConfig("chat", "groups", DEFAULT_GROUPS_CONFIG);
     }
 
-    const getConfig = async (): Promise<ChatConfig> => {
+    let cachedBaseConfig: ChatConfig | null = null;
+    let cachedGroupsConfig: ChatGroupsFile | null = null;
+
+    const buildGlobalConfig = async (): Promise<ChatConfig> => {
       if (!configService) {
-        return {
-          ...BASE_CONFIG,
-          ...SETTINGS_CONFIG,
-          ...PERSONALIZATION_CONFIG,
-        } as ChatConfig;
+        return shallowMergeTopLevel(
+          shallowMergeTopLevel(
+            shallowMergeTopLevel({} as ChatConfig, BASE_CONFIG),
+            SETTINGS_CONFIG,
+          ),
+          PERSONALIZATION_CONFIG,
+        );
       }
-      const base = await configService.getConfig("chat", "base");
-      const settings = await configService.getConfig("chat", "settings");
-      const personalization = await configService.getConfig("chat", "personalization");
-      const merged = {
-        ...BASE_CONFIG,
-        ...SETTINGS_CONFIG,
-        ...PERSONALIZATION_CONFIG,
-        ...base,
-        ...settings,
-        ...personalization,
-      } as any;
+      const base = (await configService.getConfig("chat", "base")) ?? {};
+      const settings = (await configService.getConfig("chat", "settings")) ?? {};
+      const personalization =
+        (await configService.getConfig("chat", "personalization")) ?? {};
+      const merged = shallowMergeTopLevel(
+        shallowMergeTopLevel(
+          shallowMergeTopLevel({} as ChatConfig, BASE_CONFIG),
+          SETTINGS_CONFIG,
+        ),
+        shallowMergeTopLevel(
+          shallowMergeTopLevel({} as ChatConfig, personalization),
+          base,
+        ),
+      ) as ChatConfig;
 
       if (typeof merged.stream !== "boolean") merged.stream = true;
       if (typeof merged.enableMarkdownScreenshot !== "boolean") {
@@ -102,13 +128,69 @@ export default definePlugin({
       merged.whitelistGroups = normalizeIdList(merged.whitelistGroups);
       merged.blacklistGroups = normalizeIdList(merged.blacklistGroups);
       merged.mediaAnalysisBlacklistUsers = normalizeIdList(
-        merged.mediaAnalysisBlacklistUsers ?? merged.imageAnalysisBlacklistUsers,
+        (merged as any).mediaAnalysisBlacklistUsers ?? (merged as any).imageAnalysisBlacklistUsers,
       );
-      delete merged.imageAnalysisBlacklistUsers;
-      return merged as ChatConfig;
+      delete (merged as any).imageAnalysisBlacklistUsers;
+      return merged;
     };
 
-    const config = await getConfig();
+    const refreshGroupsCache = async (): Promise<void> => {
+      if (!configService) {
+        cachedGroupsConfig = DEFAULT_GROUPS_CONFIG;
+        return;
+      }
+      const raw = await configService.getConfig("chat", "groups");
+      cachedGroupsConfig =
+        raw && typeof raw === "object" && raw.groups && typeof raw.groups === "object"
+          ? (raw as ChatGroupsFile)
+          : DEFAULT_GROUPS_CONFIG;
+    };
+
+    const refreshBaseCache = async (): Promise<void> => {
+      cachedBaseConfig = await buildGlobalConfig();
+    };
+
+    await refreshBaseCache();
+    await refreshGroupsCache();
+
+    if (configService) {
+      configService.onConfigChange("chat", "base", () => {
+        refreshBaseCache().catch((err) =>
+          ctx.logger.error(`刷新 chat/base 缓存失败: ${err}`),
+        );
+      });
+      configService.onConfigChange("chat", "settings", () => {
+        refreshBaseCache().catch((err) =>
+          ctx.logger.error(`刷新 chat/settings 缓存失败: ${err}`),
+        );
+      });
+      configService.onConfigChange("chat", "personalization", () => {
+        refreshBaseCache().catch((err) =>
+          ctx.logger.error(`刷新 chat/personalization 缓存失败: ${err}`),
+        );
+      });
+      configService.onConfigChange("chat", "groups", () => {
+        refreshGroupsCache().catch((err) =>
+          ctx.logger.error(`刷新 chat/groups 缓存失败: ${err}`),
+        );
+      });
+    }
+
+    const configProvider: ChatConfigProvider = (groupId?: number) => {
+      const base = cachedBaseConfig;
+      if (!base) return PERSONALIZATION_CONFIG as unknown as ChatConfig;
+      if (groupId === undefined) return base;
+      const overrides = cachedGroupsConfig?.groups?.[String(groupId)];
+      return mergeGroupOverrides(base, overrides);
+    };
+
+    const getConfig = async (groupId?: number): Promise<ChatConfig> => {
+      if (!cachedBaseConfig) await refreshBaseCache();
+      return configProvider(groupId);
+    };
+
+    const defaultConfig = configProvider();
+    const config = defaultConfig;
 
     if (!config.apiKey) {
       ctx.logger.warn("聊天插件未配置 API Key，请在 config/chat/base.json 中配置");
@@ -119,9 +201,12 @@ export default definePlugin({
     const sessionManager = new SessionManager(db, config.maxSessions);
     const queueManager = new MessageQueueManager();
     const rateLimiter = new RateLimiter({
-      dynamicDelay: config.dynamicDelay,
-      aiRequestLimits: config.aiRequestLimits,
+      maxTriggersPerWindow: 5,
+      windowMs: 60_000,
+      dedupWindowMs: 30_000,
+      groupCooldownMs: 1_000,
     });
+    rateLimiter.setConfigProvider(configProvider);
     const skillManager = new SkillSessionManager();
 
     rateLimiter.setQueueLengthGetter((groupId: number) =>
@@ -172,7 +257,7 @@ export default definePlugin({
       });
     }
 
-    const humanize = new HumanizeEngine(mainAIInstance, workAIInstance, config, db);
+    const humanize = new HumanizeEngine(mainAIInstance, workAIInstance, db, configProvider);
     await humanize.init();
 
     const pokeCooldowns = new Map<number, number>();
@@ -182,7 +267,8 @@ export default definePlugin({
     const runWithRateLimitGuard = rateLimitGuard.run.bind(rateLimitGuard);
 
     const pluginCtx = {
-      ctx, config, db,
+      ctx, defaultConfig, configProvider, getConfig,
+      db,
       aiInstance: mainAIInstance, workAIInstance, visionAIInstance,
       aiService, humanize,
       sessionManager, skillManager, rateLimiter, queueManager,
@@ -209,12 +295,13 @@ export default definePlugin({
           humanize.topicTracker.onMessage(groupSessionId),
         ]);
         if (userMsg.groupId) {
+          const ttlMs = configProvider(userMsg.groupId).groupStructuredHistoryTtlMs;
           groupStructuredHistory.append(
             groupSessionId,
             buildStructuredUserMessages([
               buildStructuredUserInputFromTarget(userMsg as unknown as TargetMessage),
             ]),
-            config.groupStructuredHistoryTtlMs,
+            ttlMs,
           );
         }
       },
