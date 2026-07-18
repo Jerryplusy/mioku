@@ -1,10 +1,12 @@
 import { type MiokiContext, pluginManager } from "mioku";
 import type { AccessControlConfig } from "mioku";
+import type { BootPluginConfig } from "../configs/base";
 import { resolveAccessForCandidates } from "./access-rules";
 import { collectAccessHooks, matchAll } from "./matcher-registry";
 import {
   isAccessControlledEventName,
   isMessageEventName,
+  passesMessageFilter,
 } from "./message-filter";
 
 export function shouldAllow(
@@ -22,6 +24,7 @@ export function shouldAllow(
 export function createAccessControlPatcher(
   ctx: MiokiContext,
   getRules: () => AccessControlConfig,
+  getBaseConfig: () => BootPluginConfig,
 ): () => void {
   const patchedBots: Array<{ bot: any; on: any; once: any }> = [];
 
@@ -38,6 +41,9 @@ export function createAccessControlPatcher(
       }
       return original(eventName, (event: any) => {
         const name = String(eventName);
+        if (!passesMessageFilter(event, name, getBaseConfig().messageFilter)) {
+          return;
+        }
         const text = isMessageEventName(name)
           ? String(ctx.text?.(event) ?? event?.raw_message ?? "").trim()
           : "";

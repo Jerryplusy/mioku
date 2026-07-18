@@ -77,7 +77,7 @@ export default definePlugin({
         }),
       );
     }
-    const restoreAccess = createAccessControlPatcher(ctx, () => accessRules);
+    const restoreAccess = createAccessControlPatcher(ctx, () => accessRules, () => baseConfig);
     disposers.push(restoreAccess);
     logger.info(`访问控制已挂载: ${(ctx.bots || []).length} 个 bot`);
 
