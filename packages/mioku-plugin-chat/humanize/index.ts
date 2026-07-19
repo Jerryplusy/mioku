@@ -27,7 +27,6 @@ export class HumanizeEngine {
   readonly expressionLearner: ExpressionLearner;
 
   constructor(
-    mainAI: AIInstance,
     workAI: AIInstance,
     db: ChatDatabase,
     configProvider: ChatConfigProvider,
@@ -36,7 +35,7 @@ export class HumanizeEngine {
     this.topicTracker = new TopicTracker(workAI, configProvider, db);
     this.actionPlanner = new ActionPlanner(workAI, configProvider);
     this.emotionAgent = new EmotionAgent(workAI, configProvider);
-    this.emojiAgent = new EmojiAgent(workAI, configProvider, db);
+    this.emojiAgent = new EmojiAgent(workAI, configProvider);
     this.expressionLearner = new ExpressionLearner(workAI, configProvider, db);
   }
 

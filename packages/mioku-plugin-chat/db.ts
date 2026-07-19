@@ -381,6 +381,11 @@ export async function initDatabase(): Promise<ChatDatabase> {
       VALUES ($hash, $url, $type, $description, $emotion, $character, $filePath, $createdAt)
       ON CONFLICT(hash) DO UPDATE SET
         url = excluded.url,
+        type = excluded.type,
+        description = excluded.description,
+        emotion = excluded.emotion,
+        character = excluded.character,
+        file_path = excluded.file_path,
         created_at = excluded.created_at
     `),
     getImageByHash: db.prepare(`SELECT * FROM images WHERE hash = $hash`),
@@ -710,9 +715,9 @@ export async function initDatabase(): Promise<ChatDatabase> {
         $url: image.url,
         $type: image.type,
         $description: image.description,
-        $emotion: image.emotion ?? null,
-        $character: image.character ?? null,
-        $filePath: image.filePath ?? null,
+        $emotion: null,
+        $character: null,
+        $filePath: null,
         $createdAt: image.createdAt,
       });
     },
@@ -726,9 +731,6 @@ export async function initDatabase(): Promise<ChatDatabase> {
         url: row.url,
         type: row.type,
         description: row.description,
-        emotion: row.emotion,
-        character: row.character,
-        filePath: row.file_path,
         createdAt: row.created_at,
       };
     },
@@ -742,9 +744,6 @@ export async function initDatabase(): Promise<ChatDatabase> {
         url: row.url,
         type: row.type,
         description: row.description,
-        emotion: row.emotion,
-        character: row.character,
-        filePath: row.file_path,
         createdAt: row.created_at,
       };
     },
@@ -757,9 +756,6 @@ export async function initDatabase(): Promise<ChatDatabase> {
         url: row.url,
         type: row.type,
         description: row.description,
-        emotion: row.emotion,
-        character: row.character,
-        filePath: row.file_path,
         createdAt: row.created_at,
       }));
     },

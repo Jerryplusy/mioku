@@ -119,7 +119,7 @@ export const PERSONALIZATION_CONFIG: {
   emoji: {
     enabled: true,
     characters: [],
-    useAISelection: true,
+    stickers: [],
   },
 
   expression: {

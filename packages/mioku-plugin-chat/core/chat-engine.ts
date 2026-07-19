@@ -180,8 +180,7 @@ export async function runChat(
     segment: string,
     unitIndex: number,
   ): Promise<void> => {
-    const text = cleanMarkers(segment)
-      .replace(/\[meme:[^\]]+\]/gi, "")
+    const text = removeStickerIntentLines(cleanMarkers(segment))
       .replace(/\[emotion:[^\]]+\]/gi, "")
       .replace(/\r/g, "")
       .trim();
@@ -348,13 +347,18 @@ export async function runChat(
   let emojiPath: string | null = null;
   let finalText = cleanedText;
   if (cleanedText.trim()) {
-    const memeResult = await humanize.emojiAgent.processMemeResponse(
+    const stickerResult = await humanize.emojiAgent.processStickerResponse(
       cleanedText,
-      toolCtx.sessionId,
+      {
+        sessionId: toolCtx.sessionId,
+        botNickname: promptCtx.botNickname,
+        chatHistory: history,
+        targetMessage,
+      },
     );
-    if (memeResult.success && memeResult.emojiPath) {
-      emojiPath = memeResult.emojiPath;
-      finalText = memeResult.cleanedText || cleanedText;
+    finalText = stickerResult.cleanedText;
+    if (stickerResult.success && stickerResult.emojiPath) {
+      emojiPath = stickerResult.emojiPath;
     }
   }
 
@@ -721,6 +725,13 @@ function cleanMarkers(text: string): string {
     .replace(/<｜｜DSML｜｜parameter[^>]*>[\s\S]*?<\/｜｜DSML｜｜parameter>/gi, "");
 
   return cleaned;
+}
+
+function removeStickerIntentLines(text: string): string {
+  return String(text || "")
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*\[\]\s*$/.test(line))
+    .join("\n");
 }
 
 function stripThinkBlocks(text: string): string {

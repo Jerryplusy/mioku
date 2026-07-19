@@ -1,89 +1,20 @@
+import * as crypto from "crypto";
 import type { AIInstance } from "mioku";
+import { logger } from "mioki";
 import type { ChatDatabase } from "../../db";
 import type { ImageRecord } from "../../types";
-import { logger } from "mioki";
-import * as crypto from "crypto";
-import * as path from "path";
-import * as fs from "fs/promises";
-import { existsSync, mkdirSync, createWriteStream, unlink } from "fs";
-import * as https from "https";
-import * as http from "http";
-import { URL } from "url";
 import { prepareImageUrlsForModel } from "./image-compress";
 
-/**
- * 图片分析结果
- */
 export interface ImageAnalysisResult {
   success: boolean;
-  type?: "meme" | "image";
   description?: string;
-  emotion?: string;
-  characters?: string[]; // 支持多个角色
-  character?: string; // 兼容旧版本
-  gifBuffer?: Buffer; // GIF 原始 buffer
   error?: string;
 }
 
 export interface ImageAnalysisOptions {
   runAIRequest?<T>(request: () => Promise<T>): Promise<T | null>;
-  /**
-   * When non-empty, only memes whose detected character is in this list
-   * get downloaded into `data/chat/meme/<character>/<emotion>/`. Other
-   * characters still get a DB record but no local file.
-   * Empty (default) = no restriction; save for every detected character.
-   */
-  allowedCharacters?: string[];
 }
 
-function formatImageRecognitionLog(record: {
-  type: "meme" | "image";
-  description: string;
-  emotion?: string | null;
-  character?: string | null;
-  characters?: string[];
-}): string {
-  const characters =
-    record.characters && record.characters.length > 0
-      ? record.characters
-      : record.character
-        ? [record.character]
-        : [];
-  return `[image-analyzer] ${record.type}: ${record.description}${record.emotion ? ` [${record.emotion}]` : ""}${characters.length > 0 ? ` (${characters.join(", ")})` : ""}`;
-}
-
-/**
- * 已知角色列表（用于提示词）
- */
-const KNOWN_CHARACTERS = [
-  "hatsune_miku",
-  "kagamine_rin",
-  "kagamine_len",
-  "megurine_luka",
-  "kaito",
-  "meiko",
-  "unknown", // 未知角色
-];
-
-/**
- * 情感标签列表
- */
-const EMOTION_TAGS = [
-  "happy",
-  "sad",
-  "angry",
-  "surprised",
-  "confused",
-  "excited",
-  "tired",
-  "shy",
-  "proud",
-  "default", // 默认/不清楚
-];
-
-/**
- * 计算图片内容的哈希值（仅基于下载到的图片字节；URL 不参与哈希）
- */
 export async function calculateImageHash(url: string): Promise<string | null> {
   try {
     const response = await fetch(url);
@@ -104,140 +35,58 @@ export async function calculateImageHash(url: string): Promise<string | null> {
   }
 }
 
-/**
- * 下载图片到本地
- */
-async function downloadImage(url: string, savePath: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const dir = path.dirname(savePath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-
-    const parsedUrl = new URL(url);
-    const protocol = parsedUrl.protocol === "https:" ? https : http;
-
-    const file = createWriteStream(savePath);
-    const options = {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        Referer: "https://q.qq.com/",
-      },
-    };
-
-    protocol
-      .get(url, options, (response) => {
-        response.pipe(file);
-        file.on("finish", () => {
-          file.close();
-          resolve(true);
-        });
-      })
-      .on("error", (err) => {
-        unlink(savePath, () => {});
-        logger.error(`[image-analyzer] Failed to download image: ${err}`);
-        resolve(false);
-      });
-  });
-}
-
-/**
- * 获取图片扩展名
- */
-function getImageExtension(url: string): string {
-  const urlPath = new URL(url).pathname;
-  const ext = path.extname(urlPath).toLowerCase();
-  if ([".jpg", ".jpeg", ".png", ".gif", ".webp"].includes(ext)) {
-    return ext;
-  }
-  return ".jpg"; // 默认
-}
-
-/**
- * 分析图片内容
- */
 export async function analyzeImage(
   ai: AIInstance,
   imageUrl: string,
   model: string,
-  gifBuffer?: Buffer,
   options?: ImageAnalysisOptions,
 ): Promise<ImageAnalysisResult> {
   try {
-    // 检查是否为 GIF，如果是则提取三帧
     const { isGifUrl, extractGifFrames } = await import("./gif-extractor");
-    let imageUrls: string[] = [imageUrl];
-    let originalGifBuffer: Buffer | undefined = gifBuffer;
+    let imageUrls = [imageUrl];
 
     if (await isGifUrl(imageUrl)) {
       const result = await extractGifFrames(imageUrl);
-      if (result && result.frames.length > 0) {
+      if (result?.frames.length) {
         imageUrls = result.frames;
-        originalGifBuffer = result.buffer;
       } else {
         logger.warn(
-          `[image-analyzer] Failed to extract GIF frames, using original URL`,
+          "[image-analyzer] Failed to extract GIF frames, using original URL",
         );
       }
     }
 
     imageUrls = await prepareImageUrlsForModel(imageUrls);
 
-    const systemPrompt = `You are an image classification and analysis assistant. Analyze images and return structured information.
+    const systemPrompt = `You are an image description assistant. Describe the image accurately for use in chat history.
 
 Instructions:
-1. Classify as "meme" or "image":
-   - "meme": A standalone, single-scene character image (anime/cartoon/VTuber etc.) used to express ONE specific emotion. Isolated character on a clean/simple background, exaggerated expression or pose, often with short punchline text.
-   - "image": Everything else — real photos, selfies, landscapes, screenshots, UI captures, infographics, news images, full-body illustrations without expressive intent, etc. CHAT / IM INTERFACE SCREENSHOTS (QQ, WeChat, Discord, Telegram, LINE, message bubbles, chat history) are always "image", even when memes appear inside them.
-   - When in doubt, prefer "image".
-
-2. Provide a brief description (max 30 words in Chinese):
-   - For memes: Used as the saved filename. Describe the character's pose / expression / action and any visible text.
-   - For images: Describe what you see factually, including any visible text.
-   ${imageUrls.length > 1 ? "\n   - You are viewing multiple frames from an animated image (GIF). Consider the overall motion and emotion across all frames." : ""}
-
-3. For memes only:
-   - Emotion tag: ${EMOTION_TAGS.join(", ")} (choose ONLY ONE).
-   - Characters: STRICT identification — only name a character when you are CERTAIN of their identity.
-     • If you know the character's name, add their English identifier to "characters".
-     • If you are not sure, or you do not actually know the character's name, put "unknown" in the array. Do NOT guess.
-     • DO NOT invent or infer a character's name from their appearance (hair color, outfit, art style, accessories, species, etc.). Many characters look alike across different series.
-     • DO NOT name a character just because they look similar to a known one.
-     • Only name a character you can confidently identify. Otherwise use "unknown".
-   - Known identifiers: ${KNOWN_CHARACTERS.join(", ")}. You may NOT add new identifiers outside this list — any character you recognize that is not on the list still maps to "unknown".
+- Return a concise factual description in Chinese, no more than 30 words.
+- Include important visible subjects, actions, expressions, and text.
+- Treat every input as a regular image. Do not classify it as a meme or sticker.
+${imageUrls.length > 1 ? "- You are viewing frames from an animated image. Describe the overall action across the frames." : ""}
 
 Response format (JSON):
-{
-  "type": "meme" or "image",
-  "description": "brief description in Chinese (for memes: describe what you see; do not invent a character name)",
-  "emotion": "emotion tag (ONLY for memes)",
-  "characters": ["known_character_identifier", "unknown", ...] (ONLY for memes; use only identifiers from the known list, or "unknown")
-}`;
-
-    const userPrompt =
-      imageUrls.length > 1
-        ? `Please analyze these ${imageUrls.length} frames from an animated image and provide the classification and description.`
-        : "Please analyze this image and provide the classification and description.";
-
-    // 构建消息内容
-    const contentParts: any[] = [{ type: "text", text: userPrompt }];
-    for (const url of imageUrls) {
-      contentParts.push({
+{"description":"brief Chinese description"}`;
+    const content: any[] = [
+      {
+        type: "text",
+        text:
+          imageUrls.length > 1
+            ? `Describe these ${imageUrls.length} frames from one animated image.`
+            : "Describe this image.",
+      },
+      ...imageUrls.map((url) => ({
         type: "image_url",
         image_url: { url, detail: "auto" },
-      });
-    }
-
+      })),
+    ];
     const request = () =>
       ai.complete({
         model,
         messages: [
           { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: contentParts,
-          },
+          { role: "user", content },
         ],
         temperature: 0.3,
       });
@@ -245,95 +94,26 @@ Response format (JSON):
       ? await options.runAIRequest(request)
       : await request();
 
-    if (!response) {
+    if (!response?.content) {
       return {
         success: false,
-        error: "Request skipped due to active rate limit",
+        error: response
+          ? "Model returned empty response"
+          : "Request skipped due to active rate limit",
       };
     }
 
-    if (!response.content) {
-      return {
-        success: false,
-        error: "Model returned empty response",
-      };
-    }
-
-    // 解析 JSON 响应
-    let result: any;
-    try {
-      // 尝试提取 JSON（可能包含在 markdown 代码块中）
-      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        result = JSON.parse(jsonMatch[0]);
-      } else {
-        result = JSON.parse(response.content);
-      }
-    } catch {
-      logger.warn(
-        `[image-analyzer] Failed to parse JSON response: ${response.content}`,
-      );
-      return {
-        success: false,
-        error: "Failed to parse model response",
-      };
-    }
-
-    // 验证和规范化结果
-    const type = result.type === "meme" ? "meme" : "image";
-    const description = String(result.description || "未知");
-    const emotion = type === "meme" ? result.emotion || "default" : undefined;
-
-    // 支持多个角色
-    let characters: string[] | undefined;
-    if (type === "meme") {
-      if (Array.isArray(result.characters)) {
-        characters = result.characters
-          .map((c: string) => c.trim().toLowerCase())
-          .filter(Boolean);
-      }
-      if (characters && characters.length === 0) {
-        characters = undefined;
-      }
-    }
-
-    const character =
-      type === "meme"
-        ? characters && characters.length > 0
-          ? characters[0]
-          : "unknown"
-        : undefined;
-
-    logger.info(
-      formatImageRecognitionLog({
-        type,
-        description,
-        emotion,
-        characters,
-      }),
-    );
-
-    return {
-      success: true,
-      type,
-      description,
-      emotion,
-      characters,
-      character,
-      gifBuffer: originalGifBuffer,
-    };
+    const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+    const result = JSON.parse(jsonMatch?.[0] || response.content);
+    const description = String(result.description || "未知").trim() || "未知";
+    logger.info(`[image-analyzer] image: ${description}`);
+    return { success: true, description };
   } catch (err) {
     logger.error(`[image-analyzer] Failed to analyze image: ${err}`);
-    return {
-      success: false,
-      error: String(err),
-    };
+    return { success: false, error: String(err) };
   }
 }
 
-/**
- * 处理图片：分析、保存到数据库、下载表情包
- */
 export async function processImage(
   ai: AIInstance,
   imageUrl: string,
@@ -342,7 +122,6 @@ export async function processImage(
   options?: ImageAnalysisOptions,
 ): Promise<ImageRecord | null> {
   try {
-    // 计算哈希（基于图片内容）
     const hash = await calculateImageHash(imageUrl);
     if (!hash) {
       logger.warn(
@@ -351,123 +130,28 @@ export async function processImage(
       return null;
     }
 
-    // 检查是否已存在
     const existing = db.getImageByHash(hash);
     if (existing) {
-      logger.info(formatImageRecognitionLog(existing));
-      return existing;
+      const normalized = asImageRecord(existing, imageUrl);
+      db.saveImage(normalized);
+      logger.info(`[image-analyzer] image: ${normalized.description}`);
+      return normalized;
     }
-    const analysis = await analyzeImage(
-      ai,
-      imageUrl,
-      model,
-      undefined,
-      options,
-    );
-    if (!analysis.success || !analysis.type) {
+
+    const analysis = await analyzeImage(ai, imageUrl, model, options);
+    if (!analysis.success) {
       logger.warn(`[image-analyzer] Analysis failed: ${analysis.error}`);
       return null;
     }
 
-    let filePath: string | undefined;
-
-    // 如果是表情包，下载到本地
-    if (analysis.type === "meme" && analysis.emotion && analysis.description) {
-      // 确定文件扩展名：GIF 用 .gif，其他用原始扩展名
-      const ext = analysis.gifBuffer ? ".gif" : getImageExtension(imageUrl);
-
-      // 文件名使用描述，不限制长度，只替换非法字符
-      const safeDesc = analysis.description.replace(
-        /[^\u4e00-\u9fa5a-zA-Z0-9]/g,
-        "_",
-      );
-      const fileName = `${safeDesc}${ext}`;
-
-      // 获取角色列表（支持多个角色）
-      const characters =
-        analysis.characters && analysis.characters.length > 0
-          ? analysis.characters
-          : [analysis.character || "unknown"];
-
-      // 应用 allowedCharacters 过滤：配置非空时只对列表内角色本地保存
-      const allowed = options?.allowedCharacters;
-      const hasRestriction = Array.isArray(allowed) && allowed.length > 0;
-      const normalizeName = (s: string) => String(s || "").trim().toLowerCase();
-      const allowedSet = hasRestriction
-        ? new Set((allowed as string[]).map(normalizeName))
-        : null;
-
-      const saveableCharacters = allowedSet
-        ? characters.filter((c) => allowedSet.has(normalizeName(c)))
-        : characters;
-
-      const skipped = characters.filter(
-        (c) => !saveableCharacters.includes(c),
-      );
-      if (skipped.length > 0) {
-        logger.info(
-          `[image-analyzer] Skipping local file save for characters outside allowedCharacters: ${skipped.join(", ")}`,
-        );
-      }
-
-      // 为每个允许保存的角色创建文件夹并保存图片
-      const savePromises = saveableCharacters.map(async (character) => {
-        const memeDir = path.join(
-          process.cwd(),
-          "data",
-          "chat",
-          "meme",
-          character,
-          analysis.emotion!,
-        );
-        const targetPath = path.join(memeDir, fileName);
-
-        // 确保目录存在
-        if (!existsSync(memeDir)) {
-          await fs.mkdir(memeDir, { recursive: true });
-        }
-
-        // 如果是 GIF 且有原始 buffer
-        if (analysis.gifBuffer) {
-          try {
-            await fs.writeFile(targetPath, analysis.gifBuffer);
-            return targetPath;
-          } catch (err) {
-            logger.warn(
-              `[image-analyzer] Failed to save GIF for ${character}: ${err}`,
-            );
-            return null;
-          }
-        } else {
-          // 普通图片，下载
-          const downloaded = await downloadImage(imageUrl, targetPath);
-          if (downloaded) {
-            return targetPath;
-          } else {
-            logger.warn(`[image-analyzer] Download failed for ${character}`);
-            return null;
-          }
-        }
-      });
-
-      const savedPaths = await Promise.all(savePromises);
-      filePath = savedPaths.find((p) => p !== null) || undefined;
-    }
-
-    // 保存到数据库
     const record: ImageRecord = {
       hash,
       url: normalizeImageUrl(imageUrl) || imageUrl,
-      type: analysis.type,
+      type: "image",
       description: analysis.description || "未知",
-      emotion: analysis.emotion,
-      character: analysis.character,
-      filePath,
       createdAt: Date.now(),
     };
-
     db.saveImage(record);
-
     return record;
   } catch (err) {
     logger.error(`[image-analyzer] Failed to process image: ${err}`);
@@ -475,69 +159,51 @@ export async function processImage(
   }
 }
 
-/**
- * 从图片 URL 获取描述标签
- * 命中数据库记录时返回 [meme:描述] 或 [image:描述]，否则返回 [image]。
- * 收集聊天历史时用它，之前没识别到的图片不会再次触发请求。
- */
-export async function getImageTag(imageUrl: string, db: ChatDatabase): Promise<string> {
+export async function getImageTag(
+  imageUrl: string,
+  db: ChatDatabase,
+): Promise<string> {
   const exact = db.getImageByUrl(imageUrl);
-  if (exact) {
-    return `[${exact.type}:${exact.description}]`;
-  }
+  if (exact) return `[image:${exact.description}]`;
 
   const normalized = normalizeImageUrl(imageUrl);
   if (normalized && normalized !== imageUrl) {
     const normalizedHit = db.getImageByUrl(normalized);
-    if (normalizedHit) {
-      return `[${normalizedHit.type}:${normalizedHit.description}]`;
-    }
+    if (normalizedHit) return `[image:${normalizedHit.description}]`;
   }
 
   const hash = await calculateImageHash(imageUrl);
   if (hash) {
     const byHash = db.getImageByHash(hash);
     if (byHash) {
-      try {
-        db.saveImage({
-          hash: byHash.hash,
-          url: normalized || imageUrl,
-          type: byHash.type,
-          description: byHash.description,
-          emotion: byHash.emotion,
-          character: byHash.character,
-          filePath: byHash.filePath,
-          createdAt: byHash.createdAt,
-        });
-      } catch {
-        // ignore — best-effort URL caching for next time
-      }
-      return `[${byHash.type}:${byHash.description}]`;
+      db.saveImage(asImageRecord(byHash, normalized || imageUrl));
+      return `[image:${byHash.description}]`;
     }
   }
 
   return "[image]";
 }
 
-/**
- * Strip query string and hash so URLs from different NapCat code paths
- * (live vs. get_group_msg_history) still match. QQ gchat.qpic.cn URLs
- * include varying `?term=2`, `?spec=0`, signed tokens, etc.
- */
+function asImageRecord(record: ImageRecord, url: string): ImageRecord {
+  return {
+    ...record,
+    url: normalizeImageUrl(url) || url,
+    type: "image",
+  };
+}
+
 export function normalizeImageUrl(url: string): string {
   if (!url || typeof url !== "string") return "";
   const trimmed = url.trim();
   if (!trimmed) return "";
   try {
-    const u = new URL(trimmed);
-    return `${u.protocol}//${u.host}${u.pathname}`;
+    const parsed = new URL(trimmed);
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
   } catch {
-    const qIdx = trimmed.indexOf("?");
-    const hashIdx = trimmed.indexOf("#");
-    let cutAt = -1;
-    if (qIdx >= 0 && hashIdx >= 0) cutAt = Math.min(qIdx, hashIdx);
-    else if (qIdx >= 0) cutAt = qIdx;
-    else if (hashIdx >= 0) cutAt = hashIdx;
+    const queryIndex = trimmed.indexOf("?");
+    const hashIndex = trimmed.indexOf("#");
+    const indexes = [queryIndex, hashIndex].filter((index) => index >= 0);
+    const cutAt = indexes.length > 0 ? Math.min(...indexes) : -1;
     return cutAt >= 0 ? trimmed.slice(0, cutAt) : trimmed;
   }
 }

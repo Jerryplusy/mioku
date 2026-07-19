@@ -104,10 +104,6 @@ export function createMessageHandler(
                     groupId,
                     label: "image-analysis",
                   }),
-                allowedCharacters:
-                  cfg.emoji?.characters && cfg.emoji.characters.length > 0
-                    ? cfg.emoji.characters
-                    : undefined,
               }).catch((err) =>
                 ctx.logger.error(`[image-analyzer] Failed: ${err}`),
               );

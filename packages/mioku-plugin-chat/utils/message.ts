@@ -308,12 +308,12 @@ async function getImageTagWithHashCache(
   ctx: HistoryFormatContext,
 ): Promise<string> {
   const exact = db.getImageByUrl?.(imageUrl);
-  if (exact) return `[${exact.type}:${exact.description}]`;
+  if (exact) return `[image:${exact.description}]`;
 
   const normalized = normalizeImageUrl(imageUrl);
   if (normalized && normalized !== imageUrl) {
     const hit = db.getImageByUrl?.(normalized);
-    if (hit) return `[${hit.type}:${hit.description}]`;
+    if (hit) return `[image:${hit.description}]`;
   }
 
   let hash = ctx.hashLookupCache.get(`hash:${imageUrl}`);
@@ -329,17 +329,14 @@ async function getImageTagWithHashCache(
       db.saveImage?.({
         hash: byHash.hash,
         url: normalized || imageUrl,
-        type: byHash.type,
+        type: "image",
         description: byHash.description,
-        emotion: byHash.emotion,
-        character: byHash.character,
-        filePath: byHash.filePath,
         createdAt: byHash.createdAt,
       });
     } catch {
       // best-effort URL caching for next call
     }
-    return `[${byHash.type}:${byHash.description}]`;
+    return `[image:${byHash.description}]`;
   }
 
   return "[image]";

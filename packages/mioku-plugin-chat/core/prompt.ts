@@ -176,10 +176,9 @@ const TOOL_INTENSITY_BLOCK: Record<Strength, string> = {
 
 const EMOJI_MODE_LINE: Record<Strength, string> = {
   high:
-    "- Keep stickers rare. Use one only when it clearly strengthens a strong emotional beat or punchline.",
-  medium:
-    "- You may use a sticker for obvious emotional beats, reactions, jokes, teasing, or celebrations, but do not overuse it.",
-  low: "- When it helps the emotional effect of the reply, you can use a matching sticker more freely.",
+    "- Do not use stickers in consecutive chat turns. Use a sticker only when you are in an emotionally intense state.",
+  medium: "- Do not use stickers in consecutive chat turns.",
+  low: "- Feel free to use a sticker whenever you want.",
 };
 
 const WEB_SEARCH_LINE: Record<Strength, string> = {
@@ -281,7 +280,7 @@ function buildResponseFormatSection(
   - **If your reply has multiple sentences or different points, ALWAYS use real line breaks to separate them**
   - NEVER use "\\" or literal "\\n" to simulate a new line
 - **MESSAGE ORDER MATTERS**: messages are sent top-to-bottom, one line at a time.
-- For action markers like [meme:...] or [audio:...], put them on their own line when they are meant to be a separate action.
+- For action markers like [] or [audio:...], put them on their own line when they are meant to be a separate action.
 
 - **SPECIAL ACTIONS in your text (auto-parsed and removed from message):**
   - Use [at:123456] in your text to @ someone (123456 is the QQ number)
@@ -338,23 +337,15 @@ function appendEmojiSection(
   if (!emojiAgent || !ctx.config.emoji?.enabled) return;
 
   const configChars = ctx.config.emoji.characters || [];
-  const chars =
-    configChars.length > 0 ? configChars : emojiAgent.getAvailableCharacters();
-  const availableEmotions: string[] = [];
-  for (const char of chars) {
-    availableEmotions.push(...emojiAgent.getAvailableEmotions(char));
-  }
-  const uniqueEmotions = [...new Set(availableEmotions)].sort();
-  if (uniqueEmotions.length === 0) return;
+  if (!emojiAgent.hasAvailableEmojis(configChars)) return;
 
   lines.push(`
 ### Optional Sticker / Emoji Format
-- You MAY optionally send one matching sticker by writing [meme:emotion]
+- You MAY optionally request one matching sticker by writing exactly [] on its own line
 ${EMOJI_MODE_LINE[emojiStrength]}
-- Do NOT send a sticker in every reply, and do not force one when the mood is plain
-- Prefer one matching sticker at most. It should enhance the text instead of replacing meaningful content
-- Put [meme:...] on its own line when it should be a separate action message after text
-- Available emotions: ${uniqueEmotions.join(", ")}`);
+- Never put an emotion, label, character, or any other text inside the brackets
+- Output at most one [] block in a turn
+- A separate sticker selection agent will read the current conversation and choose the actual sticker`);
 }
 
 function appendExternalSkillsSection(
@@ -636,7 +627,7 @@ Just the last few messages - don't overthink it or dig into old conversations:
 
 ${mergedLines.join("\n")}
 
-Note: Messages may contain media tags like [meme:描述], [image:描述], [video:描述], [forward:摘要], [card:摘要], or [group_notice:摘要]. These are brief processed summaries. If you need detailed information about an image or video, use the view_media tool with the message ID.
+Note: Messages may contain media tags like [image:描述], [video:描述], [forward:摘要], [card:摘要], or [group_notice:摘要]. If you need detailed information about an image or video, use the view_media tool with the message ID.
 
 -- DON'T repeat yourself or bring up old topics - focus on what's being said right now. --`;
 }

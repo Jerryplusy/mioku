@@ -241,7 +241,7 @@ export default definePlugin({
       });
     }
 
-    const humanize = new HumanizeEngine(mainAIInstance, workAIInstance, db, configProvider);
+    const humanize = new HumanizeEngine(workAIInstance, db, configProvider);
     await humanize.init();
 
     const pokeCooldowns = new Map<number, number>();

@@ -1,410 +1,286 @@
-import type { AIInstance } from "mioku";
-import type { ChatDatabase } from "../db";
-import type { ChatConfig, ChatMessage } from "../types";
-import { logger } from "mioki";
-import * as fs from "fs/promises";
 import { existsSync, readdirSync } from "fs";
+import * as fs from "fs/promises";
 import * as path from "path";
+import { getPluginDataDir, type AIInstance } from "mioku";
+import { logger } from "mioki";
+import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
 import { extractGroupIdFromSession } from "../utils/group-config";
+import { extractJsonObject } from "../utils/json";
 import type { ChatConfigProvider } from "./index";
 
 export interface EmojiPickResult {
   success: boolean;
   emojiPath?: string;
   emojiDescription?: string;
-  cleanedText?: string;
+  cleanedText: string;
   error?: string;
 }
 
-const AVAILABLE_EMOTIONS = [
-  "happy",
-  "sad",
-  "angry",
-  "surprised",
-  "confused",
-  "excited",
-  "tired",
-  "shy",
-  "proud",
-  "default",
-  "funny",
-  "cute",
-  "love",
-  "neutral",
-];
+export interface EmojiSelectionContext {
+  sessionId: string;
+  botNickname: string;
+  chatHistory: ChatMessage[];
+  targetMessage: TargetMessage;
+}
+
+interface EmojiCandidate {
+  id: string;
+  path: string;
+  character: string;
+  label: string;
+  relativePath: string;
+}
+
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
+const STICKER_INTENT_LINE = /^\s*\[\]\s*$/;
 
 export class EmojiAgent {
-  private ai: AIInstance;
-  private getConfig: ChatConfigProvider;
-  private db: ChatDatabase;
-  private readonly memeBaseDir: string;
+  private readonly memeBaseDir = path.join(getPluginDataDir("chat"), "meme");
 
-  constructor(ai: AIInstance, configProvider: ChatConfigProvider, db: ChatDatabase) {
-    this.ai = ai;
-    this.getConfig = configProvider;
-    this.db = db;
-    this.memeBaseDir = path.join(process.cwd(), "data", "chat", "meme");
-  }
+  constructor(
+    private readonly ai: AIInstance,
+    private readonly getConfig: ChatConfigProvider,
+  ) {}
 
   getAvailableCharacters(): string[] {
-    if (!existsSync(this.memeBaseDir)) {
-      return [];
-    }
-
-    const entries = readdirSync(this.memeBaseDir, { withFileTypes: true });
-    return entries
+    if (!existsSync(this.memeBaseDir)) return [];
+    return readdirSync(this.memeBaseDir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b));
   }
 
-  getAvailableEmotions(character: string): string[] {
-    const characterDir = path.join(this.memeBaseDir, character);
-    if (!existsSync(characterDir)) {
-      return [];
-    }
-
-    const entries = readdirSync(characterDir, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
+  hasAvailableEmojis(configuredCharacters: string[] = []): boolean {
+    return this.getVisibleCharacters(configuredCharacters).some((character) =>
+      this.directoryContainsImage(path.join(this.memeBaseDir, character)),
+    );
   }
 
-  parseAllMemeIntents(text: string): { emotion: string }[] {
-    const regex = /\[meme:([^\]]+)]/gi;
-    const matches = [...text.matchAll(regex)];
-    return matches.map((m) => ({ emotion: m[1].trim().toLowerCase() }));
+  hasStickerIntent(text: string): boolean {
+    return String(text || "")
+      .split(/\r?\n/)
+      .some((line) => STICKER_INTENT_LINE.test(line));
   }
 
-  async processMemeResponse(
+  async processStickerResponse(
     aiResponseText: string,
-    sessionId: string,
+    context: EmojiSelectionContext,
   ): Promise<EmojiPickResult> {
-    const cfg = this.getConfig(extractGroupIdFromSession(sessionId));
+    const cleanedText = this.cleanStickerIntent(aiResponseText);
+    if (!this.hasStickerIntent(aiResponseText)) {
+      return { success: false, cleanedText, error: "No sticker intent found" };
+    }
+
+    const cfg = this.getConfig(extractGroupIdFromSession(context.sessionId));
     if (!cfg.emoji?.enabled) {
-      return {
-        success: false,
-        error: "emoji disabled",
-      };
+      return { success: false, cleanedText, error: "Emoji disabled" };
     }
 
-    const intents = this.parseAllMemeIntents(aiResponseText);
-    if (intents.length === 0) {
-      return {
-        success: false,
-        error: "No meme intent found in response",
-      };
-    }
-
-    const chatHistory = this.db.getMessages(sessionId, 20);
-
-    // 获取配置中的角色列表
-    const configChars = cfg.emoji?.characters || [];
-
-    // 决定使用哪些角色
-    let targetCharacters: string[];
-    if (configChars.length > 0) {
-      targetCharacters = configChars;
-      logger.debug(
-        `[emoji-agent] Using configured characters: ${configChars.join(", ")}`,
-      );
-    } else {
-      targetCharacters = this.getAvailableCharacters();
-      logger.debug(
-        `[emoji-agent] Using all available characters: ${targetCharacters.join(", ")}`,
-      );
-    }
-
-    // 只处理第一个 meme 标记
-    const intent = intents[0];
-    logger.debug(`[emoji-agent] Processing meme intent: ${intent.emotion}`);
-
-    const emojiResult = await this.pickEmoji(
-      targetCharacters,
-      intent.emotion,
-      chatHistory,
-      cfg,
+    const characters = this.getVisibleCharacters(cfg.emoji.characters || []);
+    const candidates = this.filterSelectedStickers(
+      await this.collectCandidates(characters),
+      cfg.emoji.stickers || [],
     );
-
-    if (!emojiResult.success || !emojiResult.emojiPath) {
-      return {
-        success: false,
-        error: emojiResult.error || "Failed to pick emoji",
-      };
+    if (candidates.length === 0) {
+      return { success: false, cleanedText, error: "No stickers available" };
     }
 
-    const cleanedText = this.cleanMemeMarker(aiResponseText);
-
-    return {
-      success: true,
-      emojiPath: emojiResult.emojiPath,
-      emojiDescription: emojiResult.description,
-      cleanedText,
-    };
-  }
-
-  async pickEmoji(
-    characters: string[],
-    emotion: string,
-    chatHistory: ChatMessage[],
-    cfg: ChatConfig = this.getConfig(),
-  ): Promise<{
-    success: boolean;
-    emojiPath?: string;
-    description?: string;
-    error?: string;
-  }> {
-    try {
-      const normalizedEmotion = this.normalizeEmotion(emotion);
-      logger.debug(
-        `[emoji-agent] pickEmoji: emotion=${normalizedEmotion}, characters=${characters.join(",")}`,
-      );
-
-      // 收集所有角色对应情绪目录下的表情包
-      const allEmojis: { path: string; character: string; file: string }[] = [];
-
-      for (const character of characters) {
-        const emotionDir = path.join(
-          this.memeBaseDir,
-          character,
-          normalizedEmotion,
-        );
-
-        logger.debug(
-          `[emoji-agent] Checking dir: ${emotionDir}, exists=${existsSync(emotionDir)}`,
-        );
-
-        if (existsSync(emotionDir)) {
-          const files = (await fs.readdir(emotionDir)).filter((f) => {
-            const ext = path.extname(f).toLowerCase();
-            return [".jpg", ".jpeg", ".png", ".gif", ".webp"].includes(ext);
-          });
-
-          logger.debug(
-            `[emoji-agent] Found ${files.length} files in ${character}/${normalizedEmotion}`,
-          );
-
-          for (const file of files) {
-            allEmojis.push({
-              path: path.join(emotionDir, file),
-              character,
-              file,
-            });
-          }
-        }
-      }
-
-      logger.debug(`[emoji-agent] Total emojis collected: ${allEmojis.length}`);
-
-      // 如果没有找到对应情绪的表情包，尝试 default
-      if (allEmojis.length === 0) {
-        logger.info(
-          `[emoji-agent] No emojis found for ${normalizedEmotion}, trying default`,
-        );
-        for (const character of characters) {
-          const defaultDir = path.join(this.memeBaseDir, character, "default");
-          if (existsSync(defaultDir)) {
-            const files = (await fs.readdir(defaultDir)).filter((f) => {
-              const ext = path.extname(f).toLowerCase();
-              return [".jpg", ".jpeg", ".png", ".gif", ".webp"].includes(ext);
-            });
-
-            for (const file of files) {
-              allEmojis.push({
-                path: path.join(defaultDir, file),
-                character,
-                file,
-              });
-            }
-          }
-        }
-        logger.debug(
-          `[emoji-agent] Total emojis from default: ${allEmojis.length}`,
-        );
-      }
-
-      if (allEmojis.length === 0) {
-        return {
-          success: false,
-          error: `No memes found for emotion: ${emotion}`,
-        };
-      }
-
-      // 如果只有一个表情包，直接返回
-      if (allEmojis.length === 1) {
-        const emoji = allEmojis[0];
-        return {
-          success: true,
-          emojiPath: emoji.path,
-          description: path.basename(emoji.file, path.extname(emoji.file)),
-        };
-      }
-
-      // 检查是否使用 AI 选择
-      const useAI = cfg.emoji?.useAISelection;
-      if (!useAI) {
-        // 不使用 AI，直接随机选择
-        logger.info(`[emoji-agent] useAISelection=false, random pick`);
-        return this.randomPick(allEmojis);
-      }
-
-      // 使用 AI 选择最合适的表情包
-      return this.selectByAI(allEmojis, normalizedEmotion, chatHistory, cfg);
-    } catch (err) {
-      logger.error(`[emoji-agent] Failed to pick emoji: ${err}`);
-      return {
-        success: false,
-        error: String(err),
-      };
+    const selected =
+      candidates.length === 1
+        ? candidates[0]
+        : await this.selectByAI(candidates, context, cleanedText, cfg);
+    if (!selected) {
+      return { success: false, cleanedText, error: "Sticker selection failed" };
     }
-  }
-
-  private normalizeEmotion(emotion: string): string {
-    const normalized = emotion.toLowerCase();
-    if (AVAILABLE_EMOTIONS.includes(normalized)) {
-      return normalized;
-    }
-    const mapping: Record<string, string> = {
-      开心: "happy",
-      难过: "sad",
-      生气: "angry",
-      惊讶: "surprised",
-      困惑: "confused",
-      兴奋: "excited",
-      疲倦: "tired",
-      害羞: "shy",
-      骄傲: "proud",
-      默认: "default",
-      有趣: "funny",
-      可爱: "cute",
-      爱: "love",
-      中性: "neutral",
-    };
-    return mapping[normalized] || "default";
-  }
-
-  private async selectByAI(
-    emojis: { path: string; character: string; file: string }[],
-    emotion: string,
-    chatHistory: ChatMessage[],
-    cfg: ChatConfig = this.getConfig(),
-  ): Promise<{
-    success: boolean;
-    emojiPath?: string;
-    description?: string;
-    error?: string;
-  }> {
-    const model = cfg.workingModel || cfg.model;
-
-    const systemPrompt = `You are an emoji/sticker selection assistant. Your task is to select the most appropriate emoji/sticker from a given list based on the chat context.
-
-Instructions:
-1. Analyze the chat history provided
-2. Select the emoji that best matches the current conversation mood and context
-3. Consider the emotional tone of the conversation
-4. Provide your selection in JSON format
-
-Available emojis (${emotion}):
-${emojis.map((e, i) => `${i + 1}. [${e.character}] ${path.basename(e.file, path.extname(e.file))}`).join("\n")}
-
-Response format (JSON):
-{
-  "selectedIndex": number (1-based index from the list above),
-  "reason": "brief reason why this emoji is suitable"
-}`;
-
-    const historyText = chatHistory
-      .slice(-10)
-      .map((msg) => {
-        const role = msg.role === "assistant" ? "Bot" : msg.userName || "User";
-        return `${role}: ${msg.content}`;
-      })
-      .join("\n");
-
-    const userPrompt = `Chat history:
-${historyText}
-
-Select the most appropriate emoji for this conversation. The emoji should match the emotional context "${emotion}".`;
-
-    try {
-      const response = await this.ai.complete({
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.3,
-      });
-
-      if (!response.content) {
-        return this.randomPick(emojis);
-      }
-
-      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        return this.randomPick(emojis);
-      }
-
-      const result = JSON.parse(jsonMatch[0]);
-      const selectedIndex = result.selectedIndex;
-
-      if (
-        typeof selectedIndex !== "number" ||
-        selectedIndex < 1 ||
-        selectedIndex > emojis.length
-      ) {
-        return this.randomPick(emojis);
-      }
-
-      const selected = emojis[selectedIndex - 1];
-      const description = path.basename(
-        selected.file,
-        path.extname(selected.file),
-      );
-
-      logger.info(
-        `[emoji-agent] Selected: [${selected.character}] ${selected.file} (index: ${selectedIndex}, reason: ${result.reason})`,
-      );
-
-      return {
-        success: true,
-        emojiPath: selected.path,
-        description,
-      };
-    } catch (err) {
-      logger.warn(`[emoji-agent] AI selection failed, using random: ${err}`);
-      return this.randomPick(emojis);
-    }
-  }
-
-  private randomPick(
-    emojis: { path: string; character: string; file: string }[],
-  ): {
-    success: boolean;
-    emojiPath?: string;
-    description?: string;
-    error?: string;
-  } {
-    const selected = emojis[Math.floor(Math.random() * emojis.length)];
-    const description = path.basename(
-      selected.file,
-      path.extname(selected.file),
-    );
 
     return {
       success: true,
       emojiPath: selected.path,
-      description,
+      emojiDescription: selected.label,
+      cleanedText,
     };
   }
 
-  private cleanMemeMarker(text: string): string {
-    let cleaned = text.replace(/\[meme:[^\]]+\]/gi, "");
-    cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
-    cleaned = cleaned
-      .split("\n")
-      .map((line) => line.trim())
+  private getVisibleCharacters(configuredCharacters: string[]): string[] {
+    const available = this.getAvailableCharacters();
+    if (configuredCharacters.length === 0) return available;
+
+    const configured = new Set(
+      configuredCharacters.map((character) => character.trim().toLowerCase()),
+    );
+    return available.filter((character) =>
+      configured.has(character.toLowerCase()),
+    );
+  }
+
+  private directoryContainsImage(dir: string): boolean {
+    if (!existsSync(dir)) return false;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (
+        entry.isFile() &&
+        IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
+      ) {
+        return true;
+      }
+      if (entry.isDirectory() && this.directoryContainsImage(entryPath))
+        return true;
+    }
+    return false;
+  }
+
+  private async collectCandidates(
+    characters: string[],
+  ): Promise<EmojiCandidate[]> {
+    const candidates: EmojiCandidate[] = [];
+    for (const character of characters) {
+      const characterDir = path.join(this.memeBaseDir, character);
+      const files = await this.collectImageFiles(characterDir);
+      for (const file of files) {
+        const relativePath = path.relative(characterDir, file);
+        const fileName = path.basename(file, path.extname(file));
+        candidates.push({
+          id: this.normalizeStickerId(path.join(character, relativePath)),
+          path: file,
+          character,
+          label: fileName.replace(/[_-]+/g, " ").trim(),
+          relativePath,
+        });
+      }
+    }
+    return candidates.sort((a, b) =>
+      `${a.character}/${a.relativePath}`.localeCompare(
+        `${b.character}/${b.relativePath}`,
+      ),
+    );
+  }
+
+  private async collectImageFiles(dir: string): Promise<string[]> {
+    if (!existsSync(dir)) return [];
+    const files: string[] = [];
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...(await this.collectImageFiles(entryPath)));
+      } else if (
+        entry.isFile() &&
+        IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
+      ) {
+        files.push(entryPath);
+      }
+    }
+    return files;
+  }
+
+  private filterSelectedStickers(
+    candidates: EmojiCandidate[],
+    selectedStickers: string[],
+  ): EmojiCandidate[] {
+    if (selectedStickers.length === 0) return candidates;
+    const selected = new Set(
+      selectedStickers.map((sticker) => this.normalizeStickerId(sticker)),
+    );
+    return candidates.filter((candidate) => selected.has(candidate.id));
+  }
+
+  private normalizeStickerId(value: string): string {
+    return String(value || "")
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "")
+      .replace(/^(?:data\/chat\/)?meme\//i, "");
+  }
+
+  private async selectByAI(
+    candidates: EmojiCandidate[],
+    context: EmojiSelectionContext,
+    assistantReply: string,
+    cfg: ChatConfig,
+  ): Promise<EmojiCandidate | null> {
+    const persona = String(cfg.persona || "").trim();
+    const candidateList = candidates
+      .map(
+        (candidate, index) =>
+          `${index + 1}. [${candidate.character}] ${candidate.label}`,
+      )
       .join("\n");
-    cleaned = cleaned.trim();
-    return cleaned;
+    const history = context.chatHistory
+      .slice(-20)
+      .map((message) => {
+        const speaker =
+          message.role === "assistant"
+            ? context.botNickname
+            : message.userName || String(message.userId || "User");
+        return `${speaker}: ${message.content}`;
+      })
+      .join("\n");
+
+    const systemPrompt = `You are the sticker selection sub-agent for ${context.botNickname}.
+${persona ? `Identity and persona of ${context.botNickname}:\n${persona}\n` : ""}
+The main chat agent has decided to send one sticker in this turn. Select the single sticker label that best expresses what ${context.botNickname} intends to communicate.
+
+Rules:
+- Use only the conversation context, the current draft reply, and the sticker labels below.
+- Sticker labels are text descriptions derived from local filenames. You cannot see the images, so do not invent visual details beyond a label.
+- The available stickers are already filtered by the configured character list.
+- Return exactly one valid 1-based index as JSON.
+
+Available sticker labels:
+${candidateList}
+
+Response format:
+{"selectedIndex":1,"reason":"brief reason"}`;
+    const userPrompt = `Recent conversation:
+${history || "(no earlier messages)"}
+
+Current message from ${context.targetMessage.userName}:
+${context.targetMessage.content}
+
+Current draft reply from ${context.botNickname}:
+${assistantReply || "(sticker only)"}
+
+Choose the most contextually appropriate sticker label for ${context.botNickname} to send now.`;
+
+    try {
+      const response = await this.ai.complete({
+        model: cfg.workingModel || cfg.model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.2,
+      });
+      const result = extractJsonObject<{
+        selectedIndex?: unknown;
+        reason?: unknown;
+      }>(response.content || "");
+      const selectedIndex = result?.selectedIndex;
+      if (
+        typeof selectedIndex !== "number" ||
+        !Number.isInteger(selectedIndex) ||
+        selectedIndex < 1 ||
+        selectedIndex > candidates.length
+      ) {
+        logger.warn("[emoji-agent] Invalid sticker selection response");
+        return null;
+      }
+
+      const selected = candidates[selectedIndex - 1];
+      logger.info(
+        `[emoji-agent] Selected [${selected.character}] ${selected.label}: ${String(result?.reason || "")}`,
+      );
+      return selected;
+    } catch (err) {
+      logger.warn(`[emoji-agent] Sticker selection failed: ${err}`);
+      return null;
+    }
+  }
+
+  private cleanStickerIntent(text: string): string {
+    return String(text || "")
+      .split(/\r?\n/)
+      .filter((line) => !STICKER_INTENT_LINE.test(line))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
   }
 }
