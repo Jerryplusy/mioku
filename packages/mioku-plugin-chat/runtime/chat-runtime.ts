@@ -10,6 +10,18 @@ import type { ChatPluginContext, ChatRuntime } from "../context";
 import type { ChatConfig } from "../types";
 import { executeChatRuntimeRequest } from "../core/chat-turn";
 
+function resolveRuntimeGroupId(
+  options: ChatRuntimeNoticeOptions | ChatRuntimeInformationRequestOptions,
+): number | undefined {
+  if ("event" in options) {
+    const event = options.event;
+    return event?.message_type === "group" && typeof event.group_id === "number"
+      ? event.group_id
+      : undefined;
+  }
+  return "groupId" in options ? options.groupId : undefined;
+}
+
 export function createChatRuntime(
   pluginCtx: ChatPluginContext,
   getConfig: (groupId?: number) => Promise<ChatConfig>,
@@ -79,7 +91,7 @@ export function createChatRuntime(
       const result = await executeChatRuntimeRequest(
         {
           ...options,
-          config: await getConfig(),
+          config: await getConfig(resolveRuntimeGroupId(options)),
           targetMessageContent: options.targetMessage,
           promptInjections,
           extraTools,
@@ -111,7 +123,7 @@ export function createChatRuntime(
       return executeChatRuntimeRequest(
         {
           ...options,
-          config: await getConfig(),
+          config: await getConfig(resolveRuntimeGroupId(options)),
           targetMessageContent: options.instruction,
           promptInjections,
           send: options.send,
