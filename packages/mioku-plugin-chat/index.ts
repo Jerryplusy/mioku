@@ -23,6 +23,7 @@ import {
 import { CooldownManager } from "./manage/cooldown";
 import { IdleCheckManager } from "./manage/idle-check";
 import { QueueProcessor } from "./manage/queue-processor";
+import { SessionTurnScheduler } from "./manage/session-turn-scheduler";
 import { ChatDatabaseCleanup, DEFAULT_CLEANUP_CONFIG } from "./manage/cleanup";
 import {
   GroupStructuredHistoryManager,
@@ -41,31 +42,11 @@ import { buildHistoryMediaOptions } from "./core/media/segment";
 import type { ChatConfigProvider } from "./humanize";
 import type { ChatPluginContext, ChatHandlerState } from "./context";
 import { mergeGroupOverrides } from "./utils/group-config";
-
-function normalizeIdList(input: unknown): number[] {
-  if (!Array.isArray(input)) return [];
-  return Array.from(
-    new Set(
-      input
-        .map((item) => Math.floor(Number(item)))
-        .filter((id) => Number.isFinite(id) && id > 0),
-    ),
-  );
-}
-
-function shallowMergeTopLevel<T extends Record<string, any>>(
-  defaults: T,
-  overrides: Record<string, any>,
-): T {
-  const result: Record<string, any> = { ...defaults };
-  for (const key of Object.keys(overrides)) {
-    const value = overrides[key];
-    if (value !== undefined && value !== null) {
-      result[key] = value;
-    }
-  }
-  return result as T;
-}
+import {
+  mergeChatConfig,
+  normalizeIdList,
+  normalizeMediaAnalysisBlacklist,
+} from "./utils/config";
 
 export default definePlugin({
   name: "chat",
@@ -91,9 +72,9 @@ export default definePlugin({
 
     const buildGlobalConfig = async (): Promise<ChatConfig> => {
       if (!configService) {
-        return shallowMergeTopLevel(
-          shallowMergeTopLevel(
-            shallowMergeTopLevel({} as ChatConfig, BASE_CONFIG),
+        return mergeChatConfig(
+          mergeChatConfig(
+            mergeChatConfig({} as ChatConfig, BASE_CONFIG),
             SETTINGS_CONFIG,
           ),
           PERSONALIZATION_CONFIG,
@@ -103,15 +84,19 @@ export default definePlugin({
       const settings = (await configService.getConfig("chat", "settings")) ?? {};
       const personalization =
         (await configService.getConfig("chat", "personalization")) ?? {};
-      const merged = shallowMergeTopLevel(
-        shallowMergeTopLevel(
-          shallowMergeTopLevel({} as ChatConfig, BASE_CONFIG),
+      const mergedDefaults = mergeChatConfig(
+        mergeChatConfig(
+          mergeChatConfig({} as ChatConfig, BASE_CONFIG),
           SETTINGS_CONFIG,
         ),
-        shallowMergeTopLevel(
-          shallowMergeTopLevel({} as ChatConfig, personalization),
-          base,
+        PERSONALIZATION_CONFIG,
+      );
+      const merged = mergeChatConfig(
+        mergeChatConfig(
+          mergeChatConfig(mergedDefaults, settings),
+          personalization,
         ),
+        base,
       ) as ChatConfig;
 
       if (typeof merged.stream !== "boolean") merged.stream = true;
@@ -127,9 +112,8 @@ export default definePlugin({
       }
       merged.whitelistGroups = normalizeIdList(merged.whitelistGroups);
       merged.blacklistGroups = normalizeIdList(merged.blacklistGroups);
-      merged.mediaAnalysisBlacklistUsers = normalizeIdList(
-        (merged as any).mediaAnalysisBlacklistUsers ?? (merged as any).imageAnalysisBlacklistUsers,
-      );
+      merged.mediaAnalysisBlacklistUsers =
+        normalizeMediaAnalysisBlacklist(merged as Record<string, any>);
       delete (merged as any).imageAnalysisBlacklistUsers;
       return merged;
     };
@@ -262,6 +246,7 @@ export default definePlugin({
 
     const pokeCooldowns = new Map<number, number>();
     const processingSet = new Set<string>();
+    const sessionTurnScheduler = new SessionTurnScheduler();
     const groupStructuredHistory = new GroupStructuredHistoryManager();
     const rateLimitGuard = new RateLimitGuard(rateLimiter, ctx.logger);
     const runWithRateLimitGuard = rateLimitGuard.run.bind(rateLimitGuard);
@@ -276,6 +261,7 @@ export default definePlugin({
       cooldownManager: undefined as unknown as CooldownManager,
       idleCheckManager: undefined as unknown as IdleCheckManager,
       queueProcessor: undefined as unknown as QueueProcessor,
+      sessionTurnScheduler,
       runWithRateLimitGuard,
       buildHistoryMediaOptions,
       getGroupHistoryMessages, getGroupInfoData, getHumanizeContexts,
@@ -342,15 +328,17 @@ export default definePlugin({
     ctx.logger.info("聊天插件加载成功");
 
     return () => {
-      db.close();
-      rateLimiter.dispose();
+      idleCheckManager.dispose();
+      cooldownManager.dispose();
+      queueProcessor.dispose();
+      sessionTurnScheduler.dispose();
+      queueManager.dispose();
       clearInterval(cleanupInterval);
       dbCleanup.stop();
-      cooldownManager.dispose();
-      idleCheckManager.dispose();
-      queueProcessor.dispose();
+      rateLimiter.dispose();
       processingSet.clear();
       pokeCooldowns.clear();
+      db.close();
       ctx.logger.info("聊天插件已卸载");
     };
   },

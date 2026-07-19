@@ -88,6 +88,11 @@ export class MessageQueueManager {
     const queue = this.pendingMessages.get(groupSessionId);
     return !!queue && queue.length > 0;
   }
+
+  dispose(): void {
+    this.pendingMessages.clear();
+    this.activeTargetMessages.clear();
+  }
 }
 
 /**

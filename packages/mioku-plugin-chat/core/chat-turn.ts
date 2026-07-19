@@ -124,7 +124,7 @@ function resolveRuntimeContext(
 }
 
 // Shared send/save/cooldown tail for both live and runtime turns.
-async function finalizeTurn(
+export async function finalizeChatTurn(
   pluginCtx: ChatPluginContext,
   args: {
     event: any;
@@ -358,7 +358,7 @@ export async function processChat(
       return;
     }
 
-    await finalizeTurn(pluginCtx, {
+    await finalizeChatTurn(pluginCtx, {
       event: e,
       cfg,
       result,
@@ -376,15 +376,32 @@ export async function processChat(
   }
 }
 
-// Runtime turn — triggered by ChatRuntime.generateNotice / requestInformation.
-export async function executeChatRuntimeRequest(
-  options: ExecuteChatRuntimeRequestOptions,
-  pluginCtx: ChatPluginContext,
-): Promise<{
+type ChatRuntimeExecutionResult = {
   messages: string[];
   toolCalls: Array<{ name: string; arguments: any; result: any }>;
   collectedInfo: null;
-}> {
+};
+
+export async function executeChatRuntimeRequest(
+  options: ExecuteChatRuntimeRequestOptions,
+  pluginCtx: ChatPluginContext,
+): Promise<ChatRuntimeExecutionResult> {
+  const runtimeCtx = resolveRuntimeContext(pluginCtx.ctx, options);
+  if (!runtimeCtx.isGroup) {
+    return executeChatRuntimeRequestNow(options, pluginCtx);
+  }
+  return pluginCtx.sessionTurnScheduler.run(
+    runtimeCtx.sessionId,
+    "chat-runtime",
+    () => executeChatRuntimeRequestNow(options, pluginCtx),
+  );
+}
+
+// Runtime turn — triggered by ChatRuntime.generateNotice / requestInformation.
+async function executeChatRuntimeRequestNow(
+  options: ExecuteChatRuntimeRequestOptions,
+  pluginCtx: ChatPluginContext,
+): Promise<ChatRuntimeExecutionResult> {
   const cfg = options.config;
   const runtimeCtx = resolveRuntimeContext(pluginCtx.ctx, options);
   const {
@@ -516,7 +533,7 @@ export async function executeChatRuntimeRequest(
     { extraTools: options.extraTools },
   );
 
-  await finalizeTurn(pluginCtx, {
+  await finalizeChatTurn(pluginCtx, {
     event,
     cfg,
     result,

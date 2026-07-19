@@ -11,6 +11,7 @@ import type { GroupStructuredHistoryManager } from "./manage/group-structured-hi
 import type { CooldownManager } from "./manage/cooldown";
 import type { IdleCheckManager } from "./manage/idle-check";
 import type { QueueProcessor } from "./manage/queue-processor";
+import type { SessionTurnScheduler } from "./manage/session-turn-scheduler";
 import type {
   RunRateLimitGuard,
   GetGroupHistoryMessages,
@@ -58,6 +59,7 @@ export interface ChatPluginContext {
   cooldownManager: CooldownManager;
   idleCheckManager: IdleCheckManager;
   queueProcessor: QueueProcessor;
+  sessionTurnScheduler: SessionTurnScheduler;
 
   // Utility
   runWithRateLimitGuard: RunRateLimitGuard;

@@ -232,24 +232,7 @@ export function createMessageHandler(
       }
     }
 
-    // 检查是否在处理中
-    const processingSet = runtimeState.processingSet;
-    if (isGroup && groupId && groupSessionId) {
-      if (processingSet.has(groupSessionId)) {
-        if ((atBot || mentionedNickname) && !runtimeState.isRateLimitBlocked()) {
-          pluginCtx.queueManager.enqueue(groupSessionId, e, cfg);
-          pluginCtx.rateLimiter.recordInteraction(groupId, userId);
-        }
-        return;
-      }
-      processingSet.add(groupSessionId);
-    } else {
-      const triggerKey = `personal:${userId}`;
-      if (processingSet.has(triggerKey)) return;
-      processingSet.add(triggerKey);
-    }
-
-    try {
+    const runTriggeredMessage = async (): Promise<void> => {
       if (atBot) {
         if (!pluginCtx.rateLimiter.canProcess(userId, groupId, text)) return;
 
@@ -279,9 +262,10 @@ export function createMessageHandler(
       }
 
       if (quotedBot || mentionedNickname) {
+        if (!groupId || !groupSessionId) return;
         const { history } = await pluginCtx.getGroupHistoryMessages(
-          groupId!,
-          groupSessionId!,
+          groupId,
+          groupSessionId,
           ctx,
           cfg.historyCount,
           pluginCtx.db,
@@ -291,7 +275,7 @@ export function createMessageHandler(
         const botNickname =
           cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
         const planResult = await pluginCtx.humanize.actionPlanner.plan(
-          groupSessionId!,
+          groupSessionId,
           botNickname,
           history,
           text,
@@ -300,18 +284,39 @@ export function createMessageHandler(
         if (!pluginCtx.rateLimiter.canProcess(userId, groupId, text)) return;
         pluginCtx.rateLimiter.record(userId, groupId, text);
         await processChat(e, pluginCtx, runtimeState);
+      }
+    };
+
+    if (isGroup && groupId && groupSessionId) {
+      if (!atBot && !quotedBot && !mentionedNickname) return;
+      if (pluginCtx.sessionTurnScheduler.isBusy(groupSessionId)) {
+        if (!runtimeState.isRateLimitBlocked()) {
+          pluginCtx.queueManager.enqueue(groupSessionId, e, cfg);
+          pluginCtx.rateLimiter.recordInteraction(groupId, userId);
+          pluginCtx.queueProcessor.scheduleQueuedMessages(
+            groupSessionId,
+            e.self_id,
+          );
+        }
         return;
       }
+
+      await pluginCtx.sessionTurnScheduler.run(
+        groupSessionId,
+        "message",
+        runTriggeredMessage,
+      );
+      return;
+    }
+
+    const triggerKey = `personal:${userId}`;
+    const processingSet = runtimeState.processingSet;
+    if (processingSet.has(triggerKey)) return;
+    processingSet.add(triggerKey);
+    try {
+      await runTriggeredMessage();
     } finally {
-      if (isGroup && groupId && groupSessionId) {
-        processingSet.delete(groupSessionId);
-        await pluginCtx.queueProcessor.processQueuedMessages(
-          groupSessionId,
-          e.self_id,
-        );
-      } else {
-        processingSet.delete(`personal:${userId}`);
-      }
+      processingSet.delete(triggerKey);
     }
   };
 }
