@@ -18,6 +18,8 @@ const OVERRIDABLE_BOOLEAN_FIELDS = [
   "enableMediaRecognition",
 ] as const;
 
+const OVERRIDABLE_ARRAY_FIELDS = ["allowedExternalSkills"] as const;
+
 /**
  * 把每个群的覆盖配置浅合并到全局配置上
  * - 子对象（如 emoji）只覆盖其中存在的字段，未填字段继承全局
@@ -52,6 +54,13 @@ export function mergeGroupOverrides(
     const value = overridesMap[key];
     if (typeof value === "boolean") {
       resultMap[key] = value;
+    }
+  }
+
+  for (const key of OVERRIDABLE_ARRAY_FIELDS) {
+    const value = overridesMap[key];
+    if (Array.isArray(value)) {
+      resultMap[key] = value.filter((v) => typeof v === "string");
     }
   }
 

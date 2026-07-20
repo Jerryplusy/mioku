@@ -234,6 +234,7 @@ export interface ChatGroupOverrides {
   dynamicDelay?: { enabled?: boolean };
   enableMarkdownScreenshot?: boolean;
   enableMediaRecognition?: boolean;
+  allowedExternalSkills?: string[];
 }
 
 export type ChatGroupsFile = {
