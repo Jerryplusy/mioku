@@ -8,7 +8,11 @@ import type {
 } from "openai/resources/chat/completions";
 import type { AISkill, AITool, MiokuService } from "mioku";
 import { createAIUsageStore } from "./usage/store";
-import { UsageTracker, extractUsageTokens, mergeMeasuredTokens } from "./usage/tracker";
+import {
+  UsageTracker,
+  extractUsageTokens,
+  mergeMeasuredTokens,
+} from "./usage/tracker";
 import {
   runToolLoop,
   parseToolArguments,
@@ -68,7 +72,9 @@ class AIInstanceImpl implements AIInstance {
       : [...options.messages];
 
     // Some upstreams reject system-only requests with 400 "chat content is empty".
-    const messages: ChatCompletionMessageParam[] = composed.some((m) => m.role === "user")
+    const messages: ChatCompletionMessageParam[] = composed.some(
+      (m) => m.role === "user",
+    )
       ? composed
       : [...composed, { role: "user", content: "." }];
 
@@ -94,8 +100,8 @@ class AIInstanceImpl implements AIInstance {
       ? [{ role: "system", content: options.prompt }, ...messages]
       : messages;
 
-    const withUserTurn: ChatCompletionMessageParam[] = composed.some((m) =>
-      m.role === "user",
+    const withUserTurn: ChatCompletionMessageParam[] = composed.some(
+      (m) => m.role === "user",
     )
       ? composed
       : [...composed, { role: "user", content: "." }];
@@ -223,7 +229,7 @@ class AIInstanceImpl implements AIInstance {
       tools: args.tools,
       temperature: args.temperature,
       ...(args.max_tokens != null && {
-        max_completion_tokens: args.max_tokens,
+        max_tokens: args.max_tokens,
       }),
     });
 
@@ -285,7 +291,8 @@ class AIInstanceImpl implements AIInstance {
     for await (const chunk of stream as AsyncIterable<any>) {
       const choice = chunk?.choices?.[0];
       const chunkUsage = extractUsageTokens(chunk);
-      if (chunkUsage) streamUsage = mergeMeasuredTokens(streamUsage, chunkUsage);
+      if (chunkUsage)
+        streamUsage = mergeMeasuredTokens(streamUsage, chunkUsage);
       const delta = choice?.delta;
       if (!delta) continue;
 
@@ -301,11 +308,17 @@ class AIInstanceImpl implements AIInstance {
         reasoning += delta.reasoning;
       }
 
-      const deltaToolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
+      const deltaToolCalls = Array.isArray(delta.tool_calls)
+        ? delta.tool_calls
+        : [];
       for (const item of deltaToolCalls) {
         const index =
           typeof item?.index === "number" && item.index >= 0 ? item.index : 0;
-        const acc = toolCallsByIndex.get(index) || { id: "", name: "", arguments: "" };
+        const acc = toolCallsByIndex.get(index) || {
+          id: "",
+          name: "",
+          arguments: "",
+        };
         if (typeof item?.id === "string" && item.id) acc.id = item.id;
         if (typeof item?.function?.name === "string" && item.function.name) {
           acc.name += item.function.name;
@@ -392,7 +405,10 @@ class AIInstanceImpl implements AIInstance {
     }
     return (messages as MultimodalMessage[]).map((msg) => {
       if (typeof msg.content === "string") {
-        return { role: msg.role, content: msg.content } as ChatCompletionMessageParam;
+        return {
+          role: msg.role,
+          content: msg.content,
+        } as ChatCompletionMessageParam;
       }
       return {
         role: msg.role,
@@ -409,7 +425,8 @@ class AIInstanceImpl implements AIInstance {
   }
 
   registerPrompt(name: string, prompt: string): boolean {
-    if (this.prompts.has(name)) logger.warn(`Prompt ${name} already exists, overwriting`);
+    if (this.prompts.has(name))
+      logger.warn(`Prompt ${name} already exists, overwriting`);
     this.prompts.set(name, prompt);
     logger.info(`Prompt ${name} registered successfully`);
     return true;
@@ -527,7 +544,9 @@ class AIServiceImpl implements AIService {
     }
     this.globalSkills.set(skill.name, skill);
     this.rebuildToolIndex();
-    logger.info(`Skill ${skill.name} registered with ${skill.tools.length} tools`);
+    logger.info(
+      `Skill ${skill.name} registered with ${skill.tools.length} tools`,
+    );
     return true;
   }
 
@@ -605,9 +624,8 @@ function extractTextContent(
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .filter(
-      (part): part is { type: "text"; text: string } =>
-        Boolean(part && part.type === "text"),
+    .filter((part): part is { type: "text"; text: string } =>
+      Boolean(part && part.type === "text"),
     )
     .map((part) => part.text)
     .join("\n")
