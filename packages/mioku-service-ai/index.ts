@@ -221,8 +221,10 @@ class AIInstanceImpl implements AIInstance {
       model: args.model,
       messages: args.messages,
       tools: args.tools,
-      top_p: args.temperature,
-      ...(args.max_tokens != null && { max_completion_tokens: args.max_tokens }),
+      temperature: args.temperature,
+      ...(args.max_tokens != null && {
+        max_completion_tokens: args.max_tokens,
+      }),
     });
 
     const message = response.choices[0]?.message;
@@ -267,9 +269,9 @@ class AIInstanceImpl implements AIInstance {
       model: args.model,
       messages: args.messages,
       tools: args.tools,
-      top_p: args.temperature,
+      temperature: args.temperature,
       stream: true,
-      ...(args.max_tokens != null && { max_completion_tokens: args.max_tokens }),
+      ...(args.max_tokens != null && { max_tokens: args.max_tokens }),
     });
 
     let content = "";
