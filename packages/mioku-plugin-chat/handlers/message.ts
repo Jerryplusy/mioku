@@ -36,7 +36,7 @@ export function createMessageHandler(
     const isGroup = e.message_type === "group";
     const groupId: number | undefined = isGroup ? e.group_id : undefined;
     const cfg = await getConfig(groupId);
-    if (!cfg.apiKey) return;
+    if (!cfg.model && !cfg.apiKey) return;
     if (!e?.message || !Array.isArray(e.message)) return;
 
     const text = ctx.text(e) || "";

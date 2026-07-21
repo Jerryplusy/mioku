@@ -16,7 +16,7 @@ export function createPokeHandler(
     if (e.target_id !== e.self_id) return;
     const groupId = e.group_id;
     const cfg = groupId ? await getConfig(groupId) : await getConfig();
-    if (!cfg.apiKey) return;
+    if (!cfg.model && !cfg.apiKey) return;
     if (!groupId || !isGroupAllowed(groupId, cfg)) return;
 
     const lastPoke = pokeCooldowns.get(groupId) ?? 0;

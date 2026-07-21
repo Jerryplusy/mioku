@@ -171,8 +171,10 @@ export interface AIRequestLimitConfig {
  * 聊天插件配置
  */
 export interface ChatConfig {
-  apiUrl: string;
-  apiKey: string;
+  /** @deprecated AI 连接已迁移到 ai-service providers */
+  apiUrl?: string;
+  /** @deprecated AI 连接已迁移到 ai-service providers；非空仅作兼容哨兵 */
+  apiKey?: string;
   model: string;
   workingModel: string;
   multimodalWorkingModel: string;

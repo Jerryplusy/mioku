@@ -102,7 +102,7 @@ export class IdleCheckManager {
   private async tick(): Promise<void> {
     try {
       const baseCfg = this.defaultConfig;
-      if (!baseCfg.apiKey) return;
+      if (!baseCfg.model && !baseCfg.apiKey) return;
 
       const now = Date.now();
       const checkInterval = 60_000;

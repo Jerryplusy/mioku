@@ -1,7 +1,3 @@
-import type {
-  ChatCompletionMessageParam,
-  ChatCompletionTool,
-} from "openai/resources/chat/completions";
 import type { AITool, ToolCallRecord, ToolResultFollowup } from "mioku";
 import { TOOL_RESULT_FOLLOWUP_KEY } from "mioku";
 import { logger } from "mioki";
@@ -9,17 +5,20 @@ import type {
   AssistantMessageResult,
   CompleteOptions,
   CompleteResponse,
+  UnifiedMessage,
+  UnifiedToolDefinition,
 } from "../types";
 import type { UsageTracker } from "../usage/tracker";
 
 export interface AssistantRequestArgs {
   model: string;
-  messages: ChatCompletionMessageParam[];
-  tools?: ChatCompletionTool[];
+  messages: UnifiedMessage[] | any[];
+  tools?: UnifiedToolDefinition[] | any[];
   temperature: number;
   max_tokens?: number;
   stream?: boolean;
   onTextDelta?: (delta: string) => void | Promise<void>;
+  cachePreference?: "prefer" | "none";
 }
 
 export interface ToolLoopDeps {
@@ -36,12 +35,12 @@ export async function runToolLoop(
   const maxIterations = options.maxIterations ?? 40;
   const allToolCalls: ToolCallRecord[] = [];
   const failedToolCallKeys = new Set<string>();
-  const sessionMessages = [...options.messages];
-  const turnMessages: ChatCompletionMessageParam[] = [];
+  const sessionMessages: any[] = [...options.messages];
+  const turnMessages: any[] = [];
   let iterations = 0;
   let content = "";
   let reasoning: string | null = null;
-  let raw: ChatCompletionMessageParam = { role: "assistant", content: "" };
+  let raw: any = { role: "assistant", content: "" };
 
   while (iterations < maxIterations) {
     iterations++;
@@ -49,21 +48,19 @@ export async function runToolLoop(
       ? options.executableToolsProvider()
       : (options.executableTools ?? []);
     const toolMap = new Map<string, AITool>();
-    const tools: ChatCompletionTool[] = [];
-    const followupMessages: ChatCompletionMessageParam[] = [];
+    const tools: UnifiedToolDefinition[] = [];
+    const followupMessages: any[] = [];
 
     for (const definition of currentDefinitions) {
       toolMap.set(definition.name, definition.tool);
       tools.push({
-        type: "function",
-        function: {
-          name: definition.name,
-          description: definition.tool.description,
-          parameters: definition.tool.parameters,
-        },
+        name: definition.name,
+        description: definition.tool.description,
+        parameters: definition.tool.parameters,
+        cacheable: true,
       });
     }
-    tracker.recordToolDefinitions(tools);
+    tracker.recordToolDefinitions(tools as any);
 
     const assistant = await deps.requestAssistantMessage({
       model,
@@ -73,6 +70,7 @@ export async function runToolLoop(
       max_tokens: options.max_tokens,
       stream: options.stream,
       onTextDelta: options.onTextDelta,
+      cachePreference: options.cachePreference ?? "prefer",
     });
     tracker.recordAssistant(assistant);
     if (assistant.usage) tracker.recordMeasuredTokens(assistant.usage);
@@ -138,10 +136,10 @@ export async function runToolLoop(
         role: "tool",
         content: JSON.stringify(normalized.visibleResult),
         tool_call_id: toolCall.id,
-      } as ChatCompletionMessageParam;
+      };
       sessionMessages.push(toolMessage);
       turnMessages.push(toolMessage);
-      tracker.recordMessage(toolMessage);
+      tracker.recordMessage(toolMessage as any);
       followupMessages.push(...normalized.followupMessages);
     }
 
@@ -149,7 +147,7 @@ export async function runToolLoop(
       sessionMessages.push(...followupMessages);
       turnMessages.push(...followupMessages);
       for (const followupMessage of followupMessages) {
-        tracker.recordMessage(followupMessage);
+        tracker.recordMessage(followupMessage as any);
       }
     }
   }
@@ -201,7 +199,7 @@ function isToolErrorResult(result: any): boolean {
 
 interface NormalizedToolResult {
   visibleResult: any;
-  followupMessages: ChatCompletionMessageParam[];
+  followupMessages: any[];
 }
 
 export function normalizeToolResult(result: any): NormalizedToolResult {
@@ -236,8 +234,6 @@ export function normalizeToolResult(result: any): NormalizedToolResult {
 
   return {
     visibleResult,
-    followupMessages: [
-      { role: "user", content } as ChatCompletionMessageParam,
-    ],
+    followupMessages: [{ role: "user", content }],
   };
 }

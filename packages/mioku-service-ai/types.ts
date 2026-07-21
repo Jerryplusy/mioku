@@ -1,4 +1,10 @@
 import type {
+  AIInstanceInfo,
+  AIModelCapability,
+  AIModelDescriptor,
+  AIModelRole,
+  AIProtocol,
+  AIProviderConfig,
   AISkill,
   AITool,
   AIUsageContext,
@@ -25,13 +31,15 @@ import type {
   ToolCallRecord,
   ToolResultFollowup,
 } from "mioku";
-import type {
-  ChatCompletionMessageParam,
-  ChatCompletionTool,
-} from "openai/resources/chat/completions";
 import type { AIUsageMeasuredTokens } from "./usage/types";
 
 export type {
+  AIInstanceInfo,
+  AIModelCapability,
+  AIModelDescriptor,
+  AIModelRole,
+  AIProtocol,
+  AIProviderConfig,
   AISkill,
   AITool,
   ChatRuntime,
@@ -53,26 +61,109 @@ export type {
   ToolResultFollowup,
 };
 
-// OpenAI-typed overrides of the loose framework CompleteOptions/CompleteResponse.
-// The framework keeps `any[]`/`any` so it doesn't depend on the openai package;
-// the service impl tightens them for internal type-safety.
+export type UnifiedRole = "system" | "user" | "assistant" | "tool";
+
+export type UnifiedContentPart =
+  | { type: "text"; text: string; cacheable?: boolean }
+  | {
+      type: "image";
+      url: string;
+      mediaType?: string;
+      detail?: "auto" | "low" | "high";
+    }
+  | {
+      type: "video";
+      url: string;
+      detail?: "auto" | "low" | "high";
+    };
+
+export interface UnifiedToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+export interface UnifiedMessage {
+  role: UnifiedRole;
+  content: string | UnifiedContentPart[];
+  toolCalls?: UnifiedToolCall[];
+  toolCallId?: string;
+  name?: string;
+}
+
+export interface UnifiedToolDefinition {
+  name: string;
+  description: string;
+  parameters: {
+    type: "object";
+    properties: Record<string, any>;
+    required?: string[];
+  };
+  cacheable?: boolean;
+}
+
+export interface ProviderCompleteOptions {
+  model: string;
+  messages: UnifiedMessage[];
+  tools?: UnifiedToolDefinition[];
+  temperature?: number;
+  maxTokens?: number;
+  stream?: boolean;
+  systemPrompt?: string;
+  cachePreference?: "prefer" | "none";
+  onTextDelta?: (delta: string) => void | Promise<void>;
+}
+
+export interface ProviderCompleteResponse {
+  content: string;
+  reasoning: string | null;
+  toolCalls: UnifiedToolCall[];
+  usage?: AIUsageMeasuredTokens;
+  raw?: unknown;
+}
+
+export interface ProviderStreamChunk {
+  delta?: string;
+  reasoningDelta?: string;
+  toolCallDelta?: {
+    index: number;
+    id?: string;
+    name?: string;
+    arguments?: string;
+  };
+  usage?: AIUsageMeasuredTokens;
+  done: boolean;
+}
+
+export interface ProviderClient {
+  listModels(): Promise<AIModelDescriptor[]>;
+  complete(options: ProviderCompleteOptions): Promise<ProviderCompleteResponse>;
+}
+
+export interface ProviderFactoryInput {
+  provider: AIProviderConfig;
+}
+
+export type ProviderFactory = (input: ProviderFactoryInput) => ProviderClient;
+
 export interface CompleteOptions
   extends Omit<MiokuCompleteOptions, "messages" | "tools"> {
-  messages: ChatCompletionMessageParam[];
-  tools?: ChatCompletionTool[];
+  messages: any[];
+  tools?: any[];
+  cachePreference?: "prefer" | "none";
 }
 
 export interface CompleteResponse
   extends Omit<MiokuCompleteResponse, "raw" | "turnMessages"> {
-  raw: ChatCompletionMessageParam;
-  turnMessages?: ChatCompletionMessageParam[];
+  raw: any;
+  turnMessages?: any[];
 }
 
 export interface AssistantMessageResult {
   content: string;
   reasoning: string | null;
-  toolCalls: Array<{ id: string; name: string; arguments: string }>;
-  raw: ChatCompletionMessageParam;
+  toolCalls: UnifiedToolCall[];
+  raw: any;
   usage?: AIUsageMeasuredTokens;
 }
 
@@ -122,11 +213,43 @@ export interface AIService {
     modelType: "text" | "multimodal";
     model?: string;
   }): Promise<AIInstance>;
+  createInstance(options: {
+    name: string;
+    providerId: string;
+    modelId: string;
+    role?: AIModelRole;
+  }): Promise<AIInstance>;
   get(name: string): AIInstance | undefined;
   list(): string[];
+  listInstances(): AIInstanceInfo[];
   remove(name: string): boolean;
   setDefault(name: string): boolean;
   getDefault(): AIInstance | undefined;
+  listProviders(): AIProviderConfig[];
+  getProvider(id: string): AIProviderConfig | undefined;
+  createProvider(
+    input: Omit<AIProviderConfig, "id"> & { id?: string },
+  ): Promise<AIProviderConfig>;
+  updateProvider(
+    id: string,
+    input: Partial<AIProviderConfig>,
+  ): Promise<AIProviderConfig>;
+  removeProvider(id: string): boolean;
+  testProvider(
+    id: string,
+  ): Promise<{ ok: boolean; error?: string; models?: AIModelDescriptor[] }>;
+  listModels(providerId?: string): AIModelDescriptor[];
+  refreshModels(providerId: string): Promise<AIModelDescriptor[]>;
+  registerCustomModel(input: {
+    providerId: string;
+    modelId: string;
+    name?: string;
+    capabilities?: AIModelCapability[];
+  }): AIModelDescriptor;
+  removeCustomModel(modelFullId: string): boolean;
+  getRoleBindings(): Record<AIModelRole, string | undefined>;
+  setRoleBinding(role: AIModelRole, modelFullId: string | undefined): boolean;
+  getInstanceByRole(role: AIModelRole): AIInstance | undefined;
   registerChatRuntime(runtime: ChatRuntime): boolean;
   getChatRuntime(): ChatRuntime | undefined;
   removeChatRuntime(): boolean;
@@ -136,7 +259,32 @@ export interface AIService {
   removeSkill(skillName: string): boolean;
   getTool(toolName: string): AITool | undefined;
   getAllTools(): Map<string, AITool>;
-  getUsageSummary(options: { range: AIUsageRange; botId?: number }): AIUsageSummary;
+  getUsageSummary(options: {
+    range: AIUsageRange;
+    botId?: number;
+  }): AIUsageSummary;
   cleanupUsageStats(retentionMs?: number): number;
   finalizeUsage(usageId: string, finalization: AIUsageFinalization): boolean;
+}
+
+export interface ProvidersFile {
+  providers: AIProviderConfig[];
+  models: AIModelDescriptor[];
+  roles: Partial<Record<AIModelRole, string>>;
+  defaultInstance?: string;
+}
+
+export function modelFullId(providerId: string, modelId: string): string {
+  return `${providerId}/${modelId}`;
+}
+
+export function parseModelFullId(
+  fullId: string,
+): { providerId: string; modelId: string } | null {
+  const idx = fullId.indexOf("/");
+  if (idx <= 0 || idx >= fullId.length - 1) return null;
+  return {
+    providerId: fullId.slice(0, idx),
+    modelId: fullId.slice(idx + 1),
+  };
 }

@@ -95,8 +95,17 @@ export function createInfoTools(toolCtx: ToolContext): AITool[] {
     tools.push({
       name: "get_group_member_list",
       description: "Get the list of group members (returns name and role only)",
-      parameters: { type: "object", properties: {} },
-      handler: async () => {
+      parameters: {
+        type: "object",
+        properties: {
+          limit: {
+            type: "number",
+            description: "Optional max members to return (server still caps at 50)",
+          },
+        },
+        required: [],
+      },
+      handler: async (args) => {
         try {
           const list = await toolCtx.ctx
             .pickBot(toolCtx.event.self_id)
@@ -106,7 +115,12 @@ export function createInfoTools(toolCtx: ToolContext): AITool[] {
             nickname: m.card || m.nickname,
             role: m.role,
           }));
-          return { members: members.slice(0, 50), total: members.length };
+          const limitRaw = Math.floor(Number(args?.limit));
+          const limit =
+            Number.isFinite(limitRaw) && limitRaw > 0
+              ? Math.min(limitRaw, 50)
+              : 50;
+          return { members: members.slice(0, limit), total: members.length };
         } catch (err) {
           return { error: `Failed to get member list: ${err}` };
         }
