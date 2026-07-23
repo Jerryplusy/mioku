@@ -65,10 +65,8 @@ export interface PlannerConfig {
  */
 export interface EmojiConfig {
   enabled: boolean;
-  // 允许的表情包角色
   characters: string[];
-  // 使用AI选择表情包发送
-  useAISelection: boolean;
+  stickers: string[];
 }
 
 /**
@@ -173,8 +171,10 @@ export interface AIRequestLimitConfig {
  * 聊天插件配置
  */
 export interface ChatConfig {
-  apiUrl: string;
-  apiKey: string;
+  /** @deprecated AI 连接已迁移到 ai-service providers */
+  apiUrl?: string;
+  /** @deprecated AI 连接已迁移到 ai-service providers；非空仅作兼容哨兵 */
+  apiKey?: string;
   model: string;
   workingModel: string;
   multimodalWorkingModel: string;
@@ -236,6 +236,7 @@ export interface ChatGroupOverrides {
   dynamicDelay?: { enabled?: boolean };
   enableMarkdownScreenshot?: boolean;
   enableMediaRecognition?: boolean;
+  allowedExternalSkills?: string[];
 }
 
 export type ChatGroupsFile = {
@@ -377,29 +378,14 @@ export interface ExpressionRecord {
 }
 
 /**
- * 表情包注册记录
- */
-export interface EmojiRecord {
-  id?: number;
-  fileName: string;
-  description: string; // AI 生成的描述
-  emotion: string; // 情感标签
-  usageCount: number;
-  createdAt: number;
-}
-
-/**
  * 图片记录
  */
 export interface ImageRecord {
   id?: number;
   hash: string; // 图片哈希
   url: string; // 原始 URL
-  type: "meme" | "image"; // 图片类型
+  type: "image";
   description: string; // AI 生成的简要描述
-  emotion?: string; // 情感标签（仅表情包）
-  character?: string; // 角色名称（仅表情包）
-  filePath?: string; // 本地文件路径（仅表情包）
   createdAt: number;
 }
 

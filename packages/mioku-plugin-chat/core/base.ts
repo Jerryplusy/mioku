@@ -518,7 +518,7 @@ function expandOutgoingLines(text: string): string[] {
 
 function normalizeActionLineBreaks(text: string): string {
   return String(text || "").replace(
-    /\\\s*(?=(?:\[meme:[^\]]+\]|\[emotion:[^\]]+\]|\[audio:[^\]]+\]|\[reply:-?\d+\]))/gi,
+    /\\\s*(?=(?:\[\]|\[emotion:[^\]]+\]|\[audio:[^\]]+\]|\[reply:-?\d+\]))/gi,
     "\n",
   );
 }

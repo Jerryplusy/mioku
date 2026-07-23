@@ -15,14 +15,13 @@ import type {
   GetGroupHistoryMessages,
   GetGroupInfoData,
   GetHumanizeContexts,
-  SendAIResponse,
-  SaveBotMessages,
-  SendEmoji,
   RunChat,
   BuildToolContext,
   BuildStructuredUserInput,
 } from "./types";
 import type { ChatPluginContext } from "../context";
+import type { SessionTurnScheduler } from "./session-turn-scheduler";
+import { finalizeChatTurn } from "../core/chat-turn";
 import { extractContent, getBotRole } from "../utils";
 
 interface DynamicDelayQueueData {
@@ -33,6 +32,7 @@ interface DynamicDelayQueueData {
 
 export class QueueProcessor {
   private dynamicDelayQueues = new Map<string, DynamicDelayQueueData>();
+  private pluginCtx: ChatPluginContext;
 
   private ctx: MiokiContext;
   private configProvider: ChatConfigProvider;
@@ -51,15 +51,13 @@ export class QueueProcessor {
   private getGroupHistoryMessages: GetGroupHistoryMessages;
   private getGroupInfoData: GetGroupInfoData;
   private getHumanizeContexts: GetHumanizeContexts;
-  private sendAIResponse: SendAIResponse;
-  private saveBotMessages: SaveBotMessages;
-  private sendEmoji: SendEmoji;
   private runChat: RunChat;
   private buildToolContext: BuildToolContext;
   private buildStructuredUserInputFromEvent: BuildStructuredUserInput;
-  private startCooldownTimer: (groupSessionId: string, groupId: number, selfId: number) => void;
+  private sessionTurnScheduler: SessionTurnScheduler;
 
   constructor(pluginCtx: ChatPluginContext) {
+    this.pluginCtx = pluginCtx;
     this.ctx = pluginCtx.ctx;
     this.configProvider = pluginCtx.configProvider;
     this.defaultConfig = pluginCtx.defaultConfig;
@@ -77,13 +75,10 @@ export class QueueProcessor {
     this.getGroupHistoryMessages = pluginCtx.getGroupHistoryMessages;
     this.getGroupInfoData = pluginCtx.getGroupInfoData;
     this.getHumanizeContexts = pluginCtx.getHumanizeContexts;
-    this.sendAIResponse = pluginCtx.sendAIResponse;
-    this.saveBotMessages = pluginCtx.saveBotMessages;
-    this.sendEmoji = pluginCtx.sendEmoji;
     this.runChat = pluginCtx.runChat;
     this.buildToolContext = pluginCtx.buildToolContext;
     this.buildStructuredUserInputFromEvent = buildStructuredUserInputFromEvent;
-    this.startCooldownTimer = pluginCtx.startCooldownTimer;
+    this.sessionTurnScheduler = pluginCtx.sessionTurnScheduler;
   }
 
   collectDynamicDelayMessage(groupSessionId: string, event: any, content: string): void {
@@ -107,14 +102,49 @@ export class QueueProcessor {
 
     this.ctx.logger.info(`[DynamicDelay] group ${groupId} start delay ${delayMs / 1000}s, interactions: ${this.rateLimiter.getInteractionCount(groupId)}`);
 
-    queueData.timer = setTimeout(async () => {
-      await this.processDynamicDelayQueue(groupSessionId, groupId, selfId);
+    const timer = setTimeout(() => {
+      const current = this.dynamicDelayQueues.get(groupSessionId);
+      if (!current || current !== queueData || current.timer !== timer) return;
+      this.dynamicDelayQueues.delete(groupSessionId);
+      current.timer = null;
+      const messages = current.messages;
+      if (messages.length === 0) return;
+      void this.sessionTurnScheduler
+        .run(groupSessionId, "dynamic-delay", () =>
+          this.processDynamicDelayMessages(
+            groupSessionId,
+            groupId,
+            selfId,
+            messages,
+          ),
+        )
+        .catch((err) =>
+          this.ctx.logger.error(
+            `[DynamicDelay] group ${groupId} processing failed: ${err}`,
+          ),
+        );
     }, delayMs);
+    queueData.timer = timer;
   }
 
   isInDynamicDelay(groupSessionId: string): boolean {
     const queue = this.dynamicDelayQueues.get(groupSessionId);
     return queue != null && Date.now() < queue.delayUntil;
+  }
+
+  scheduleQueuedMessages(groupSessionId: string, selfId: number): void {
+    void this.sessionTurnScheduler
+      .run(
+        groupSessionId,
+        "queued-message",
+        () => this.processQueuedMessages(groupSessionId, selfId),
+        { dedupeKey: `queued-message:${selfId}` },
+      )
+      .catch((err) =>
+        this.ctx.logger.error(
+          `[Queue] group ${groupSessionId} scheduling failed: ${err}`,
+        ),
+      );
   }
 
   dispose(): void {
@@ -124,16 +154,12 @@ export class QueueProcessor {
     this.dynamicDelayQueues.clear();
   }
 
-  async processDynamicDelayQueue(groupSessionId: string, groupId: number, selfId: number): Promise<void> {
-    const queueData = this.dynamicDelayQueues.get(groupSessionId);
-    if (!queueData || queueData.messages.length === 0) {
-      this.dynamicDelayQueues.delete(groupSessionId);
-      return;
-    }
-
-    const messages = queueData.messages;
-    this.dynamicDelayQueues.delete(groupSessionId);
-
+  private async processDynamicDelayMessages(
+    groupSessionId: string,
+    groupId: number,
+    selfId: number,
+    messages: DynamicDelayQueueData["messages"],
+  ): Promise<void> {
     this.ctx.logger.info(`[DynamicDelay] group ${groupId} processes ${messages.length} delayed messages`);
     this.rateLimiter.clearGroupInteractions(groupId);
 
@@ -176,8 +202,18 @@ export class QueueProcessor {
     );
     if (!result) return;
 
-    await this.sendAIResponse({ ctx: this.ctx, groupId, messages: result.messages, config: cfg, sentIndices: toolCtx.sentMessageIndices }, selfId);
-    this.startCooldownTimer(groupSessionId, groupId, selfId);
+    await finalizeChatTurn(this.pluginCtx, {
+      event: firstMsg.event,
+      cfg,
+      result,
+      groupId,
+      groupSessionId,
+      userId: targetMessage.userId,
+      selfId,
+      toolCtx,
+      send: true,
+      isLive: true,
+    });
   }
 
   async processQueuedMessages(groupSessionId: string, selfId: number): Promise<void> {
@@ -246,11 +282,18 @@ export class QueueProcessor {
       );
       if (!result) return;
 
-      await this.sendAIResponse({ ctx: this.ctx, groupId, messages: result.messages, config: cfg, sentIndices: toolCtx.sentMessageIndices }, selfId);
-      await this.sendEmoji(this.ctx, groupId, result.emojiPath, selfId);
-      const now = Date.now();
-      this.saveBotMessages(groupId, groupSessionId, result.messages, now, cfg, this.db, this.ctx, selfId);
-      this.sessionManager.touch(groupSessionId);
+      await finalizeChatTurn(this.pluginCtx, {
+        event: firstItem.event,
+        cfg,
+        result,
+        groupId,
+        groupSessionId,
+        userId: targetMessage.userId,
+        selfId,
+        toolCtx,
+        send: true,
+        isLive: true,
+      });
       this.ctx.logger.info(`[Queue] group ${groupSessionId} done`);
     } catch (err) {
       this.ctx.logger.error(err);

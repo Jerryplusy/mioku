@@ -1,7 +1,3 @@
-import type {
-  ChatCompletionMessageParam,
-  ChatCompletionTool,
-} from "openai/resources/chat/completions";
 import type { AssistantMessageResult } from "../types";
 import type {
   AIUsageCompletionMeta,
@@ -16,8 +12,8 @@ export interface UsageTrackerOptions {
   stream: boolean;
   context?: AIUsageContext;
   startedAt: number;
-  initialMessages: ChatCompletionMessageParam[];
-  initialTools?: ChatCompletionTool[];
+  initialMessages: any[];
+  initialTools?: any[];
   explicitContextTokens?: number;
   explicitBreakdown?: AIUsageFinalization["breakdown"];
   usageStore: AIUsageStore;
@@ -38,8 +34,8 @@ export class UsageTracker {
     }
   }
 
-  recordMessage(message: ChatCompletionMessageParam): void {
-    const role = normalizeUsageRole(message.role);
+  recordMessage(message: any): void {
+    const role = normalizeUsageRole(String(message?.role || "user"));
     const contentTokens = estimateMessageContentTokens(message);
     this.messages.push({ role, contentTokens });
     if (role === "tool") this.toolUseTokens += contentTokens;
@@ -53,7 +49,7 @@ export class UsageTracker {
     this.measuredTokens = mergeMeasuredTokens(this.measuredTokens, tokens);
   }
 
-  recordToolDefinitions(tools: ChatCompletionTool[]): void {
+  recordToolDefinitions(tools: any[]): void {
     this.toolDefinitionTokens += estimateJsonTokens(tools);
   }
 
@@ -256,8 +252,8 @@ function normalizeUsageRole(role: string): "system" | "user" | "assistant" | "to
   return "user";
 }
 
-function estimateMessageContentTokens(message: ChatCompletionMessageParam): number {
-  return estimateContentTokens((message as { content?: unknown }).content);
+function estimateMessageContentTokens(message: any): number {
+  return estimateContentTokens(message?.content);
 }
 
 function estimateContentTokens(content: unknown): number {

@@ -197,6 +197,44 @@ export interface CompleteResponse {
   allToolCalls?: ToolCallRecord[];
 }
 
+export type AIProtocol =
+  | "openai-chat"
+  | "openai-response"
+  | "anthropic"
+  | "gemini";
+
+export type AIModelCapability = "text" | "vision" | "tool-use" | "reasoning";
+
+export type AIModelRole = "main" | "working" | "vision";
+
+export interface AIProviderConfig {
+  id: string;
+  name: string;
+  protocol: AIProtocol;
+  apiUrl: string;
+  apiKey: string;
+  enabled: boolean;
+  headers?: Record<string, string>;
+}
+
+export interface AIModelDescriptor {
+  id: string;
+  providerId: string;
+  modelId: string;
+  name: string;
+  capabilities: AIModelCapability[];
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  isCustom?: boolean;
+}
+
+export interface AIInstanceInfo {
+  name: string;
+  providerId: string;
+  modelId: string;
+  role?: AIModelRole;
+}
+
 export interface AIInstance {
   generateText(options: { prompt?: string; messages: TextMessage[]; model?: string; temperature?: number; max_tokens?: number }): Promise<string>;
   generateMultimodal(options: { prompt?: string; messages: MultimodalMessage[]; model?: string; temperature?: number; max_tokens?: number }): Promise<string>;
@@ -212,11 +250,36 @@ export interface AIInstance {
 
 export interface AIService {
   create(options: { name: string; apiUrl: string; apiKey: string; modelType: "text" | "multimodal"; model?: string }): Promise<AIInstance>;
+  createInstance?(options: {
+    name: string;
+    providerId: string;
+    modelId: string;
+    role?: AIModelRole;
+  }): Promise<AIInstance>;
   get(name: string): AIInstance | undefined;
   list(): string[];
+  listInstances?(): AIInstanceInfo[];
   remove(name: string): boolean;
   setDefault(name: string): boolean;
   getDefault(): AIInstance | undefined;
+  listProviders?(): AIProviderConfig[];
+  getProvider?(id: string): AIProviderConfig | undefined;
+  createProvider?(input: Omit<AIProviderConfig, "id"> & { id?: string }): Promise<AIProviderConfig>;
+  updateProvider?(id: string, input: Partial<AIProviderConfig>): Promise<AIProviderConfig>;
+  removeProvider?(id: string): boolean;
+  testProvider?(id: string): Promise<{ ok: boolean; error?: string; models?: AIModelDescriptor[] }>;
+  listModels?(providerId?: string): AIModelDescriptor[];
+  refreshModels?(providerId: string): Promise<AIModelDescriptor[]>;
+  registerCustomModel?(input: {
+    providerId: string;
+    modelId: string;
+    name?: string;
+    capabilities?: AIModelCapability[];
+  }): AIModelDescriptor;
+  removeCustomModel?(modelFullId: string): boolean;
+  getRoleBindings?(): Record<AIModelRole, string | undefined>;
+  setRoleBinding?(role: AIModelRole, modelFullId: string | undefined): boolean;
+  getInstanceByRole?(role: AIModelRole): AIInstance | undefined;
   registerChatRuntime(runtime: any): boolean;
   getChatRuntime(): any;
   removeChatRuntime(): boolean;

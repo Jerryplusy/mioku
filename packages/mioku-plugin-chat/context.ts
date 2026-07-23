@@ -1,5 +1,5 @@
 import type { MiokiContext } from "mioki";
-import type { AIInstance, AIService } from "mioku";
+import type { AIInstance, AIModelRole, AIService } from "mioku";
 import type { ChatConfig } from "./types";
 import type { ChatDatabase } from "./db";
 import type { HumanizeEngine, ChatConfigProvider } from "./humanize";
@@ -11,6 +11,7 @@ import type { GroupStructuredHistoryManager } from "./manage/group-structured-hi
 import type { CooldownManager } from "./manage/cooldown";
 import type { IdleCheckManager } from "./manage/idle-check";
 import type { QueueProcessor } from "./manage/queue-processor";
+import type { SessionTurnScheduler } from "./manage/session-turn-scheduler";
 import type {
   RunRateLimitGuard,
   GetGroupHistoryMessages,
@@ -32,12 +33,7 @@ import type {
 } from "mioku";
 import type { ChatMessage } from "./types";
 
-/**
- * Core plugin context - bundles all managers and core services.
- * This is created once during plugin setup and used throughout the plugin lifetime.
- */
 export interface ChatPluginContext {
-  // Core context
   ctx: MiokiContext;
   defaultConfig: ChatConfig;
   configProvider: ChatConfigProvider;
@@ -46,10 +42,10 @@ export interface ChatPluginContext {
   aiInstance: AIInstance;
   workAIInstance: AIInstance;
   visionAIInstance: AIInstance;
+  getAIInstance: (role?: AIModelRole) => AIInstance | undefined;
   aiService: AIService;
   humanize: HumanizeEngine;
 
-  // Managers
   sessionManager: SessionManager;
   skillManager: SkillSessionManager;
   rateLimiter: RateLimiter;
@@ -58,11 +54,10 @@ export interface ChatPluginContext {
   cooldownManager: CooldownManager;
   idleCheckManager: IdleCheckManager;
   queueProcessor: QueueProcessor;
+  sessionTurnScheduler: SessionTurnScheduler;
 
-  // Utility
   runWithRateLimitGuard: RunRateLimitGuard;
 
-  // Services (utility functions)
   buildHistoryMediaOptions: (
     ai: AIInstance,
     config: ChatConfig,
@@ -88,17 +83,11 @@ export interface ChatPluginContext {
   ) => Promise<void>;
 }
 
-/**
- * Runtime state for rate limiting - passed separately as it's mutable state.
- */
 export interface ChatRuntimeState {
   isRateLimitBlocked: () => boolean;
   processingSet: Set<string>;
 }
 
-/**
- * Closure state shared with the extracted message/poke handlers.
- */
 export interface ChatHandlerState {
   getConfig: (groupId?: number) => Promise<ChatConfig>;
   matchMessageCommands?: (
@@ -108,10 +97,6 @@ export interface ChatHandlerState {
   pokeCooldowns: Map<number, number>;
 }
 
-/**
- * Chat runtime implementation for external callers (like boot plugin).
- * Provides notice generation and information request capabilities.
- */
 export interface ChatRuntime {
   generateNotice(
     options: ChatRuntimeNoticeOptions,

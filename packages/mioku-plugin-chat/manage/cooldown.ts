@@ -6,23 +6,20 @@ import type { HumanizeEngine, ChatConfigProvider } from "../humanize";
 import type { SkillSessionManager } from "./skill-session";
 import type { GroupStructuredHistoryManager } from "./group-structured-history";
 import { buildStructuredUserInputFromEvent } from "./group-structured-history";
-import type { SessionManager } from "./session";
 import type { RateLimiter } from "./rate-limiter";
-import type { IdleCheckManager } from "./idle-check";
 import type {
   RunRateLimitGuard,
   HistoryMediaOptions,
   GetGroupHistoryMessages,
   GetGroupInfoData,
   GetHumanizeContexts,
-  SendAIResponse,
-  SaveBotMessages,
-  SendEmoji,
   RunChat,
   BuildToolContext,
   BuildStructuredUserInput,
 } from "./types";
 import type { ChatPluginContext } from "../context";
+import type { SessionTurnScheduler } from "./session-turn-scheduler";
+import { finalizeChatTurn } from "../core/chat-turn";
 import { getBotRole } from "../utils";
 
 interface CooldownMessage {
@@ -39,6 +36,8 @@ export class CooldownManager {
   private groupCooldownUntil = new Map<string, number>();
   private groupCooldownMessages = new Map<string, CooldownMessage[]>();
   private cooldownTimeoutIds = new Map<string, NodeJS.Timeout>();
+  private pluginCtx: ChatPluginContext;
+  private sessionTurnScheduler: SessionTurnScheduler;
 
   private ctx: MiokiContext;
   private configProvider: ChatConfigProvider;
@@ -49,9 +48,7 @@ export class CooldownManager {
   private aiService: import("mioku").AIService;
   private skillManager: SkillSessionManager;
   private groupStructuredHistory: GroupStructuredHistoryManager;
-  private sessionManager: SessionManager;
   private rateLimiter: RateLimiter;
-  private idleCheckManager: IdleCheckManager;
   private runWithRateLimitGuard: RunRateLimitGuard;
   private buildHistoryMediaOptions: (
     ai: AIInstance,
@@ -60,14 +57,13 @@ export class CooldownManager {
   private getGroupHistoryMessages: GetGroupHistoryMessages;
   private getGroupInfoData: GetGroupInfoData;
   private getHumanizeContexts: GetHumanizeContexts;
-  private sendAIResponse: SendAIResponse;
-  private saveBotMessages: SaveBotMessages;
-  private sendEmoji: SendEmoji;
   private runChat: RunChat;
   private buildToolContext: BuildToolContext;
   private buildStructuredUserInputFromEvent: BuildStructuredUserInput;
 
   constructor(pluginCtx: ChatPluginContext) {
+    this.pluginCtx = pluginCtx;
+    this.sessionTurnScheduler = pluginCtx.sessionTurnScheduler;
     this.ctx = pluginCtx.ctx;
     this.configProvider = pluginCtx.configProvider;
     this.defaultConfig = pluginCtx.defaultConfig;
@@ -77,17 +73,12 @@ export class CooldownManager {
     this.aiService = pluginCtx.aiService;
     this.skillManager = pluginCtx.skillManager;
     this.groupStructuredHistory = pluginCtx.groupStructuredHistory;
-    this.sessionManager = pluginCtx.sessionManager;
     this.rateLimiter = pluginCtx.rateLimiter;
-    this.idleCheckManager = pluginCtx.idleCheckManager;
     this.runWithRateLimitGuard = pluginCtx.runWithRateLimitGuard;
     this.buildHistoryMediaOptions = pluginCtx.buildHistoryMediaOptions;
     this.getGroupHistoryMessages = pluginCtx.getGroupHistoryMessages;
     this.getGroupInfoData = pluginCtx.getGroupInfoData;
     this.getHumanizeContexts = pluginCtx.getHumanizeContexts;
-    this.sendAIResponse = pluginCtx.sendAIResponse;
-    this.saveBotMessages = pluginCtx.saveBotMessages;
-    this.sendEmoji = pluginCtx.sendEmoji;
     this.runChat = pluginCtx.runChat;
     this.buildToolContext = pluginCtx.buildToolContext;
     this.buildStructuredUserInputFromEvent = buildStructuredUserInputFromEvent;
@@ -102,47 +93,51 @@ export class CooldownManager {
     if (existingTimer) clearTimeout(existingTimer);
 
     const cfg = this.configProvider(groupId);
-    const cooldownMs = cfg.cooldownAfterReplyMs ?? this.defaultConfig.cooldownAfterReplyMs ?? 20_000;
+    const cooldownMs =
+      cfg.cooldownAfterReplyMs ??
+      this.defaultConfig.cooldownAfterReplyMs ??
+      20_000;
 
-    const timer = setTimeout(async () => {
+    const timer = setTimeout(() => {
+      if (this.cooldownTimeoutIds.get(groupSessionId) !== timer) return;
       this.cooldownTimeoutIds.delete(groupSessionId);
+      this.groupCooldownUntil.delete(groupSessionId);
       const collected = this.groupCooldownMessages.get(groupSessionId) || [];
-      if (collected.length === 0) {
-        this.groupCooldownMessages.delete(groupSessionId);
-        this.groupCooldownUntil.delete(groupSessionId);
-        return;
-      }
+      this.groupCooldownMessages.delete(groupSessionId);
+      if (collected.length === 0) return;
 
-      const directAtMessages = collected.filter((m) => m.isDirectAt);
-      try {
-        if (directAtMessages.length > 0) {
-          await this.processReviewMessages(
-            groupSessionId,
-            groupId,
-            collected,
-            selfId,
-          );
-        } else {
-          await this.processCooldownWithPlanner(
-            groupSessionId,
-            groupId,
-            collected,
-            selfId,
-          );
-        }
-      } catch (err) {
-        this.ctx.logger.error(
-          `[Cooldown] Group ${groupId} processing failed: ${err}`,
+      const hasDirectAt = collected.some((message) => message.isDirectAt);
+      void this.sessionTurnScheduler
+        .run(
+          groupSessionId,
+          hasDirectAt ? "cooldown" : "cooldown-planner",
+          () =>
+            hasDirectAt
+              ? this.processReviewMessages(
+                  groupSessionId,
+                  groupId,
+                  collected,
+                  selfId,
+                )
+              : this.processCooldownWithPlanner(
+                  groupSessionId,
+                  groupId,
+                  collected,
+                  selfId,
+                ),
+        )
+        .catch((err) =>
+          this.ctx.logger.error(
+            `[Cooldown] Group ${groupId} processing failed: ${err}`,
+          ),
         );
-      } finally {
-        this.groupCooldownMessages.delete(groupSessionId);
-        this.groupCooldownUntil.delete(groupSessionId);
-      }
     }, cooldownMs);
 
     this.cooldownTimeoutIds.set(groupSessionId, timer);
     this.groupCooldownUntil.set(groupSessionId, Date.now() + cooldownMs);
-    this.groupCooldownMessages.set(groupSessionId, []);
+    if (!this.groupCooldownMessages.has(groupSessionId)) {
+      this.groupCooldownMessages.set(groupSessionId, []);
+    }
   }
 
   collectMessage(
@@ -285,36 +280,18 @@ export class CooldownManager {
     );
     if (!result) return;
 
-    await this.sendAIResponse(
-      {
-        ctx: this.ctx,
-        groupId,
-        messages: result.messages,
-        config: cfg,
-        sentIndices: toolCtx.sentMessageIndices,
-      },
-      selfId,
-    );
-    await this.sendEmoji(this.ctx, groupId, result.emojiPath, selfId);
-
-    const now = Date.now();
-    this.saveBotMessages(
+    await finalizeChatTurn(this.pluginCtx, {
+      event: firstMsg.event,
+      cfg,
+      result,
       groupId,
       groupSessionId,
-      result.messages,
-      now,
-      cfg,
-      this.db,
-      this.ctx,
+      userId: targetMessage.userId,
       selfId,
-    );
-    this.idleCheckManager.recordBotMessages(
-      groupSessionId,
-      result.messages.length,
-      selfId,
-    );
-    this.sessionManager.touch(groupSessionId);
-    this.startCooldownTimer(groupSessionId, groupId, selfId);
+      toolCtx,
+      send: true,
+      isLive: true,
+    });
   }
 
   private async processCooldownWithPlanner(
@@ -444,34 +421,17 @@ export class CooldownManager {
       return;
     }
 
-    await this.sendAIResponse(
-      {
-        ctx: this.ctx,
-        groupId,
-        messages: result.messages,
-        config: cfg,
-        sentIndices: toolCtx.sentMessageIndices,
-      },
-      selfId,
-    );
-    await this.sendEmoji(this.ctx, groupId, result.emojiPath, selfId);
-    const now = Date.now();
-    this.saveBotMessages(
+    await finalizeChatTurn(this.pluginCtx, {
+      event: firstMsg.event,
+      cfg,
+      result,
       groupId,
       groupSessionId,
-      result.messages,
-      now,
-      cfg,
-      this.db,
-      this.ctx,
+      userId: targetMessage.userId,
       selfId,
-    );
-    this.idleCheckManager.recordBotMessages(
-      groupSessionId,
-      result.messages.length,
-      selfId,
-    );
-    this.sessionManager.touch(groupSessionId);
-    this.startCooldownTimer(groupSessionId, groupId, selfId);
+      toolCtx,
+      send: true,
+      isLive: true,
+    });
   }
 }
