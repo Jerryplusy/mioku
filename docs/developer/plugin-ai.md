@@ -90,7 +90,7 @@ export default definePlugin({
 });
 ```
 
-当你省略 `model` 时，`ai-service` 会自动读取 `config/chat/base.json` 里的 `model` 作为默认模型
+当你省略 `model` 时，会使用该实例本身绑定的模型；默认实例通常对应 AI 服务的 `main` 角色绑定（在 WebUI 中配置）
 
 ## 使用多模态生成内容
 
