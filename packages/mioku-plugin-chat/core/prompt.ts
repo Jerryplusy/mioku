@@ -15,13 +15,12 @@ import type { SkillSessionManager } from "../manage/skill-session";
  * Everything here is required to be identical across consecutive requests for the same bot
  * so OpenAI's auto prompt caching can hit the system block.
  *
- * Concretely: persona, config flags, enabled features, allowed external skills, persona style.
- * Anything that changes turn-to-turn (time, group, history, target, emotion, replies context, etc.)
+ * Concretely: persona, config flags, enabled features, allowed external skills.
+ * Anything that changes turn-to-turn (time, group, history, target, emotion, reply style, replies context, etc.)
  * belongs in DynamicPromptContext instead.
  */
 export interface StaticPromptContext {
   config: ChatConfig;
-  botNickname: string;
   aiService: AIService;
   enableExternalSkills: boolean;
   triggerSkillRole?: SkillPermissionRole;
@@ -210,7 +209,6 @@ export function buildStaticSystemPrompt(ctx: StaticPromptContext): string {
   const sections: string[] = [];
 
   sections.push(buildPersonaSection(ctx.config.persona));
-  sections.push(buildReplyStyleSection(ctx.config, ctx.botNickname, lengthStrength));
   sections.push(
     buildResponseFormatSection(
       ctx,
@@ -455,6 +453,7 @@ export function buildDynamicUserContext(ctx: DynamicPromptContext): string {
     sections.push(`## Planner's Analysis\n${ctx.plannerThoughts}`);
   }
 
+  sections.push(buildReplyStyleSection(ctx.config, ctx.botNickname, lengthStrength));
   sections.push(buildEmotionSection(ctx));
 
   return sections.join("\n\n");

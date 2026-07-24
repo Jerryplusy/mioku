@@ -86,7 +86,6 @@ export async function runChat(
 
   const staticCtx: StaticPromptContext = {
     config: promptCtx.config,
-    botNickname: promptCtx.botNickname,
     aiService: promptCtx.aiService,
     enableExternalSkills: promptCtx.config.enableExternalSkills,
     triggerSkillRole: toolCtx.triggerSkillRole,
