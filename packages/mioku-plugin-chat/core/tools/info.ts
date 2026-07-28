@@ -161,11 +161,11 @@ export function createInfoTools(toolCtx: ToolContext): AITool[] {
             );
           }
 
-          const ai = toolCtx.aiService.getDefault();
-          if (!ai) return { error: "AI instance not available" };
+          const visionAI = toolCtx.aiService.getInstanceByRole?.("vision") ?? toolCtx.aiService.getDefault();
+          if (!visionAI) return { error: "AI instance not available" };
 
           const result = await describeImage(
-            ai,
+            visionAI,
             media.url,
             toolCtx.config.multimodalWorkingModel,
             toolCtx.event?.raw_message || undefined,
@@ -214,11 +214,11 @@ export function createInfoTools(toolCtx: ToolContext): AITool[] {
             );
           }
 
-          const ai = toolCtx.aiService.getDefault();
-          if (!ai) return { error: "AI instance not available" };
+          const visionAI = toolCtx.aiService.getInstanceByRole?.("vision") ?? toolCtx.aiService.getDefault();
+          if (!visionAI) return { error: "AI instance not available" };
 
           const summary = await summarizeVideoContent(videoFile.path, videoFile.byteSize, {
-            ai,
+            ai: visionAI,
             multimodalWorkingModel: toolCtx.config.multimodalWorkingModel,
             logger: {
               info: (m) => logger.info(m),
@@ -269,11 +269,11 @@ export function createInfoTools(toolCtx: ToolContext): AITool[] {
         }
 
         const { describeImage } = await import("../multimodal");
-        const ai = toolCtx.aiService.getDefault();
-        if (!ai) return { error: "AI instance not available" };
+        const visionAI = toolCtx.aiService.getInstanceByRole?.("vision") ?? toolCtx.aiService.getDefault();
+        if (!visionAI) return { error: "AI instance not available" };
 
         const result = await describeImage(
-          ai,
+          visionAI,
           avatarUrl,
           toolCtx.config.multimodalWorkingModel,
           `User ${args.user_id}'s QQ avatar`,

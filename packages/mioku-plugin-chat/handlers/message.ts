@@ -68,11 +68,11 @@ export function createMessageHandler(
 
     // 媒体分析
     if (isGroup && groupId && e.message && !isMediaAnalysisBlocked(cfg, userId)) {
-      const ai = pluginCtx.aiService.getDefault();
+      const visionAI = pluginCtx.visionAIInstance ?? pluginCtx.aiService.getDefault();
       const bot = ctx.pickBot(e.self_id) as any;
-      const mediaOptions = ai
+      const mediaOptions = visionAI
         ? buildHistoryMediaProcessingOptions(
-            ai,
+            visionAI,
             cfg,
             pluginCtx.db,
             bot,
@@ -91,13 +91,13 @@ export function createMessageHandler(
           )
         : undefined;
 
-      if (ai && cfg.enableMediaRecognition) {
+      if (visionAI && cfg.enableMediaRecognition) {
         const { processImage } = await import("../core/media/image-analyzer");
         for (const seg of e.message) {
           if (seg.type === "image") {
             const imageUrl = getSegmentUrl(seg);
             if (imageUrl) {
-              processImage(ai, imageUrl, cfg.multimodalWorkingModel, pluginCtx.db, {
+              processImage(visionAI, imageUrl, cfg.multimodalWorkingModel, pluginCtx.db, {
                 runAIRequest: (request) =>
                   pluginCtx.runWithRateLimitGuard(request, {
                     userId,
