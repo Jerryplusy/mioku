@@ -1,7 +1,4 @@
-import type {
-  AIInstance,
-  SessionToolDefinition,
-} from "mioku";
+import type { AIInstance, SessionToolDefinition } from "mioku";
 import { logger } from "mioki";
 import type { AITool } from "mioku";
 import type {
@@ -11,16 +8,10 @@ import type {
   ChatResult,
 } from "../types";
 import type { HumanizeEngine } from "../humanize";
-import type {
-  StaticPromptContext,
-  DynamicPromptContext,
-} from "./prompt";
+import type { StaticPromptContext, DynamicPromptContext } from "./prompt";
 import type { SkillSessionManager } from "../manage/skill-session";
 import { createTools } from "./tools";
-import {
-  buildStaticSystemPrompt,
-  buildDynamicUserContext,
-} from "./prompt";
+import { buildStaticSystemPrompt, buildDynamicUserContext } from "./prompt";
 import type { PromptCtxForRunChat } from "../manage/types";
 import {
   isExternalSkillAllowed,
@@ -419,7 +410,9 @@ function estimateChatHistoryTokens(history: ChatMessage[]): number {
   );
 }
 
-function estimateMessageContentTokens(messages: Array<{ content?: unknown }>): number {
+function estimateMessageContentTokens(
+  messages: Array<{ content?: unknown }>,
+): number {
   return messages.reduce(
     (sum, message) => sum + estimateContentTokens(message.content),
     0,
@@ -473,7 +466,10 @@ function buildCurrentMessages(
   if (currentUserMessages.length > 0) {
     messages.push(
       ...prependDynamicContextToFirstUserMessage(
-        attachImagesToCurrentUserMessages(currentUserMessages, pendingImageUrls),
+        attachImagesToCurrentUserMessages(
+          currentUserMessages,
+          pendingImageUrls,
+        ),
         dynamicUserContext,
         pendingImageUrls,
       ),
@@ -650,6 +646,7 @@ function createExternalSkillRuntimeContext(toolCtx: ToolContext): any {
     rawEvent,
     session_id: toolCtx.sessionId,
     trigger_role: toolCtx.triggerSkillRole,
+    isMultimodal: Boolean(toolCtx.config?.isMultimodal),
   };
 }
 
@@ -721,9 +718,76 @@ function cleanMarkers(text: string): string {
     .replace(/<Ai>\s*<think>[\s\S]*?<\/Ai>/gi, "")
     .replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/gi, "")
     .replace(/<｜｜DSML｜｜invoke[^>]*>[\s\S]*?<\/｜｜DSML｜｜invoke>/gi, "")
-    .replace(/<｜｜DSML｜｜parameter[^>]*>[\s\S]*?<\/｜｜DSML｜｜parameter>/gi, "");
+    .replace(
+      /<｜｜DSML｜｜parameter[^>]*>[\s\S]*?<\/｜｜DSML｜｜parameter>/gi,
+      "",
+    );
 
-  return cleaned;
+  return sanitizeBrackets(cleaned);
+}
+
+const FUNCTIONAL_BRACKET_PREFIX =
+  /\[(at|reply|poke|audio|emotion):[^\]\n]*\]?/gi;
+
+function sanitizeBrackets(text: string): string {
+  if (!text) return text;
+
+  const placeholders: string[] = [];
+  let working = text.replace(FUNCTIONAL_BRACKET_PREFIX, (match) => {
+    const idx = placeholders.length;
+    placeholders.push(match);
+    return ` ${idx} `;
+  });
+
+  let result = "";
+  let orphanLeftCount = 0;
+  let i = 0;
+
+  while (i < working.length) {
+    const ch = working[i];
+
+    if (ch === " ") {
+      const endIdx = working.indexOf(" ", i + 1);
+      if (endIdx > i) {
+        const idx = parseInt(working.slice(i + 1, endIdx), 10);
+        if (!Number.isNaN(idx) && placeholders[idx] !== undefined) {
+          result += placeholders[idx];
+          i = endIdx + 1;
+          continue;
+        }
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === "[") {
+      let j = i + 1;
+      while (j < working.length && working[j] !== "]") {
+        j++;
+      }
+      if (j < working.length) {
+        i = j + 1;
+      } else {
+        orphanLeftCount++;
+        i++;
+      }
+      continue;
+    }
+
+    if (ch === "]") {
+      i++;
+      continue;
+    }
+
+    result += ch;
+    i++;
+  }
+
+  if (orphanLeftCount > 0) {
+    result += "]".repeat(orphanLeftCount);
+  }
+
+  return result;
 }
 
 function removeStickerIntentLines(text: string): string {
