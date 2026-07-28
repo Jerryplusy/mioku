@@ -13,7 +13,7 @@ import { generateStatusImage } from "./status";
 
 const helpSkill: AISkill = {
   name: "help",
-  description: "帮助系统，获取插件帮助信息和发送帮助图片",
+  description: "获取插件帮助信息和发送帮助图片",
   permission: "member",
   tools: [
     {
@@ -96,7 +96,7 @@ const helpSkill: AISkill = {
 const statusSkill: AISkill = {
   name: "status",
   description:
-    "系统状态查询，生成完整的系统状态图片（账号、资源、网络、磁盘、AI 统计、运行时、系统信息）",
+    "系统状态查询，生成完整的系统状态图片",
   permission: "member",
   tools: [
     {
