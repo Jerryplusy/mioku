@@ -25,6 +25,7 @@ import {
   consumeRestartMarker,
   notifyRestartComplete,
 } from "./system/restart";
+import { startAutoUpdateScheduler } from "./system/auto-update";
 import { registerAutoApprove } from "./notify/auto-approve";
 import { ensureAccessControlConfig } from "./filter/access-legacy-shim";
 import { createAccessControlPatcher } from "./filter/access-patcher";
@@ -104,6 +105,13 @@ export default definePlugin({
     disposers.push(registerMarketCommands(ctx));
     disposers.push(registerRestartCommand(ctx));
     disposers.push(registerLogCommand(ctx));
+    disposers.push(
+      startAutoUpdateScheduler(
+        baseConfig.autoUpdate.enabled,
+        baseConfig.autoUpdate.time,
+        baseConfig.autoUpdate.frequency,
+      ),
+    );
 
     logger.info("========================================");
     logger.info("          Mioku 服务初始化完成");
