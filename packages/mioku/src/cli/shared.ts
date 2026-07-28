@@ -1,8 +1,13 @@
 import fs, { readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import path from "node:path";
 import consola from "consola";
 import dedent from "dedent";
+import {
+  clearCommandCache,
+  commandExists,
+  resolveCommand,
+  runCommandInherit,
+} from "../core/exec";
 
 export const DEFAULT_PACKAGES = [
   "mioku",
@@ -21,13 +26,9 @@ export const SERVICE_PREFIX = "mioku-service-";
 export function run(
   cmd: string,
   args: string[] = [],
-  options: Parameters<typeof execFileSync>[2] = {},
+  options: { cwd?: string } = {},
 ): void {
-  execFileSync(cmd, args, {
-    stdio: "inherit",
-    shell: process.platform === "win32",
-    ...options,
-  });
+  runCommandInherit(cmd, args, options);
 }
 
 export async function rmrf(dir: string, retries = 5): Promise<void> {
@@ -53,48 +54,21 @@ export async function rmrf(dir: string, retries = 5): Promise<void> {
 }
 
 export function hasCommand(cmd: string): boolean {
-  try {
-    execFileSync(cmd, ["--version"], {
-      stdio: "ignore",
-      shell: process.platform === "win32",
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  return commandExists(cmd);
 }
 
 function findNpmPath(): string | null {
-  if (process.platform !== "win32") return "npm";
+  const resolved = resolveCommand("npm");
+  if (resolved) return resolved;
+  if (process.platform !== "win32") return null;
 
-  const candidates = [
-    "npm.cmd",
-    "npm.exe",
+  const fallbacks = [
     path.join(process.env.ProgramFiles || "", "nodejs", "npm.cmd"),
     path.join(process.env["ProgramFiles(x86)"] || "", "nodejs", "npm.cmd"),
     path.join(process.env.APPDATA || "", "npm", "npm.cmd"),
   ];
 
-  for (const candidate of candidates) {
-    try {
-      execFileSync(candidate, ["--version"], { stdio: "ignore", shell: true });
-      return candidate;
-    } catch {}
-  }
-
-  try {
-    const result = execFileSync("where", ["npm"], {
-      encoding: "utf-8",
-      shell: true,
-    });
-    const lines = result
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    return lines.find((l) => l.endsWith(".cmd")) || lines[0] || null;
-  } catch {
-    return null;
-  }
+  return fallbacks.find((candidate) => resolveCommand(candidate)) ?? null;
 }
 
 export function ensurePackageManager(): void {
@@ -106,6 +80,8 @@ export function ensurePackageManager(): void {
     process.exit(1);
   }
   run(npmPath, ["install", "-g", "bun"]);
+  // bun was just put on PATH; drop the cached miss so the next lookup finds it.
+  clearCommandCache();
 }
 
 export function getAddCommand(packages: string[]): [string, string[]] {

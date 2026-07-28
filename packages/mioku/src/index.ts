@@ -126,3 +126,13 @@ export {
   setPluginRuntimeState,
   resetPluginRuntimeState,
 } from "./core/plugin-runtime-state";
+
+export {
+  resolveCommand,
+  commandExists,
+  buildSpawnPlan,
+  runCommand,
+  runCommandInherit,
+} from "./core/exec";
+
+export type { RunCommandResult, SpawnPlan } from "./core/exec";

@@ -1,5 +1,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
+import { pathToFileURL } from "node:url";
 
 export interface DiscoveredModule {
   name: string;
@@ -24,9 +25,11 @@ export async function resolveRealpath(p: string): Promise<string> {
 }
 
 // Windows requires file:// URLs for absolute paths in dynamic import().
+// pathToFileURL also percent-encodes spaces and non-ASCII segments, which a
+// hand-rolled string replace leaves broken (e.g. "C:\用户\my bot").
 export function toImportPath(filePath: string): string {
   if (process.platform === "win32") {
-    return "file:///" + filePath.replace(/\\/g, "/");
+    return pathToFileURL(filePath).href;
   }
   return filePath;
 }
