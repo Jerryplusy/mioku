@@ -1,8 +1,5 @@
-import type { ConfigService } from "mioku";
-import type { HelpService } from "mioku";
-import type { ScreenshotService } from "mioku";
-import type { AIService } from "mioku";
 import { definePlugin, type MiokiContext } from "mioki";
+import { getService, Services } from "mioku";
 import * as path from "path";
 import { HELP_DEMO_CONFIG } from "./demo-config";
 import {
@@ -31,12 +28,10 @@ const helpPlugin = definePlugin({
     networkSampler.start();
     perfMonitor.start();
 
-    const configService = ctx.services?.config as ConfigService | undefined;
-    const helpService = ctx.services?.help as HelpService | undefined;
-    const screenshotService = ctx.services?.screenshot as
-      | ScreenshotService
-      | undefined;
-    const aiService = ctx.services?.ai as AIService | undefined;
+    const configService = getService(ctx, Services.Config);
+    const helpService = getService(ctx, Services.Help);
+    const screenshotService = getService(ctx, Services.Screenshot);
+    const aiService = getService(ctx, Services.AI);
 
     if (!helpService) {
       ctx.logger.warn("help-service 未加载，帮助插件无法运行");

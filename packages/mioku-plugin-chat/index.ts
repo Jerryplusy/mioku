@@ -1,7 +1,10 @@
-import { definePlugin } from "mioki";
-import type { MiokiContext } from "mioki";
-import type { AIInstance, AIModelRole, AIService, ConfigService, ScreenshotService } from "mioku";
-import { getPluginRuntimeState } from "mioku";
+import { definePlugin, type MiokiContext } from "mioki";
+import type { AIInstance, AIModelRole, AIService } from "mioku";
+import {
+  getPluginRuntimeState,
+  getService,
+  Services,
+} from "mioku";
 import type { ChatConfig, ChatMessage, ChatGroupsFile, TargetMessage } from "./types";
 import { initDatabase } from "./db";
 import { SessionManager } from "./manage/session";
@@ -115,9 +118,9 @@ export default definePlugin({
   async setup(ctx: MiokiContext) {
     ctx.logger.info("聊天插件正在初始化...");
 
-    const aiService = ctx.services?.ai as AIService | undefined;
-    const configService = ctx.services?.config as ConfigService | undefined;
-    const screenshotService = ctx.services?.screenshot as ScreenshotService | undefined;
+    const aiService = getService(ctx, Services.AI);
+    const configService = getService(ctx, Services.Config);
+    const screenshotService = getService(ctx, Services.Screenshot);
     let warnedMarkdownScreenshotUnavailable = false;
 
     if (configService) {

@@ -80,6 +80,16 @@ export type {
 
 export { TOOL_RESULT_FOLLOWUP_KEY } from "./types";
 
+export {
+  defineService,
+  getService,
+  requireService,
+  hasService,
+} from "./core/service";
+export type { ServiceRef } from "./core/service";
+export { Services } from "./core/services";
+export type { BuiltinServiceRef } from "./core/services";
+
 export interface MiokuStartOptions {
   cwd?: string;
 }

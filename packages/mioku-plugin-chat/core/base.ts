@@ -2,6 +2,7 @@ import type { MiokiContext } from "mioki";
 import { logger } from "mioki";
 import type { SkillPermissionRole } from "mioku";
 import type { AIInstance, AIService } from "mioku";
+import type { ScreenshotService } from "mioku";
 import type {
   ChatConfig,
   ChatMessage,
@@ -12,7 +13,7 @@ import type { ChatDatabase } from "../db";
 import type { HumanizeEngine } from "../humanize";
 import { parseLineMarkers, splitByReplyMarkers } from "../utils/queue";
 import { getGroupHistory } from "../utils";
-import type { ScreenshotService } from "mioku";
+import { getService, Services } from "mioku";
 import { synthesizeAudioBase64 } from "./media/audio";
 import {
   extractStandaloneMarkdownBlock,
@@ -157,9 +158,7 @@ export async function sendAIResponse(
       }
 
       if (markdownContent) {
-        const screenshotService = ctx.services?.screenshot as
-          | ScreenshotService
-          | undefined;
+        const screenshotService = getService(ctx, Services.Screenshot);
         const imagePath = await buildMarkdownImage(
           ctx,
           markdownContent,
@@ -305,9 +304,7 @@ export async function sendMessage(
       const hasAt = atUsers.length > 0;
 
       if (markdownContent) {
-        const screenshotService = ctx.services?.screenshot as
-          | ScreenshotService
-          | undefined;
+        const screenshotService = getService(ctx, Services.Screenshot);
         const imagePath = await buildMarkdownImage(
           ctx,
           markdownContent,

@@ -31,6 +31,7 @@ import { ensureAccessControlConfig } from "./filter/access-legacy-shim";
 import { createAccessControlPatcher } from "./filter/access-patcher";
 import { normalizeAccessConfig } from "./configs/access-base";
 import { matchMessageCommands } from "./filter/matcher-registry";
+import { getService, Services } from "mioku";
 import type { AccessControlConfig } from "mioku";
 
 export default definePlugin({
@@ -45,7 +46,7 @@ export default definePlugin({
 
     await serviceManager.loadAllServices(ctx);
 
-    const configService = ctx.services?.config as ConfigService | undefined;
+    const configService = getService(ctx, Services.Config);
     let baseConfig: BootPluginConfig = cloneConfig(BOOT_DEFAULT_CONFIG);
     const disposers: Array<() => void> = [];
 

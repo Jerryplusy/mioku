@@ -1,6 +1,7 @@
 import type { MiokiContext } from "mioki";
 import { botConfig } from "mioki";
-import type { HelpService } from "../types";
+import { getService } from "./service";
+import { Services } from "./services";
 import pluginManager from "./plugin-manager";
 import { logger } from "./logger";
 
@@ -14,7 +15,7 @@ export async function registerPluginArtifacts(ctx: MiokiContext): Promise<void> 
     enabledPlugins.size > 0 ? enabledPlugins.has(metadata.name) : true,
   );
 
-  const helpService = ctx.services.help as HelpService | undefined;
+  const helpService = getService(ctx, Services.Help);
   if (!helpService) return;
 
   let helpCount = 0;
