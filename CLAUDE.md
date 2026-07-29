@@ -25,7 +25,7 @@ packages/
         plugin-manager.ts     # discovers plugins (uses module-scanner + registry)
         service-manager.ts    # discovers/loads services (uses module-scanner + registry)
         plugin-linker.ts      # creates symlinks in .mioku/plugins/ for runtime
-        plugin-artifact-registry.ts  # auto-loads help manifests + skills.ts per plugin
+        plugin-artifact-registry.ts  # auto-loads help manifests per plugin (skills are registered by each plugin in setup)
         service-config.ts     # async JSON config helpers for services (fs/promises)
         data-paths.ts         # cwd-relative path helpers (re-exported from mioku)
         plugin-runtime-state.ts
@@ -98,8 +98,8 @@ Conventions used across the existing plugins:
 
 - `package.json` declares `"mioku": { "services": ["config", "ai"], "help": { ... } }` — services are auto-loaded by the boot plugin; help is auto-registered by `registerPluginArtifacts`.
 - Plugin-local config defaults live in `configs/base.ts` (and friends). Always deep-clone before mutating and merge with the live config from `configService` so user overrides in `example/config/<plugin>/<name>.json` win.
-- AI tools live in a separate `skills.ts` (default export or named `skills` export, single `AISkill` or array). This is loaded by `plugin-artifact-registry.ts` after services come up, **not** synchronously inside `setup`.
-- Per-plugin runtime state goes through `getPluginRuntimeState` / `setPluginRuntimeState` from `mioku` (see `packages/mioku-plugin-help/runtime.ts` for the pattern).
+- AI skills are registered in `setup()` via `aiService.registerSkill()` — typically through a factory function from `skills/<name>.ts`. The old `skills.ts` auto-scan pattern has been replaced.
+- Per-plugin runtime state goes through `getPluginRuntimeState` / `setPluginRuntimeState` from `mioku` (mainly for non-AI state sharing across handlers).
 - Storage paths must use the helpers from `mioku` (`getPluginDataDir`, `getPluginConfigDir`, `ensureDataDir`) — never hard-code `process.cwd() + ...`.
 
 ## Adding a service
@@ -130,7 +130,7 @@ Services are discovered by name (`mioku-service-<name>` → service name `<name>
 
 ## AI Skill system
 
-Each plugin can register one `AISkill` (typically named the same as the plugin) containing many `AITool`s. Tools are called by the model as `{skill_name}.{tool_name}` — this avoids the namespace collision that global tool registration would cause. Both types live in `packages/mioku/src/types.ts` (single source of truth; the old `service-types.ts` / `core/types.ts` duplicates were merged into it).
+Each plugin registers one or more `AISkill`s in its `setup()` via `aiService.registerSkill()`. Skills contain `AITool`s called by the model as `{skill_name}.{tool_name}` — this avoids namespace collision. Both types live in `packages/mioku/src/types.ts`.
 
 `AISkill` supports an optional `permission: "owner" | "admin" | "member"` field. The AI service uses this to gate tool invocation before the handler runs. Set the permission deliberately; defaulting to `member` is rarely what you want for side-effecting tools.
 
@@ -163,10 +163,9 @@ The registry it pulls from is `official-registry.json` at the repo root (`{ plug
 These are the rules future-you will trip over most often. Most of them are flagged in `docs/developer/plugin-advanced.md`, `docs/developer/plugin-ai.md`, and `docs/developer/plugin-start.md`.
 
 - **Use `ctx.pickBot(e.self_id)`, not `ctx.bot`.** `ctx.bot` resolves to the *first* connected NapCat, not the one that fired the current event. With one bot it's a latent bug; with multiple bots it's broken — messages fail to send because the wrong bot is asked. Treat `ctx.bot` as if it didn't exist unless you specifically know you want the default bot. Source: `docs/developer/plugin-advanced.md` (the "不当使用 ctx.bot" warning).
-- **Don't store runtime objects in module-level singletons.** mioki loads plugin code with `jiti` and `moduleCache` is off, so `const state = {}` at the top of `runtime.ts` is not stable across imports. Use `getPluginRuntimeState` / `setPluginRuntimeState` / `resetPluginRuntimeState` from `mioku` (they live in `packages/mioku/src/core/plugin-runtime-state.ts`). The pattern is in `packages/mioku-plugin-help/runtime.ts`. Source: `docs/developer/plugin-ai.md` "使用 runtime.ts 解决 index.ts 闭包".
+- **Don't store runtime objects in module-level singletons.** mioki loads plugin code with `jiti` and `moduleCache` is off, so `const state = {}` is not stable across imports. For non-AI cross-handler state, use `getPluginRuntimeState` / `setPluginRuntimeState` / `resetPluginRuntimeState` from `mioku` (they live in `packages/mioku/src/core/plugin-runtime-state.ts`). For AI skills, use factory functions that capture dependencies via closure — no need for global state bridge.
 - **Plugin data goes in `data/<pluginName>/`, not in `node_modules`.** Anything you write into `node_modules` is wiped on reinstall. Use the helpers from `mioku` — `getPluginDataDir`, `getServiceDataDir`, `getPluginConfigDir`, `getServiceConfigDir`, `ensureDataDir`. They are cwd-relative on purpose, so the bot works no matter where the project is checked out. Source: `docs/developer/plugin-advanced.md` "数据目录".
-- **`skills.ts` runs outside `setup()`.** It's dynamically `import()`-ed by `plugin-artifact-registry.ts` after services come up, so closures over `setup()` locals are not available. Bridge shared state through `runtime.ts` (see pitfall above). Source: `docs/developer/plugin-ai.md` "编写 skills.ts".
-- **Default export of `skills.ts` is `AISkill[]`** (or a single `AISkill`). The registry inspects `moduleExports.default`, then `moduleExports.skills`, then the module itself. Tools end up callable as `{skillName}.{toolName}` — namespace isolation is the whole point. Source: `packages/mioku/src/core/plugin-artifact-registry.ts` `extractSkills`.
+- **Skills are registered in `setup()`, not auto-scanned.** Use factory functions in `skills/<name>.ts` and call `aiService.registerSkill()` inside `setup()`. Closures over `setup()` locals work directly — no need for `runtime.ts` bridge. Remove on dispose with `aiService.removeSkill()`. Source: `docs/developer/plugin-ai.md` "注册 AI 技能".
 - **All service types come from `"mioku"`, not from the individual `mioku-service-*` packages.** `AIService`, `ConfigService`, `HelpService`, `ScreenshotService`, `WebUIService` are re-exported by `packages/mioku/src/index.ts`. Do not import them from `mioku-service-ai/types` or similar — those are internal type duplicates.
 - **Services may be missing.** Plugins that *declare* a service in `package.json` `mioku.services` are just *requesting* it; the user might not have installed it. Always `as ConfigService | undefined`, always `if (!service) { ctx.logger.warn(...); return; }`. Existing plugins follow this pattern; copy it.
 - **Don't use `AISkill.permission` and `PluginHelp.command.role` interchangeably.** Skill permissions are `"owner" | "admin" | "member"` (defined in `packages/mioku/src/types.ts`). Help command roles are `"master" | "admin" | "owner" | "member"` — note the leading `master` for help, `owner` for skills. Mixing them up is a silent authz bug.
@@ -193,15 +192,15 @@ This is the house style the rest of the codebase follows. Match it; don't invent
 `index.ts` of a plugin is the wiring file — `definePlugin({...})` and a `setup(ctx)` that registers handlers. It should not contain the actual implementation. Look at how the existing plugins are organized for the canonical shape:
 
 - `mioku-plugin-chat/` — `index.ts` (wiring: config registration, manager construction, handler registration) + `core/` (`chat-engine`, `chat-turn`, `prompt`, `tools`, `multimodal`, `base` sending, `media/` incl. `segment` helpers, `web/`) + `manage/` (`cooldown`, `idle-check`, `queue-processor`, `rate-limiter`, `rate-limit-guard`, `session`, `skill-session`, `group-structured-history`, `cleanup`) + `handlers/` (`message`, `poke`, `idle-debug`) + `runtime/` (`chat-runtime`) + `humanize/` + `utils/` (`message`, `queue`, `json`) + `db.ts` + `types.ts` + `context.ts` + `configs/`. The 3 managers take a single `ChatPluginContext` (see `context.ts`) instead of ~18 individual params.
-- `mioku-plugin-help/` — `index.ts` + `help/` (intent, info, html, image, role config) + `status/` (intent, samplers, html, image) + `runtime.ts` + `skills.ts` + `theme.ts` + `utils.ts` + `demo-config.ts`.
-- `mioku-plugin-admin/` — `index.ts` + `commands/` + `notify/` + `skills/` + `skills.ts` + `config.ts`.
+- `mioku-plugin-help/` — `index.ts` + `help/` (intent, info, html, image, role config) + `status/` (intent, samplers, html, image) + `skills/` (help.ts, status.ts, index.ts) + `theme.ts` + `utils.ts` + `demo-config.ts`.
+- `mioku-plugin-admin/` — `index.ts` + `commands/` + `notify/` + `skills/` (group.ts, personal.ts, message-image.ts) + `config.ts`.
 
 The naming is conventional: a folder per concern, kebab-case for files. When adding a new plugin, sketch out the folder layout in your head **before** writing `index.ts`. If `setup()` is going to exceed ~150 lines, you are almost certainly missing a sub-module.
 
 A few specifics that fall out of this:
 
 - Plugin default configs go in `configs/<name>.ts` (e.g. `configs/base.ts`, `configs/settings.ts`, `configs/personalization.ts`). `BASE_CONFIG` is a const, deep-cloned at the top of `setup()` so plugin code never mutates the in-code default.
-- AI tool handlers go in `skills.ts` and stay small — each handler should be a thin wrapper that pulls runtime state from `runtime.ts` and returns a JSON-shaped result. If a handler is more than ~30 lines, the heavy lifting belongs in a sibling module.
+- AI tool handlers go in `skills/<name>.ts` factory functions and stay small — each handler should be a thin wrapper that uses closure-captured dependencies and returns a JSON-shaped result. If a handler is more than ~30 lines, the heavy lifting belongs in a sibling module.
 - DB / lowdb wiring lives in `db.ts` (or `core/db.ts`); the rest of the plugin talks to a small `db` object, not `lowdb` directly.
 - One shared `types.ts` per plugin, exporting only what other files in that plugin import — don't duplicate types from `mioku`/`mioki`.
 
@@ -258,4 +257,4 @@ try {
 - `send: true` actually posts the message. Pass `send: false` if you want the generated `messages` array in the result so you can edit or compose before sending — useful for batched replies.
 - Always guard with `if (chatRuntime)` — the chat plugin may not be installed, and `getChatRuntime()` returns `undefined` in that case. Fall back to a direct `event.reply`.
 - For non-fatal but worth-mentioning conditions (rate limit, blacklist hit, missing permission), still go through `chatRuntime.generateNotice` so the reply stays in-voice. The `boot` plugin's welcome-message code is the cleanest reference (`packages/mioku-plugin-boot/index.ts` `buildWelcomeMessage`).
-- Don't use `chatRuntime` for tool handlers in `skills.ts` — those run in response to model decisions, and the model already knows what happened. For tool errors, return `{ error: "..." }` and let the chat plugin render it.
+- Don't use `chatRuntime` for tool handlers — those run in response to model decisions, and the model already knows what happened. For tool errors, return `{ error: "..." }` and let the chat plugin render it.

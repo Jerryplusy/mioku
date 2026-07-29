@@ -1,6 +1,7 @@
 import type { ConfigService } from "mioku";
 import type { HelpService } from "mioku";
 import type { ScreenshotService } from "mioku";
+import type { AIService } from "mioku";
 import { definePlugin, type MiokiContext } from "mioki";
 import * as path from "path";
 import { HELP_DEMO_CONFIG } from "./demo-config";
@@ -12,13 +13,13 @@ import {
   resolveViewerRole,
 } from "./help";
 import { getRenderVersions } from "./utils";
-import { resetHelpRuntimeState, setHelpRuntimeState } from "./runtime";
 import {
   generateStatusImage,
   networkSampler,
   perfMonitor,
   resolveStatusIntent,
 } from "./status";
+import { createHelpSkills } from "./skills";
 
 const helpPlugin = definePlugin({
   name: "help",
@@ -35,13 +36,13 @@ const helpPlugin = definePlugin({
     const screenshotService = ctx.services?.screenshot as
       | ScreenshotService
       | undefined;
+    const aiService = ctx.services?.ai as AIService | undefined;
 
     if (!helpService) {
       ctx.logger.warn("help-service 未加载，帮助插件无法运行");
       return () => {
         networkSampler.stop();
         perfMonitor.stop();
-        resetHelpRuntimeState();
         ctx.logger.info("帮助插件已卸载");
       };
     }
@@ -69,10 +70,9 @@ const helpPlugin = definePlugin({
 
     const { miokiVersion, miokuVersion } = await getRenderVersions();
 
-    setHelpRuntimeState({
-      miokiVersion,
-      miokuVersion,
-    });
+    if (aiService) {
+      for (const skill of createHelpSkills()) aiService.registerSkill(skill);
+    }
 
     ctx.handle("message", async (event: any) => {
       const text = ctx.text(event);
@@ -159,7 +159,10 @@ const helpPlugin = definePlugin({
     return () => {
       networkSampler.stop();
       perfMonitor.stop();
-      resetHelpRuntimeState();
+      if (aiService) {
+        aiService.removeSkill("help");
+        aiService.removeSkill("status");
+      }
       ctx.logger.info("帮助插件已卸载");
     };
   },

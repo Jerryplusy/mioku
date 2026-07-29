@@ -21,7 +21,7 @@ NapCat / OneBot
 
 1. Mioku 启动时先扫描插件和服务
 2. `boot` 系统引导插件加载所有服务
-3. Mioku 自动注册插件帮助和 `skills.ts`- 给AI使用的技能
+3. 插件在 `setup()` 中通过 `aiService.registerSkill()` 注册 AI 技能
 4. 其他插件开始由`mioki`引导并正常运行
 
 ## 插件/服务开发

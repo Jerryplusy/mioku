@@ -29,7 +29,8 @@ export default definePlugin({
 > [!TIP]
 > 大部分插件不需要自己创建 AI 实例
 >
-> 正常情况下，直接拿默认实例即可。默认实例通常由 `chat` 插件在启动时创建并设置
+> 正常情况下，直接拿默认实例即可。默认实例由 AI 服务根据 WebUI 中的提供商配置自动创建，
+> `chat` 插件在启动时会确保 `main` 实例被设为默认
 
 ## 获取默认 AI 实例
 
@@ -359,158 +360,85 @@ export default definePlugin({
 - 默认 AI 实例更像**你自己在直接调模型**
 - `chat-runtime` 更像**请聊天插件代你开口**
 
-## 编写 `skills.ts`
+## 注册 AI 技能
 
-如果你想把插件能力暴露给 AI，可以在插件目录下编写 `skills.ts` 文件
+如果你想把插件能力暴露给 AI，在 `setup()` 中通过工厂函数创建 `AISkill[]`，然后用 `aiService.registerSkill()` 注册。
 
-Mioku 会在启动时自动扫描插件目录下的 `skills.ts`，并注册里面 `default-export` 出来的 `AISkill[]`
+提供技能可以让 `chat` 插件中的 AI 使用插件中的功能。
 
-> [!NOTE]
-> 提供 `skills` 可以让 `chat` 插件中的 AI 使用插件中的功能
+### 编写技能工厂
+
+在 `skills/<name>.ts` 中编写接受依赖的工厂函数，返回 `AISkill` 或 `AISkill[]`：
 
 ```typescript
-import type { AISkill, AITool, HelpService } from "mioku";
-import { buildHelpInfoText } from "./shared";
+import type { AISkill } from "mioku";
 
-const helpSkills: AISkill[] = [
-  {
-    name: "help",
-    description: "帮助系统，获取插件帮助信息和发送帮助图片",
+export function createNoticeSkill(): AISkill {
+  return {
+    name: "notice_center",
+    description: "通知中心工具",
     permission: "member",
     tools: [
       {
-        name: "get_help_info",
-        description: "获取所有插件的帮助信息文本",
+        name: "push_notice",
+        description: "推送一条站内通知",
         parameters: {
           type: "object",
-          properties: {},
-          required: [],
+          properties: {
+            title: { type: "string" },
+            content: { type: "string" },
+          },
+          required: ["title", "content"],
         },
-        handler: async (_args: any, runtimeCtx?: any) => {
+        handler: async (args, runtimeCtx) => {
           const ctx = runtimeCtx?.ctx;
-          const helpService = ctx?.services?.help as HelpService | undefined;
-          if (!helpService) {
-            return "help-service 未加载，无法获取帮助信息";
-          }
-
-          return buildHelpInfoText(helpService.getAllHelp());
+          // 从 ctx.services 拿服务
+          return { ok: true };
         },
-      } as AITool,
+      },
     ],
-  },
-];
-
-export default helpSkills;
-```
-
-- `skills.ts` 默认导出的是 `AISkill[]`
-- `AISkill.permission` 可选，支持 `member` / `admin` / `owner`，未填写默认 `member`
-- 权限含义：`owner`=mioki 主人；`admin`=mioki 管理 + 群管 + 群主；`member`=普通成员
-- 工具处理函数可以通过 `runtimeCtx?.ctx` 访问当前上下文
-- 如果需要读取 `setup()` 创建的可变对象，不要依赖模块局部变量，使用 `runtime.ts` + Mioku runtime registry
-
-注册后，工具会以 `skillName.toolName` 的形式被识别
-
-如果 `chat` 插件启用了外部技能，它会在三处做权限校验：
-
-- 提示词中的"已加载外部技能"列表会按触发用户权限过滤
-- `load_skill` 时会检查触发用户是否满足 `AISkill.permission`
-- 技能工具实际调用时会再次校验，权限不足会拒绝执行
-
-## 使用 `runtime.ts` 解决 `index.ts` 闭包
-
-`help` 这种工具比较简单，直接从 `runtimeCtx?.ctx` 里拿服务就够了
-
-但更复杂的插件往往会在 `setup()` 里创建一些只能运行时存在的对象，比如：
-
-- 循环管理器
-- 长连接客户端
-- 缓存和会话状态
-- 由配置拼出来的服务包装层
-
-问题在于：`skills.ts` 不是在插件 `setup()` 内执行的，它会被框架单独导入
-
-所以它不能直接引用 `setup()` 里的局部变量，这时就需要 `runtime.ts` 做桥接。
-
-> [!IMPORTANT]
-> 不要把 `runtime.ts` 写成模块内局部变量单例，例如 `const runtimeState = {}`
->
-> 原因有两个：
->
-> - `skills.ts` 和插件本体可能通过不同加载路径被导入
-> - `mioki` 当前内部使用的 `jiti` 明确关闭了 `moduleCache`
->
-> 这意味着同一个 `runtime.ts` 文件可能被执行多次，模块级变量不会稳定共享
->
-> 在 Mioku 里，推荐使用 `mioku` 包提供的全局 runtime registry
-
-```typescript
-// runtime.ts 示例
-import type { QueueManager } from "./queue-manager";
-import {
-  getPluginRuntimeState,
-  resetPluginRuntimeState,
-  setPluginRuntimeState,
-} from "mioku";
-
-export interface NoticeRuntimeState {
-  queue?: QueueManager;
-  webhookUrl?: string;
-}
-
-const PLUGIN_NAME = "notice-center";
-
-export function setNoticeRuntimeState(nextState: NoticeRuntimeState) {
-  return setPluginRuntimeState<NoticeRuntimeState>(PLUGIN_NAME, nextState);
-}
-
-export function getNoticeRuntimeState(): NoticeRuntimeState {
-  return getPluginRuntimeState<NoticeRuntimeState>(PLUGIN_NAME);
-}
-
-export function resetNoticeRuntimeState(): void {
-  resetPluginRuntimeState(PLUGIN_NAME);
+  };
 }
 ```
 
-在 `index.ts` 的 `setup()` 里，把运行时对象塞进去：
+### 在 `setup()` 中注册
 
 ```typescript
-// index.ts
 import { definePlugin } from "mioki";
-import { QueueManager } from "./queue-manager";
-import {
-  resetNoticeRuntimeState,
-  setNoticeRuntimeState,
-} from "./runtime";
+import type { AIService } from "mioku";
+import { createNoticeSkill } from "./skills/notice";
 
 export default definePlugin({
   name: "notice-center",
   async setup(ctx) {
-    const queue = new QueueManager(ctx.logger);
-    const webhookUrl = process.env.NOTICE_WEBHOOK_URL || "";
+    const aiService = ctx.services?.ai as AIService | undefined;
 
-    setNoticeRuntimeState({
-      queue,
-      webhookUrl,
-    });
+    // ... 初始化其他依赖 ...
+
+    if (aiService) {
+      aiService.registerSkill(createNoticeSkill());
+    }
 
     return () => {
-      resetNoticeRuntimeState();
+      if (aiService) {
+        aiService.removeSkill("notice_center");
+      }
     };
   },
 });
 ```
 
-`skills.ts` 再去读取这些状态：
+### 使用闭包捕获运行时对象
+
+如果技能需要访问 `setup()` 中创建的对象（管理器、客户端、缓存等），直接把依赖传给工厂函数，工厂通过闭包捕获即可。不再需要通过 `runtime.ts` 桥接：
 
 ```typescript
-// skills.ts
+// skills/notice.ts
 import type { AISkill } from "mioku";
-import { getNoticeRuntimeState } from "./runtime";
+import type { QueueManager } from "../queue-manager";
 
-const noticeSkills: AISkill[] = [
-  {
+export function createNoticeSkill(queue: QueueManager, webhookUrl: string): AISkill {
+  return {
     name: "notice_center",
     description: "通知中心工具",
     tools: [
@@ -526,11 +454,7 @@ const noticeSkills: AISkill[] = [
           required: ["title", "content"],
         },
         handler: async (args) => {
-          const { queue, webhookUrl } = getNoticeRuntimeState();
-          if (!queue || !webhookUrl) {
-            return { error: "runtime is not ready" };
-          }
-
+          // 闭包中直接使用 queue 和 webhookUrl
           return queue.push({
             title: args.title,
             content: args.content,
@@ -539,10 +463,74 @@ const noticeSkills: AISkill[] = [
         },
       },
     ],
-  },
-];
-
-export default noticeSkills;
+  };
+}
 ```
 
-这样 `skills.ts` 既不会依赖 `setup()` 的局部闭包，又能稳定拿到真正的运行时对象。
+```typescript
+// index.ts
+import { definePlugin } from "mioki";
+import type { AIService } from "mioku";
+import { QueueManager } from "./queue-manager";
+import { createNoticeSkill } from "./skills/notice";
+
+export default definePlugin({
+  name: "notice-center",
+  async setup(ctx) {
+    const aiService = ctx.services?.ai as AIService | undefined;
+    const queue = new QueueManager(ctx.logger);
+    const webhookUrl = process.env.NOTICE_WEBHOOK_URL || "";
+
+    if (aiService) {
+      aiService.registerSkill(createNoticeSkill(queue, webhookUrl));
+    }
+
+    return () => {
+      if (aiService) {
+        aiService.removeSkill("notice_center");
+      }
+    };
+  },
+});
+```
+
+### 注册多个技能
+
+工厂可以返回数组，在 `for...of` 循环中逐个注册：
+
+```typescript
+// skills/index.ts
+import type { AISkill } from "mioku";
+import { createHelpSkill } from "./help";
+import { createStatusSkill } from "./status";
+
+export function createAllSkills(): AISkill[] {
+  return [createHelpSkill(), createStatusSkill()];
+}
+```
+
+```typescript
+// index.ts
+if (aiService) {
+  for (const skill of createAllSkills()) aiService.registerSkill(skill);
+}
+
+return () => {
+  if (aiService) {
+    aiService.removeSkill("help");
+    aiService.removeSkill("status");
+  }
+};
+```
+
+- `AISkill.permission` 可选，支持 `member` / `admin` / `owner`，未填写默认 `member`
+- 权限含义：`owner`=mioki 主人；`admin`=mioki 管理 + 群管 + 群主；`member`=普通成员
+- 工具处理函数可以通过 `runtimeCtx?.ctx` 访问当前上下文
+- 工具会以 `skillName.toolName` 的形式被识别
+- `aiService.registerSkill()` 支持覆写（内部使用 `Map.set`），热重载时直接用新工厂创建即可替换旧的
+
+如果 `chat` 插件启用了外部技能，它会在三处做权限校验：
+
+- 提示词中的"已加载外部技能"列表会按触发用户权限过滤
+- `load_skill` 时会检查触发用户是否满足 `AISkill.permission`
+- 技能工具实际调用时会再次校验，权限不足会拒绝执行
