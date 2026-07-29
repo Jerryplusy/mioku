@@ -1,6 +1,6 @@
 {
   "name": "mioku-plugin-chat",
-  "version": "2.8.2",
+  "version": "2.8.3",
   "description": "AI 智能聊天插件",
   "main": "index.ts",
   "type": "module",
@@ -44,6 +44,7 @@
   },
   "dependencies": {
     "openai": "^4.0.0",
+    "puppeteer": "^23.0.0",
     "sharp": "^0.34.5"
   },
   "devDependencies": {
