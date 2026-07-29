@@ -311,7 +311,23 @@ function parseGeminiResult(
         cached_tokens: response?.usageMetadata?.cachedContentTokenCount,
       },
     }),
-    raw: response,
+    raw: buildAssistantRaw(content, toolCalls.filter((item) => item.name)),
+  };
+}
+
+function buildAssistantRaw(
+  content: string,
+  toolCalls: UnifiedToolCall[],
+): { role: "assistant"; content: string; tool_calls?: any[] } {
+  if (toolCalls.length === 0) return { role: "assistant", content };
+  return {
+    role: "assistant",
+    content,
+    tool_calls: toolCalls.map((toolCall) => ({
+      id: toolCall.id,
+      type: "function",
+      function: { name: toolCall.name, arguments: toolCall.arguments },
+    })),
   };
 }
 

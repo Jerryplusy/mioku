@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { logger } from "mioki";
 import { extractUsageTokens } from "../usage/tracker";
 import type {
   AIModelDescriptor,
@@ -70,77 +71,210 @@ export class OpenAIResponseProvider extends BaseProviderClient {
       return this.completeStream(options, body);
     }
 
-    const response = await (this.client as any).responses.create(body);
-    return parseResponseResult(response, options);
+    try {
+      const response = await this.createResponse(body);
+      return parseResponseResult(response, options);
+    } catch (error) {
+      logResponseApiFailure(error, body);
+      throw error;
+    }
   }
 
   private async completeStream(
     options: ProviderCompleteOptions,
     body: Record<string, unknown>,
   ): Promise<ProviderCompleteResponse> {
-    const stream = await (this.client as any).responses.create({
-      ...body,
-      stream: true,
-    });
+    const streamBody = { ...body, stream: true };
+    try {
+      const stream = await this.createResponse(streamBody);
+      let content = "";
+      let reasoning = "";
+      let usage = extractUsageTokens(undefined);
+      const toolCallsByIndex = new Map<
+        number,
+        { id: string; name: string; arguments: string }
+      >();
 
-    let content = "";
-    let reasoning = "";
-    let usage = extractUsageTokens(undefined);
-    const toolCallsByIndex = new Map<
-      number,
-      { id: string; name: string; arguments: string }
-    >();
+      for await (const event of stream as AsyncIterable<any>) {
+        const type = String(event?.type || "");
+        if (type === "response.output_text.delta" && typeof event.delta === "string") {
+          content += event.delta;
+          void options.onTextDelta?.(event.delta);
+        }
+        if (
+          type === "response.reasoning_text.delta" &&
+          typeof event.delta === "string"
+        ) {
+          reasoning += event.delta;
+        }
+        if (
+          type === "response.output_item.added" &&
+          event?.item?.type === "function_call"
+        ) {
+          const index =
+            typeof event.output_index === "number" ? event.output_index : 0;
+          const acc = toolCallsByIndex.get(index) || {
+            id: "",
+            name: "",
+            arguments: "",
+          };
+          if (typeof event.item.call_id === "string" && event.item.call_id) {
+            acc.id = event.item.call_id;
+          }
+          if (typeof event.item.id === "string" && event.item.id && !acc.id) {
+            acc.id = event.item.id;
+          }
+          if (typeof event.item.name === "string" && event.item.name) {
+            acc.name = event.item.name;
+          }
+          toolCallsByIndex.set(index, acc);
+        }
+        if (type === "response.function_call_arguments.delta") {
+          const index =
+            typeof event.output_index === "number" ? event.output_index : 0;
+          const acc = toolCallsByIndex.get(index) || {
+            id: "",
+            name: "",
+            arguments: "",
+          };
+          if (typeof event.item_id === "string" && event.item_id && !acc.id) {
+            acc.id = event.item_id;
+          }
+          if (typeof event.delta === "string") acc.arguments += event.delta;
+          toolCallsByIndex.set(index, acc);
+        }
+        if (type === "response.completed" && event?.response) {
+          usage = extractUsageTokens(event.response) || usage;
+        }
+      }
 
-    for await (const event of stream as AsyncIterable<any>) {
-      const type = String(event?.type || "");
-      if (type === "response.output_text.delta" && typeof event.delta === "string") {
-        content += event.delta;
-        await options.onTextDelta?.(event.delta);
-      }
-      if (
-        type === "response.reasoning_text.delta" &&
-        typeof event.delta === "string"
-      ) {
-        reasoning += event.delta;
-      }
-      if (type === "response.function_call_arguments.delta") {
-        const index =
-          typeof event.output_index === "number" ? event.output_index : 0;
-        const acc = toolCallsByIndex.get(index) || {
-          id: "",
-          name: "",
-          arguments: "",
-        };
-        if (typeof event.item_id === "string" && event.item_id) acc.id = event.item_id;
-        if (typeof event.name === "string" && event.name) acc.name = event.name;
-        if (typeof event.delta === "string") acc.arguments += event.delta;
-        toolCallsByIndex.set(index, acc);
-      }
-      if (type === "response.completed") {
-        usage = extractUsageTokens(event.response) || usage;
-      }
-      if (event?.response) {
-        usage = extractUsageTokens(event.response) || usage;
-      }
+      const toolCalls = Array.from(toolCallsByIndex.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([index, item]) => ({
+          id: item.id || `tool_call_${index}_${Date.now()}`,
+          name: item.name,
+          arguments: item.arguments || "{}",
+        }))
+        .filter((item) => item.name);
+
+      return {
+        content,
+        reasoning: reasoning || null,
+        toolCalls,
+        usage,
+        raw: buildAssistantRaw(content, toolCalls),
+      };
+    } catch (error) {
+      logResponseApiFailure(error, streamBody);
+      throw error;
     }
-
-    const toolCalls = Array.from(toolCallsByIndex.entries())
-      .sort(([a], [b]) => a - b)
-      .map(([index, item]) => ({
-        id: item.id || `tool_call_${index}_${Date.now()}`,
-        name: item.name,
-        arguments: item.arguments || "{}",
-      }))
-      .filter((item) => item.name);
-
-    return {
-      content,
-      reasoning: reasoning || null,
-      toolCalls,
-      usage,
-      raw: { content, toolCalls },
-    };
   }
+
+  private async createResponse(body: Record<string, unknown>): Promise<any> {
+    logResponseApiRequest(body);
+    const response = await (this.client as any).responses.create(body);
+    logResponseApiResult(response);
+    return response;
+  }
+}
+
+function logResponseApiRequest(body: Record<string, unknown>): void {
+  if (process.env.MIOKU_AI_RESPONSE_DEBUG !== "1") return;
+  logger.debug(
+    `[ai][openai-response] request ${JSON.stringify(summarizeResponseRequest(body))}`,
+  );
+}
+
+function logResponseApiResult(response: any): void {
+  if (process.env.MIOKU_AI_RESPONSE_DEBUG !== "1") return;
+  const output = Array.isArray(response?.output) ? response.output : [];
+  logger.debug(
+    `[ai][openai-response] response ${JSON.stringify({
+      id: response?.id,
+      status: response?.status,
+      output: output.map((item: any) => ({
+        type: item?.type,
+        id: item?.id,
+        callId: item?.call_id,
+        name: item?.name,
+      })),
+    })}`,
+  );
+}
+
+function logResponseApiFailure(error: unknown, body: Record<string, unknown>): void {
+  const apiError = error as Record<string, any>;
+  logger.error(
+    `[ai][openai-response] request failed ${JSON.stringify({
+      request: summarizeResponseRequest(body),
+      error: {
+        name: error instanceof Error ? error.name : undefined,
+        message: error instanceof Error ? error.message : String(error),
+        status: apiError?.status,
+        code: apiError?.code,
+        type: apiError?.type,
+        requestId: apiError?.request_id,
+        response: summarizeErrorBody(apiError?.error),
+        headers: pickResponseHeaders(apiError?.headers),
+      },
+    })}`,
+  );
+}
+
+function summarizeResponseRequest(body: Record<string, unknown>): Record<string, unknown> {
+  const input = Array.isArray(body.input) ? body.input : [];
+  const tools = Array.isArray(body.tools) ? body.tools : [];
+  return {
+    model: body.model,
+    stream: body.stream === true,
+    instructionLength:
+      typeof body.instructions === "string" ? body.instructions.length : 0,
+    input: input.map((item: any) => ({
+      type: item?.type || "message",
+      role: item?.role,
+      callId: item?.call_id,
+      name: item?.name,
+      contentLength: responseInputContentLength(item?.content ?? item?.output),
+      argumentsLength:
+        typeof item?.arguments === "string" ? item.arguments.length : undefined,
+    })),
+    tools: tools.map((tool: any) => tool?.name).filter(Boolean),
+  };
+}
+
+function responseInputContentLength(content: unknown): number | undefined {
+  if (typeof content === "string") return content.length;
+  if (!Array.isArray(content)) return undefined;
+  return content.reduce(
+    (total, part: any) => total + String(part?.text || part?.url || "").length,
+    0,
+  );
+}
+
+function summarizeErrorBody(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const error = value as Record<string, unknown>;
+  return {
+    message: error.message,
+    type: error.type,
+    code: error.code,
+    param: error.param,
+  };
+}
+
+function pickResponseHeaders(headers: unknown): Record<string, string> | undefined {
+  if (!headers || typeof headers !== "object") return undefined;
+  const values = headers instanceof Headers
+    ? Object.fromEntries(headers.entries())
+    : headers as Record<string, unknown>;
+  const allowed = ["content-type", "server", "x-request-id", "cf-ray"];
+  const selected = Object.fromEntries(
+    allowed.flatMap((name) => {
+      const value = values[name] ?? values[name.toUpperCase()];
+      return typeof value === "string" ? [[name, value]] : [];
+    }),
+  );
+  return Object.keys(selected).length > 0 ? selected : undefined;
 }
 
 function toResponseInput(
@@ -275,6 +409,22 @@ function parseResponseResult(
     reasoning: reasoning || null,
     toolCalls: toolCalls.filter((item) => item.name),
     usage: extractUsageTokens(response),
-    raw: response,
+    raw: buildAssistantRaw(content, toolCalls.filter((item) => item.name)),
+  };
+}
+
+function buildAssistantRaw(
+  content: string,
+  toolCalls: UnifiedToolCall[],
+): { role: "assistant"; content: string; tool_calls?: any[] } {
+  if (toolCalls.length === 0) return { role: "assistant", content };
+  return {
+    role: "assistant",
+    content,
+    tool_calls: toolCalls.map((toolCall) => ({
+      id: toolCall.id,
+      type: "function",
+      function: { name: toolCall.name, arguments: toolCall.arguments },
+    })),
   };
 }
