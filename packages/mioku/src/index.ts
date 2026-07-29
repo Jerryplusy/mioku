@@ -132,10 +132,14 @@ export {
 } from "./core/data-paths";
 
 export {
+  defineState,
+  hasPluginState,
   getPluginRuntimeState,
   setPluginRuntimeState,
   resetPluginRuntimeState,
+  getAllPluginRuntimeStates,
 } from "./core/plugin-runtime-state";
+export type { PluginStateRef } from "./core/plugin-runtime-state";
 
 export {
   resolveCommand,
