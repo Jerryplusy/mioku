@@ -361,6 +361,11 @@ function toUnifiedMessages(messages: any[]): UnifiedMessage[] {
             ? message.content
             : contentToText(message.content),
         toolCalls,
+        responseItems: Array.isArray(message.response_items)
+          ? message.response_items
+          : Array.isArray(message.responseItems)
+            ? message.responseItems
+            : undefined,
       };
     }
     if (typeof message.content === "string" || Array.isArray(message.content)) {

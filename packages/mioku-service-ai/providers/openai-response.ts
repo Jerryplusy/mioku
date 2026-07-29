@@ -90,6 +90,7 @@ export class OpenAIResponseProvider extends BaseProviderClient {
       let content = "";
       let reasoning = "";
       let usage = extractUsageTokens(undefined);
+      let responseItems: any[] | undefined;
       const toolCallsByIndex = new Map<
         number,
         { id: string; name: string; arguments: string }
@@ -145,6 +146,9 @@ export class OpenAIResponseProvider extends BaseProviderClient {
         }
         if (type === "response.completed" && event?.response) {
           usage = extractUsageTokens(event.response) || usage;
+          responseItems = Array.isArray(event.response.output)
+            ? event.response.output
+            : undefined;
         }
       }
 
@@ -162,7 +166,7 @@ export class OpenAIResponseProvider extends BaseProviderClient {
         reasoning: reasoning || null,
         toolCalls,
         usage,
-        raw: buildAssistantRaw(content, toolCalls),
+        raw: buildAssistantRaw(content, toolCalls, responseItems),
       };
     } catch (error) {
       logResponseApiFailure(error, streamBody);
@@ -299,6 +303,10 @@ function toResponseInput(
       continue;
     }
     if (message.role === "assistant") {
+      if (message.responseItems?.length) {
+        input.push(...message.responseItems);
+        continue;
+      }
       if (message.toolCalls?.length) {
         for (const toolCall of message.toolCalls) {
           input.push({
@@ -409,22 +417,30 @@ function parseResponseResult(
     reasoning: reasoning || null,
     toolCalls: toolCalls.filter((item) => item.name),
     usage: extractUsageTokens(response),
-    raw: buildAssistantRaw(content, toolCalls.filter((item) => item.name)),
+    raw: buildAssistantRaw(
+      content,
+      toolCalls.filter((item) => item.name),
+      output,
+    ),
   };
 }
 
 function buildAssistantRaw(
   content: string,
   toolCalls: UnifiedToolCall[],
-): { role: "assistant"; content: string; tool_calls?: any[] } {
-  if (toolCalls.length === 0) return { role: "assistant", content };
-  return {
+  responseItems?: any[],
+): any {
+  const raw: any = {
     role: "assistant",
     content,
-    tool_calls: toolCalls.map((toolCall) => ({
+  };
+  if (toolCalls.length > 0) {
+    raw.tool_calls = toolCalls.map((toolCall) => ({
       id: toolCall.id,
       type: "function",
       function: { name: toolCall.name, arguments: toolCall.arguments },
-    })),
-  };
+    }));
+  }
+  if (responseItems?.length) raw.response_items = responseItems;
+  return raw;
 }
