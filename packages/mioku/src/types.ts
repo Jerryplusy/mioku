@@ -66,6 +66,32 @@ export interface PluginHelp {
 
 export type CommandRole = "master" | "admin" | "owner" | "member";
 
+/**
+ * - `"master"`：仅 bot 主人可触发
+ * - `"owner"`：legacy alias
+ * - `"admin"`：bot 主人或管理员
+ * - `"member"`：群内任意成员
+ *
+ */
+export type SkillPermissionRole = "master" | "owner" | "admin" | "member";
+
+export function normalizeSkillPermissionRole(
+  role: unknown,
+): SkillPermissionRole {
+  const normalized = String(role ?? "")
+    .trim()
+    .toLowerCase();
+  if (
+    normalized === "master" ||
+    normalized === "owner" ||
+    normalized === "admin" ||
+    normalized === "member"
+  ) {
+    return normalized as SkillPermissionRole;
+  }
+  return "member";
+}
+
 export interface AccessHook {
   id: string;
   match?: string;
@@ -94,11 +120,23 @@ export interface AccessControlConfig {
 // ---------- built-in service contracts ----------
 
 export interface ConfigService {
-  registerConfig(pluginName: string, configName: string, initialConfig: any): Promise<boolean>;
-  updateConfig(pluginName: string, configName: string, updates: any): Promise<boolean>;
+  registerConfig(
+    pluginName: string,
+    configName: string,
+    initialConfig: any,
+  ): Promise<boolean>;
+  updateConfig(
+    pluginName: string,
+    configName: string,
+    updates: any,
+  ): Promise<boolean>;
   getConfig(pluginName: string, configName: string): Promise<any>;
   getPluginConfigs(pluginName: string): Promise<Record<string, any>>;
-  onConfigChange(pluginName: string, configName: string, callback: (newConfig: any) => void): () => void;
+  onConfigChange(
+    pluginName: string,
+    configName: string,
+    callback: (newConfig: any) => void,
+  ): () => void;
 }
 
 export interface ScreenshotService {
@@ -131,8 +169,6 @@ export interface AITool {
   };
   handler: (args: any, event?: any) => Promise<any> | any;
 }
-
-export type SkillPermissionRole = "owner" | "admin" | "member";
 
 export interface AISkill {
   name: string;
@@ -236,12 +272,33 @@ export interface AIInstanceInfo {
 }
 
 export interface AIInstance {
-  generateText(options: { prompt?: string; messages: TextMessage[]; model?: string; temperature?: number; max_tokens?: number }): Promise<string>;
-  generateMultimodal(options: { prompt?: string; messages: MultimodalMessage[]; model?: string; temperature?: number; max_tokens?: number }): Promise<string>;
+  generateText(options: {
+    prompt?: string;
+    messages: TextMessage[];
+    model?: string;
+    temperature?: number;
+    max_tokens?: number;
+  }): Promise<string>;
+  generateMultimodal(options: {
+    prompt?: string;
+    messages: MultimodalMessage[];
+    model?: string;
+    temperature?: number;
+    max_tokens?: number;
+  }): Promise<string>;
   complete(options: CompleteOptions): Promise<CompleteResponse>;
-  generateWithTools(options: { prompt?: string; messages: TextMessage[] | MultimodalMessage[]; model?: string; temperature?: number; maxIterations?: number }): Promise<any>;
+  generateWithTools(options: {
+    prompt?: string;
+    messages: TextMessage[] | MultimodalMessage[];
+    model?: string;
+    temperature?: number;
+    maxIterations?: number;
+  }): Promise<any>;
   setUsageContext?(context: AIUsageContext | undefined): void;
-  withUsageContext?<T>(context: AIUsageContext | undefined, fn: () => Promise<T>): Promise<T>;
+  withUsageContext?<T>(
+    context: AIUsageContext | undefined,
+    fn: () => Promise<T>,
+  ): Promise<T>;
   registerPrompt(name: string, prompt: string): boolean;
   getPrompt(name: string): string | undefined;
   getAllPrompts(): Record<string, string>;
@@ -249,7 +306,13 @@ export interface AIInstance {
 }
 
 export interface AIService {
-  create(options: { name: string; apiUrl: string; apiKey: string; modelType: "text" | "multimodal"; model?: string }): Promise<AIInstance>;
+  create(options: {
+    name: string;
+    apiUrl: string;
+    apiKey: string;
+    modelType: "text" | "multimodal";
+    model?: string;
+  }): Promise<AIInstance>;
   createInstance?(options: {
     name: string;
     providerId: string;
@@ -264,10 +327,17 @@ export interface AIService {
   getDefault(): AIInstance | undefined;
   listProviders?(): AIProviderConfig[];
   getProvider?(id: string): AIProviderConfig | undefined;
-  createProvider?(input: Omit<AIProviderConfig, "id"> & { id?: string }): Promise<AIProviderConfig>;
-  updateProvider?(id: string, input: Partial<AIProviderConfig>): Promise<AIProviderConfig>;
+  createProvider?(
+    input: Omit<AIProviderConfig, "id"> & { id?: string },
+  ): Promise<AIProviderConfig>;
+  updateProvider?(
+    id: string,
+    input: Partial<AIProviderConfig>,
+  ): Promise<AIProviderConfig>;
   removeProvider?(id: string): boolean;
-  testProvider?(id: string): Promise<{ ok: boolean; error?: string; models?: AIModelDescriptor[] }>;
+  testProvider?(
+    id: string,
+  ): Promise<{ ok: boolean; error?: string; models?: AIModelDescriptor[] }>;
   listModels?(providerId?: string): AIModelDescriptor[];
   refreshModels?(providerId: string): Promise<AIModelDescriptor[]>;
   registerCustomModel?(input: {
@@ -289,7 +359,10 @@ export interface AIService {
   removeSkill(skillName: string): boolean;
   getTool(toolName: string): AITool | undefined;
   getAllTools(): Map<string, AITool>;
-  getUsageSummary?(options: { range: AIUsageRange; botId?: number }): AIUsageSummary;
+  getUsageSummary?(options: {
+    range: AIUsageRange;
+    botId?: number;
+  }): AIUsageSummary;
   cleanupUsageStats?(retentionMs?: number): number;
   finalizeUsage?(usageId: string, finalization: AIUsageFinalization): boolean;
 }
@@ -298,7 +371,9 @@ export interface AIService {
 
 export interface ChatRuntime {
   generateNotice(options: ChatRuntimeNoticeOptions): Promise<ChatRuntimeResult>;
-  requestInformation(options: ChatRuntimeInformationRequestOptions): Promise<ChatRuntimeResult>;
+  requestInformation(
+    options: ChatRuntimeInformationRequestOptions,
+  ): Promise<ChatRuntimeResult>;
 }
 
 export const TOOL_RESULT_FOLLOWUP_KEY = "__miokuFollowup";
@@ -450,7 +525,10 @@ export interface AIUsageSummary {
     assistantMessages: number;
     errorRate: number;
   }>;
-  tokenFlow: Array<{ name: "输入" | "输出" | "缓存写入" | "缓存读取"; value: number }>;
+  tokenFlow: Array<{
+    name: "输入" | "输出" | "缓存写入" | "缓存读取";
+    value: number;
+  }>;
   tokenCategories: Array<{
     name: "系统提示词" | "工具定义" | "工具使用" | "聊天上下文" | "其他上下文";
     value: number;

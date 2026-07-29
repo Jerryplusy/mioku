@@ -1,5 +1,6 @@
 import type { ChatPluginContext, ChatHandlerState } from "../context";
 import type { TargetMessage } from "../types";
+import type { GroupPokeNoticeEvent } from "napcat-sdk";
 import { getBotRole, isGroupAllowed } from "../utils";
 import { buildStructuredUserInputFromTarget } from "../manage/group-structured-history";
 import { finalizeChatTurn } from "../core/chat-turn";
@@ -12,7 +13,7 @@ export function createPokeHandler(
   const { ctx } = pluginCtx;
   const { getConfig, runtimeState, pokeCooldowns } = state;
 
-  return async (e: any) => {
+  return async (e: GroupPokeNoticeEvent) => {
     if (e.target_id !== e.self_id) return;
     const groupId = e.group_id;
     const cfg = groupId ? await getConfig(groupId) : await getConfig();
@@ -36,7 +37,7 @@ export function createPokeHandler(
             "group",
             groupId,
           );
-          const userId = e.user_id || e.operator_id;
+          const userId = e.user_id;
           const botRole = await getBotRole(groupId, ctx, e.self_id);
           const botNickname =
             cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";

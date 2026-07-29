@@ -5,6 +5,7 @@ import { bootstrapMioku } from "./core/bootstrap";
 import { setMiokuLogger } from "./core/logger";
 
 export type { MiokiPlugin, MiokiContext } from "mioki";
+export type { EventMap } from "napcat-sdk";
 
 export function definePlugin<T extends import("mioki").MiokiPlugin>(plugin: T): T {
   return plugin;
@@ -78,7 +79,7 @@ export type {
   AIUsageSummary,
 } from "./types";
 
-export { TOOL_RESULT_FOLLOWUP_KEY } from "./types";
+export { TOOL_RESULT_FOLLOWUP_KEY, normalizeSkillPermissionRole } from "./types";
 
 export {
   defineService,

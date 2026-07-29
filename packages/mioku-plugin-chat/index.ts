@@ -450,7 +450,7 @@ export default definePlugin({
     aiService.registerChatRuntime(runtime);
 
     ctx.handle("message", createMessageHandler(pluginCtx, handlerState));
-    ctx.handle("notice.group.poke" as any, createPokeHandler(pluginCtx, handlerState));
+    ctx.handle("notice.group.poke", createPokeHandler(pluginCtx, handlerState));
 
     ctx.logger.info(
       `聊天插件加载成功 (main=${roleModels.main || "?"}, work=${roleModels.working || "?"}, vision=${roleModels.vision || "?"})`,

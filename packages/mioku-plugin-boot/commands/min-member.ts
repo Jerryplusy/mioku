@@ -6,7 +6,7 @@ export function registerMinMemberCheck(
   ctx: MiokiContext,
   getConfig: () => BootPluginConfig,
 ): () => void {
-  return ctx.handle("notice.group.increase" as any, async (event: any) => {
+  return ctx.handle("notice.group.increase", async (event) => {
     const cfg = getConfig();
     const selfId = Number(event?.self_id || ctx.self_id);
     const groupId = Number(event?.group_id || 0);

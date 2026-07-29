@@ -80,8 +80,8 @@ export function getForwardId(seg: {
   return String(seg?.id || seg?.data?.id || "");
 }
 
-export function getCardData(seg: { data?: unknown }): string | null {
-  const data = seg?.data;
+export function getCardData(seg: unknown): string | null {
+  const data = (seg as { data?: unknown } | null | undefined)?.data;
   if (!data) return null;
   return typeof data === "string" ? data : JSON.stringify(data);
 }

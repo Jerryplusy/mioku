@@ -131,7 +131,7 @@ async function performUpdateAndReport(
 }
 
 export function registerUpdateCommands(ctx: MiokiContext): () => void {
-  const dispose = ctx.handle("message", async (event: any) => {
+  const dispose = ctx.handle("message", async (event) => {
     const text = ctx.text(event)?.trim();
     if (!text || event?.user_id === event?.self_id) return;
     const prefix = getCommandPrefix();

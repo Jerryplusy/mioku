@@ -69,7 +69,7 @@ const helpPlugin = definePlugin({
       for (const skill of createHelpSkills()) aiService.registerSkill(skill);
     }
 
-    ctx.handle("message", async (event: any) => {
+    ctx.handle("message", async (event) => {
       const text = ctx.text(event);
       if (!text) {
         return;

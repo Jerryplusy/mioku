@@ -1,4 +1,8 @@
 import type { ChatPluginContext, ChatHandlerState } from "../context";
+import type {
+  GroupMessageEvent,
+  PrivateMessageEvent,
+} from "napcat-sdk";
 import {
   isGroupAllowed,
   shouldTrigger,
@@ -32,7 +36,7 @@ export function createMessageHandler(
   const { ctx } = pluginCtx;
   const { getConfig, matchMessageCommands, runtimeState } = state;
 
-  return async (e: any) => {
+  return async (e: GroupMessageEvent | PrivateMessageEvent) => {
     const isGroup = e.message_type === "group";
     const groupId: number | undefined = isGroup ? e.group_id : undefined;
     const cfg = await getConfig(groupId);
