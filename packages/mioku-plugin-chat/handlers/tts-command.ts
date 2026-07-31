@@ -28,15 +28,20 @@ export async function handleTtsCommand(
 
   const audioService = pluginCtx.audioService;
   if (!audioService) {
-    await e.reply("audio 服务未加载");
+    await e.reply("audio 服务未加载，请安装 mioku-service-audio 后重启");
     return;
   }
 
   const isReady = await audioService.ready().catch(() => false);
   if (!isReady) {
+    ctx.logger.warn(
+      `[tts-cmd] audio 未就绪 status=${JSON.stringify(audioService.getStatus?.())}`,
+    );
     await e.reply("audio 服务正在启动/失败，请稍后再试");
     return;
   }
+
+  ctx.logger.info(`[tts-cmd] 推理: "${text.slice(0, 40)}" lang=${detectLang(text)}`);
 
   let result;
   try {
@@ -59,5 +64,6 @@ export async function handleTtsCommand(
   const source = result.filePath.startsWith("file://")
     ? result.filePath
     : `file://${result.filePath}`;
+  ctx.logger.info(`[tts-cmd] 发送 -> ${source}`);
   await e.reply([ctx.segment.record(source)]);
 }
