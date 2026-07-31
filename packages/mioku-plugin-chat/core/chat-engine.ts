@@ -68,12 +68,7 @@ export async function runChat(
       return isSkillAllowedForRole(skill, toolCtx.triggerSkillRole);
     },
   );
-  const emotionState = await humanize.emotionAgent.refreshIfNeeded({
-    sessionId: toolCtx.sessionId,
-    botNickname: promptCtx.botNickname,
-    chatHistory: history,
-    targetMessage,
-  });
+  const emotionState = humanize.emotionAgent.getCurrent(toolCtx.sessionId);
 
   const staticCtx: StaticPromptContext = {
     config: promptCtx.config,
@@ -248,6 +243,17 @@ export async function runChat(
   const response = ai.withUsageContext
     ? await ai.withUsageContext(usageContext, runComplete)
     : await runComplete();
+
+  humanize.emotionAgent
+    .refreshIfNeeded({
+      sessionId: toolCtx.sessionId,
+      botNickname: promptCtx.botNickname,
+      chatHistory: history,
+      targetMessage,
+    })
+    .catch((err) =>
+      logger.warn(`[chat-engine] background emotion refresh failed: ${err}`),
+    );
 
   if (streamEnabled) {
     streamBuffer += streamThinkFilter.push("", true);
