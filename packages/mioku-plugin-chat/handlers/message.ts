@@ -25,6 +25,7 @@ import {
   summarizeHistoryVideo,
 } from "../core/media/history-media";
 import { handleIdleCheckDebug } from "./idle-debug";
+import { handleTtsCommand } from "./tts-command";
 import { processChat } from "../core/chat-turn";
 
 const POKE_COOLDOWN_MS = 10 * 60_000;
@@ -52,6 +53,12 @@ export function createMessageHandler(
 
     if (text.startsWith("/空闲检查 ")) {
       await handleIdleCheckDebug(pluginCtx, e, cfg);
+      return;
+    }
+
+    if (text.startsWith("/tts")) {
+      const payload = text.replace(/^\/tts\s*/, "");
+      await handleTtsCommand(pluginCtx, e, payload);
       return;
     }
 
