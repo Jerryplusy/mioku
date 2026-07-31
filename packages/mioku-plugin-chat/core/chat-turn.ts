@@ -312,6 +312,7 @@ export async function processChat(
       humanize: pluginCtx.humanize,
       targetMessage,
       selfId: e.self_id,
+      audioService: pluginCtx.audioService,
     });
 
     const result = await pluginCtx.runWithRateLimitGuard(
@@ -497,6 +498,7 @@ async function executeChatRuntimeRequestNow(
     humanize: pluginCtx.humanize,
     targetMessage,
     selfId,
+    audioService: pluginCtx.audioService,
   });
 
   if (options.send === false) {

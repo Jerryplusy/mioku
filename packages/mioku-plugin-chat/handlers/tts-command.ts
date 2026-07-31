@@ -42,7 +42,9 @@ export async function handleTtsCommand(
     return;
   }
 
-  ctx.logger.info(`[tts-cmd] 推理: "${text.slice(0, 40)}" lang=${detectLang(text)}`);
+  ctx.logger.info(
+    `[tts-cmd] 推理: "${text.slice(0, 40)}" lang=${detectLang(text)}`,
+  );
 
   let result;
   try {

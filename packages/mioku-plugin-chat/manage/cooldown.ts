@@ -227,6 +227,7 @@ export class CooldownManager {
       humanize: this.humanize,
       targetMessage,
       selfId,
+      audioService: this.pluginCtx.audioService,
     });
 
     const contexts = await this.getHumanizeContexts(
@@ -353,6 +354,7 @@ export class CooldownManager {
       humanize: this.humanize,
       targetMessage,
       selfId,
+      audioService: this.pluginCtx.audioService,
     });
     const { groupName, memberCount } = await this.getGroupInfoData(
       this.ctx,

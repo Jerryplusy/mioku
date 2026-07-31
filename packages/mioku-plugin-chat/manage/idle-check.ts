@@ -254,6 +254,7 @@ export class IdleCheckManager {
       humanize: this.humanize,
       targetMessage,
       selfId,
+      audioService: this.pluginCtx.audioService,
     });
 
     const result = await this.runWithRateLimitGuard(
