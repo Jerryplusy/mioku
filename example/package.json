@@ -22,7 +22,8 @@
     "mioku-service-config": "workspace:*",
     "mioku-service-help": "workspace:*",
     "mioku-service-screenshot": "workspace:*",
-    "mioku-service-webui": "workspace:*"
+    "mioku-service-webui": "workspace:*",
+    "mioku-service-audio": "workspace:*"
   },
   "scripts": {
     "start": "bun run app.ts"

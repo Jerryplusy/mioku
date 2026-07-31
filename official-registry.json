@@ -8,7 +8,7 @@
     "chat": { "npm": "mioku-plugin-chat" },
     "help": { "npm": "mioku-plugin-help" },
     "boot": { "npm": "mioku-plugin-boot" },
-    "me": { "npm": "mioku-plugin-mc" },
+    "mc": { "npm": "mioku-plugin-mc" },
     "deerpipe": { "npm": "mioku-plugin-deerpipe" },
     "impact": { "npm": "mioku-plugin-impact" }
   },
@@ -20,6 +20,9 @@
     "ai": { "npm": "mioku-service-ai" },
     "config": { "npm": "mioku-service-config" },
     "screenshot": { "npm": "mioku-service-screenshot" },
-    "help": { "npm": "mioku-service-help" }
+    "help": { "npm": "mioku-service-help" },
+    "audio": {
+      "npm": "mioku-service-audio"
+    }
   }
 }
