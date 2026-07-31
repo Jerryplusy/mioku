@@ -525,7 +525,7 @@ function buildReviewGuidance(isMulti: boolean, length: Strength): string[] {
 function buildPokedGuidance(length: Strength): string[] {
   return [
     "Someone pokes you in a group, probably out of non-malicious play or to draw your attention to what happened in the group chat.",
-    "Don't make a fuss about replying, just observe whether the chat history in the group has noteworthy content, and if not, simply say hello or express concern to the user.",
+    "Don't make a fuss about replying, just observe whether the chat history in the group has noteworthy content, and if not, simply say hello or express concern to the user. Don't stress about being poked.",
     POKED_LENGTH[length],
   ].filter(Boolean);
 }
