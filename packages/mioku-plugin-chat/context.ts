@@ -31,6 +31,7 @@ import type {
   ChatRuntimeResult,
   ChatRuntimeInformationRequestOptions,
 } from "mioku";
+import type { AudioServiceApi } from "mioku-service-audio";
 import type { ChatMessage } from "./types";
 
 export interface ChatPluginContext {
@@ -81,6 +82,7 @@ export interface ChatPluginContext {
     userMsg: ChatMessage,
     groupSessionId: string,
   ) => Promise<void>;
+  audioService?: AudioServiceApi;
 }
 
 export interface ChatRuntimeState {

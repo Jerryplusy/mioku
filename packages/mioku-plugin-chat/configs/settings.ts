@@ -18,9 +18,6 @@ export const SETTINGS_CONFIG = {
   },
   audio: {
     enabled: true,
-    baseUrl: "http://localhost:3939",
-    apiKey: "fufu",
-    timeoutMs: 40_000,
   },
   blacklistGroups: [],
   whitelistGroups: [],

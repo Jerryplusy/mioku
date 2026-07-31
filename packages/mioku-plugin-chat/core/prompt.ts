@@ -279,7 +279,7 @@ function buildResponseFormatSection(
   - Use [reply:123456] at the START of a line to quote-reply that message (123456 is message_id)
   - **You can use MULTIPLE [reply:xxx] markers in different lines to quote multiple messages!**`);
 
-  if (ctx.config.audio?.enabled && ctx.config.audio.baseUrl?.trim()) {
+  if (ctx.config.audio?.enabled) {
     lines.push(`
 ### Optional Voice Message Format
 - You MAY optionally send one voice message by writing [audio:content]

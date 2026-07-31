@@ -154,11 +154,6 @@ export interface WebReaderConfig {
  */
 export interface AudioConfig {
   enabled: boolean;
-  // 服务器URL
-  baseUrl: string;
-  // 密钥
-  apiKey: string;
-  timeoutMs: number;
 }
 
 export interface AIRequestLimitConfig {
