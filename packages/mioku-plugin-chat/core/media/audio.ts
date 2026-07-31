@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import type { MiokiContext } from "mioki";
 import type { AudioServiceApi, SupportedLang } from "mioku-service-audio";
 
 function detectAudioLanguage(text: string): SupportedLang {
@@ -25,7 +27,38 @@ export async function synthesizeAudioSource(
   });
 
   if (!result?.filePath) return null;
-  return result.filePath.startsWith("file://")
-    ? result.filePath
-    : `file://${result.filePath}`;
+  const filePath = result.filePath.replace(/^file:\/\//, "");
+  const buf = await readFile(filePath);
+  return `base64://${buf.toString("base64")}`;
+}
+
+export async function sendVoice(
+  ctx: MiokiContext,
+  e: any,
+  filePath: string,
+  logTag = "[audio]",
+): Promise<void> {
+  const fileUrl = filePath.startsWith("file://")
+    ? filePath
+    : `file://${filePath}`;
+  try {
+    await e.reply([ctx.segment.record(fileUrl)]);
+    return;
+  } catch (err: any) {
+    const msg = String(err?.message ?? err);
+    if (
+      !/File URL path must be absolute|ENOENT|cannot access|No such file/i.test(
+        msg,
+      )
+    ) {
+      throw err;
+    }
+    const localPath = filePath.replace(/^file:\/\//, "");
+    const buf = await readFile(localPath);
+    const b64 = `base64://${buf.toString("base64")}`;
+    ctx.logger.info(
+      `${logTag} file:// 发送失败 (${msg})，回退 base64 (${buf.length} bytes)`,
+    );
+    await e.reply([ctx.segment.record(b64)]);
+  }
 }

@@ -1,5 +1,6 @@
 import type { SupportedLang } from "mioku-service-audio";
 import type { ChatPluginContext } from "../context";
+import { sendVoice } from "../core/media/audio";
 
 function detectLang(text: string): SupportedLang {
   if (/[\u3040-\u30ff]/.test(text)) return "ja";
@@ -61,9 +62,6 @@ export async function handleTtsCommand(
     return;
   }
 
-  const source = result.filePath.startsWith("file://")
-    ? result.filePath
-    : `file://${result.filePath}`;
-  ctx.logger.info(`[tts-cmd] 发送 -> ${source}`);
-  await e.reply([ctx.segment.record(source)]);
+  ctx.logger.info(`[tts-cmd] 发送 -> ${result.filePath}`);
+  await sendVoice(ctx, e, result.filePath, "[tts-cmd]");
 }
