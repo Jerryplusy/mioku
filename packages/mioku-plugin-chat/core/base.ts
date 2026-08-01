@@ -2,6 +2,7 @@ import type { MiokiContext } from "mioki";
 import { logger } from "mioki";
 import type { SkillPermissionRole } from "mioku";
 import type { AIInstance, AIService } from "mioku";
+import type { ScreenshotService } from "mioku";
 import type {
   ChatConfig,
   ChatMessage,
@@ -12,8 +13,9 @@ import type { ChatDatabase } from "../db";
 import type { HumanizeEngine } from "../humanize";
 import { parseLineMarkers, splitByReplyMarkers } from "../utils/queue";
 import { getGroupHistory } from "../utils";
-import type { ScreenshotService } from "mioku";
-import { synthesizeAudioBase64 } from "./media/audio";
+import { getService, Services } from "mioku";
+import { synthesizeAudioSource } from "./media/audio";
+import type { AudioServiceApi } from "mioku-service-audio";
 import {
   extractStandaloneMarkdownBlock,
   splitOutgoingUnits,
@@ -28,6 +30,7 @@ export interface SendAIResponseOptions {
   config: ChatConfig;
   sentIndices?: Set<number>;
   onLineSent?: () => void | Promise<void>;
+  audioService?: AudioServiceApi;
 }
 
 const FAST_TYPING_BASE_MS = 150;
@@ -84,6 +87,7 @@ export async function sendAIResponse(
     config,
     sentIndices,
     onLineSent,
+    audioService,
   } = options;
   const typingDelayEnabled = config.enableTypingDelay ?? false;
   const enableMarkdownScreenshot = config.enableMarkdownScreenshot ?? true;
@@ -157,9 +161,7 @@ export async function sendAIResponse(
       }
 
       if (markdownContent) {
-        const screenshotService = ctx.services?.screenshot as
-          | ScreenshotService
-          | undefined;
+        const screenshotService = getService(ctx, Services.Screenshot);
         const imagePath = await buildMarkdownImage(
           ctx,
           markdownContent,
@@ -206,6 +208,7 @@ export async function sendAIResponse(
       const audioSource = await resolveAudioSource(ctx, {
         audioText,
         config,
+        audioService,
       });
       const fallbackText = !audioSource && audioText ? audioText : undefined;
       if (sendableText) {
@@ -244,6 +247,7 @@ export async function sendMessage(
   text: string,
   config: ChatConfig,
   selfId: number,
+  audioService?: AudioServiceApi,
 ): Promise<void> {
   const typingDelayEnabled = config.enableTypingDelay ?? false;
   const enableMarkdownScreenshot = config.enableMarkdownScreenshot ?? true;
@@ -305,9 +309,7 @@ export async function sendMessage(
       const hasAt = atUsers.length > 0;
 
       if (markdownContent) {
-        const screenshotService = ctx.services?.screenshot as
-          | ScreenshotService
-          | undefined;
+        const screenshotService = getService(ctx, Services.Screenshot);
         const imagePath = await buildMarkdownImage(
           ctx,
           markdownContent,
@@ -356,6 +358,7 @@ export async function sendMessage(
       const audioSource = await resolveAudioSource(ctx, {
         audioText,
         config,
+        audioService,
       });
       const fallbackText = !audioSource && audioText ? audioText : undefined;
 
@@ -613,6 +616,7 @@ async function resolveAudioSource(
   options: {
     audioText?: string;
     config: ChatConfig;
+  audioService?: AudioServiceApi;
   },
 ): Promise<string | null> {
   const trimmed = String(options.audioText || "").trim();
@@ -620,12 +624,16 @@ async function resolveAudioSource(
     return null;
   }
 
-  if (!options.config.audio?.enabled || !options.config.audio.baseUrl?.trim()) {
+  if (!options.config.audio?.enabled) {
+    return null;
+  }
+
+  if (!options.audioService) {
     return null;
   }
 
   try {
-    return await synthesizeAudioBase64(options.config.audio, trimmed);
+    return await synthesizeAudioSource(options.audioService, trimmed);
   } catch (error) {
     ctx.logger.error(
       `[audio] Failed to synthesize voice for "${trimmed}": ${error}`,
@@ -749,6 +757,7 @@ export interface BuildToolContextOptions {
   pendingImageUrls?: string[];
   humanize: HumanizeEngine;
   targetMessage: TargetMessage;
+  audioService?: AudioServiceApi;
 }
 
 function resolveTriggerSkillRole(
@@ -797,6 +806,7 @@ export function buildToolContext(
     pendingImageUrls,
     humanize,
     targetMessage,
+    audioService,
   } = options;
 
   return {
@@ -821,6 +831,7 @@ export function buildToolContext(
         content,
         config,
         selfId,
+        audioService,
       );
     },
   };

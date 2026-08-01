@@ -97,11 +97,6 @@ export class AnthropicProvider extends BaseProviderClient {
       { id: string; name: string; arguments: string }
     >();
 
-    stream.on("text", (text) => {
-      content += text;
-      void options.onTextDelta?.(text);
-    });
-
     for await (const event of stream as any) {
       if (event?.type === "content_block_start") {
         const block = event.content_block;
@@ -115,6 +110,13 @@ export class AnthropicProvider extends BaseProviderClient {
       }
       if (event?.type === "content_block_delta") {
         const delta = event.delta;
+        if (delta?.type === "text_delta" && typeof delta.text === "string") {
+          content += delta.text;
+          void options.onTextDelta?.(delta.text);
+        }
+        if (delta?.type === "thinking_delta" && typeof delta.thinking === "string") {
+          reasoning += delta.thinking;
+        }
         if (delta?.type === "input_json_delta") {
           const acc = toolCallsByIndex.get(event.index ?? 0) || {
             id: "",
@@ -124,27 +126,34 @@ export class AnthropicProvider extends BaseProviderClient {
           acc.arguments += String(delta.partial_json || "");
           toolCallsByIndex.set(event.index ?? 0, acc);
         }
-        if (delta?.type === "thinking_delta" && typeof delta.thinking === "string") {
-          reasoning += delta.thinking;
-        }
       }
     }
 
     const finalMessage = await stream.finalMessage();
-    const parsed = parseAnthropicMessage(finalMessage);
-    if (!parsed.content && content) parsed.content = content;
-    if (!parsed.reasoning && reasoning) parsed.reasoning = reasoning;
-    if (parsed.toolCalls.length === 0 && toolCallsByIndex.size > 0) {
-      parsed.toolCalls = Array.from(toolCallsByIndex.entries())
-        .sort(([a], [b]) => a - b)
-        .map(([, item]) => ({
-          id: item.id,
-          name: item.name,
-          arguments: item.arguments || "{}",
-        }))
-        .filter((item) => item.name);
-    }
-    return parsed;
+    const toolCalls = Array.from(toolCallsByIndex.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([index, item]) => ({
+        id: item.id || `tool_call_${index}_${Date.now()}`,
+        name: item.name,
+        arguments: item.arguments || "{}",
+      }))
+      .filter((item) => item.name);
+
+    return {
+      content,
+      reasoning: reasoning || null,
+      toolCalls,
+      usage: extractUsageTokens({
+        usage: {
+          input_tokens: finalMessage?.usage?.input_tokens,
+          output_tokens: finalMessage?.usage?.output_tokens,
+          cache_creation_input_tokens:
+            finalMessage?.usage?.cache_creation_input_tokens,
+          cache_read_input_tokens: finalMessage?.usage?.cache_read_input_tokens,
+        },
+      }),
+      raw: buildAssistantRaw(content, toolCalls),
+    };
   }
 }
 
@@ -300,6 +309,22 @@ function parseAnthropicMessage(response: any): ProviderCompleteResponse {
     reasoning: reasoning || null,
     toolCalls,
     usage,
-    raw: response,
+    raw: buildAssistantRaw(content, toolCalls),
+  };
+}
+
+function buildAssistantRaw(
+  content: string,
+  toolCalls: UnifiedToolCall[],
+): { role: "assistant"; content: string; tool_calls?: any[] } {
+  if (toolCalls.length === 0) return { role: "assistant", content };
+  return {
+    role: "assistant",
+    content,
+    tool_calls: toolCalls.map((toolCall) => ({
+      id: toolCall.id,
+      type: "function",
+      function: { name: toolCall.name, arguments: toolCall.arguments },
+    })),
   };
 }

@@ -25,11 +25,13 @@ import {
   consumeRestartMarker,
   notifyRestartComplete,
 } from "./system/restart";
+import { startAutoUpdateScheduler } from "./system/auto-update";
 import { registerAutoApprove } from "./notify/auto-approve";
 import { ensureAccessControlConfig } from "./filter/access-legacy-shim";
 import { createAccessControlPatcher } from "./filter/access-patcher";
 import { normalizeAccessConfig } from "./configs/access-base";
 import { matchMessageCommands } from "./filter/matcher-registry";
+import { getService, Services } from "mioku";
 import type { AccessControlConfig } from "mioku";
 
 export default definePlugin({
@@ -44,7 +46,7 @@ export default definePlugin({
 
     await serviceManager.loadAllServices(ctx);
 
-    const configService = ctx.services?.config as ConfigService | undefined;
+    const configService = getService(ctx, Services.Config);
     let baseConfig: BootPluginConfig = cloneConfig(BOOT_DEFAULT_CONFIG);
     const disposers: Array<() => void> = [];
 
@@ -104,6 +106,13 @@ export default definePlugin({
     disposers.push(registerMarketCommands(ctx));
     disposers.push(registerRestartCommand(ctx));
     disposers.push(registerLogCommand(ctx));
+    disposers.push(
+      startAutoUpdateScheduler(
+        baseConfig.autoUpdate.enabled,
+        baseConfig.autoUpdate.time,
+        baseConfig.autoUpdate.frequency,
+      ),
+    );
 
     logger.info("========================================");
     logger.info("          Mioku 服务初始化完成");

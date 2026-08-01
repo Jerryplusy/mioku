@@ -10,6 +10,7 @@ import {
   updatePackages,
   type UpdateAvailable,
 } from "../system/package-manager";
+import { triggerRestart, type RestartMarker } from "../system/restart";
 
 const SELECT_TIMEOUT_MS = 60000;
 
@@ -111,12 +112,26 @@ async function performUpdateAndReport(
   if (unchanged.length > 0) {
     parts.push("", `另有 ${unchanged.length} 个包已是最新`);
   }
-  parts.push("", "重启后生效");
+  parts.push("", "即将重启...");
   await replyText(event, parts.join("\n"));
+
+  const selfId = Number(event?.self_id || 0);
+  const groupId =
+    event?.message_type === "group" && event?.group_id
+      ? Number(event.group_id)
+      : null;
+  const userId = Number(event?.user_id || 0);
+  const marker: RestartMarker = {
+    initiatedAt: Date.now(),
+    selfId,
+    groupId,
+    userId,
+  };
+  triggerRestart(marker);
 }
 
 export function registerUpdateCommands(ctx: MiokiContext): () => void {
-  const dispose = ctx.handle("message", async (event: any) => {
+  const dispose = ctx.handle("message", async (event) => {
     const text = ctx.text(event)?.trim();
     if (!text || event?.user_id === event?.self_id) return;
     const prefix = getCommandPrefix();

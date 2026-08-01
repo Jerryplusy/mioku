@@ -3,10 +3,14 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import { bootstrapMioku } from "./core/bootstrap";
 import { setMiokuLogger } from "./core/logger";
+import { default as serviceManager } from "./core/service-manager";
 
 export type { MiokiPlugin, MiokiContext } from "mioki";
+export type { EventMap } from "napcat-sdk";
 
-export function definePlugin<T extends import("mioki").MiokiPlugin>(plugin: T): T {
+export function definePlugin<T extends import("mioki").MiokiPlugin>(
+  plugin: T,
+): T {
   return plugin;
 }
 
@@ -78,7 +82,20 @@ export type {
   AIUsageSummary,
 } from "./types";
 
-export { TOOL_RESULT_FOLLOWUP_KEY } from "./types";
+export {
+  TOOL_RESULT_FOLLOWUP_KEY,
+  normalizeSkillPermissionRole,
+} from "./types";
+
+export {
+  defineService,
+  getService,
+  requireService,
+  hasService,
+} from "./core/service";
+export type { ServiceRef } from "./core/service";
+export { Services } from "./core/services";
+export type { BuiltinServiceRef } from "./core/services";
 
 export interface MiokuStartOptions {
   cwd?: string;
@@ -90,6 +107,25 @@ export async function start(options: MiokuStartOptions = {}): Promise<void> {
 
   const { start: startMioki, logger, botConfig } = await import("mioki");
   setMiokuLogger(logger);
+
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info(`收到 ${signal} 信号，正在关闭服务...`);
+    const timer = setTimeout(() => {
+      logger.error("服务关闭超时，强制退出");
+      process.exit(1);
+    }, 15_000);
+    timer.unref();
+    await serviceManager.disposeAll();
+    clearTimeout(timer);
+    logger.info("Mioku 服务已完全关闭");
+    process.exit(0);
+  };
+
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 
   logger.info("こんにちは..");
   logger.info("---------------------------------------");
@@ -122,7 +158,21 @@ export {
 } from "./core/data-paths";
 
 export {
+  defineState,
+  hasPluginState,
   getPluginRuntimeState,
   setPluginRuntimeState,
   resetPluginRuntimeState,
+  getAllPluginRuntimeStates,
 } from "./core/plugin-runtime-state";
+export type { PluginStateRef } from "./core/plugin-runtime-state";
+
+export {
+  resolveCommand,
+  commandExists,
+  buildSpawnPlan,
+  runCommand,
+  runCommandInherit,
+} from "./core/exec";
+
+export type { RunCommandResult, SpawnPlan } from "./core/exec";

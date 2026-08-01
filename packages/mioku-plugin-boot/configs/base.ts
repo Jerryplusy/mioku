@@ -8,6 +8,12 @@ export interface MessageFilterConfig {
   group: MessageFilterRule;
 }
 
+export interface AutoUpdateConfig {
+  enabled: boolean;
+  time: string;
+  frequency: "daily" | "weekly" | "monthly";
+}
+
 export interface BootPluginConfig {
   likeCommand: {
     enabled: boolean;
@@ -22,6 +28,7 @@ export interface BootPluginConfig {
     minMemberCount: number;
   };
   messageFilter: MessageFilterConfig;
+  autoUpdate: AutoUpdateConfig;
 }
 
 export const BOOT_DEFAULT_CONFIG: BootPluginConfig = {
@@ -40,6 +47,11 @@ export const BOOT_DEFAULT_CONFIG: BootPluginConfig = {
   messageFilter: {
     user: { whitelist: [], blacklist: [] },
     group: { whitelist: [], blacklist: [] },
+  },
+  autoUpdate: {
+    enabled: true,
+    time: "03:00",
+    frequency: "daily",
   },
 };
 
@@ -87,6 +99,14 @@ export function normalizeBootConfig(config: BootPluginConfig | any): BootPluginC
     messageFilter: {
       user: normalizeFilterRule(config?.messageFilter?.user),
       group: normalizeFilterRule(config?.messageFilter?.group),
+    },
+    autoUpdate: {
+      ...cloneConfig(BOOT_DEFAULT_CONFIG.autoUpdate),
+      ...(config?.autoUpdate || {}),
+      time: config?.autoUpdate?.time || BOOT_DEFAULT_CONFIG.autoUpdate.time,
+      frequency: ["daily", "weekly", "monthly"].includes(config?.autoUpdate?.frequency)
+        ? config.autoUpdate.frequency
+        : BOOT_DEFAULT_CONFIG.autoUpdate.frequency,
     },
   };
   return merged;

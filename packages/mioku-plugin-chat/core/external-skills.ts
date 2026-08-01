@@ -1,4 +1,5 @@
 import type { AISkill, SkillPermissionRole } from "mioku";
+import { normalizeSkillPermissionRole } from "mioku";
 import type { ChatConfig } from "../types";
 
 function normalizeSkillName(name: unknown): string {
@@ -33,23 +34,8 @@ const SKILL_PERMISSION_RANK: Record<SkillPermissionRole, number> = {
   member: 0,
   admin: 1,
   owner: 2,
+  master: 2,
 };
-
-export function normalizeSkillPermissionRole(
-  role: unknown,
-): SkillPermissionRole {
-  const normalized = String(role || "")
-    .trim()
-    .toLowerCase();
-  if (
-    normalized === "member" ||
-    normalized === "admin" ||
-    normalized === "owner"
-  ) {
-    return normalized;
-  }
-  return "member";
-}
 
 export function getSkillRequiredPermissionRole(
   skill: AISkill | undefined,

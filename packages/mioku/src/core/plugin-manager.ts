@@ -16,6 +16,7 @@ import {
   resolveRealpath,
 } from "./module-scanner";
 import { getOrCreate } from "./registry";
+import { validatePluginPackageConfig } from "./plugin-manifest";
 
 const PLUGIN_PREFIX = "mioku-plugin-";
 
@@ -69,7 +70,10 @@ export class PluginManager {
       logger.warn(`[plugin-manager] 读取 ${name} 的 package.json 失败: ${error}`);
     }
 
-    const config: PluginPackageConfig = packageJson?.mioku ?? {};
+const config: PluginPackageConfig = validatePluginPackageConfig(
+      packageJson?.mioku,
+      name,
+    );
     return {
       name,
       version: packageJson?.version ?? "0.0.0",

@@ -1,4 +1,5 @@
-import type { AIService, MiokiContext } from "mioku";
+import type { MiokiContext } from "mioku";
+import { getService, Services } from "mioku";
 
 function normalizeErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
@@ -24,7 +25,7 @@ export async function replyNotice(options: {
     );
   }
 
-  const aiService = ctx.services?.ai as AIService | undefined;
+  const aiService = getService(ctx, Services.AI);
   const chatRuntime = aiService?.getChatRuntime();
   if (chatRuntime) {
     try {

@@ -148,7 +148,7 @@ export async function finalizeChatTurn(
 
   if (groupId) {
     await pluginCtx.sendAIResponse(
-      { ctx, groupId, messages: result.messages, config: cfg, sentIndices: toolCtx.sentMessageIndices },
+      { ctx, groupId, messages: result.messages, config: cfg, sentIndices: toolCtx.sentMessageIndices, audioService: pluginCtx.audioService },
       selfId,
     );
     await pluginCtx.sendEmoji(ctx, groupId, result.emojiPath, selfId);
@@ -162,7 +162,7 @@ export async function finalizeChatTurn(
     const sentIndices = toolCtx.sentMessageIndices;
     for (let i = 0; i < result.messages.length; i++) {
       if (sentIndices?.has(i)) continue;
-      await pluginCtx.sendMessage(ctx, undefined, userId, result.messages[i], cfg, selfId);
+      await pluginCtx.sendMessage(ctx, undefined, userId, result.messages[i], cfg, selfId, pluginCtx.audioService);
     }
     if (result.emojiPath) {
       try {
@@ -312,6 +312,7 @@ export async function processChat(
       humanize: pluginCtx.humanize,
       targetMessage,
       selfId: e.self_id,
+      audioService: pluginCtx.audioService,
     });
 
     const result = await pluginCtx.runWithRateLimitGuard(
@@ -497,6 +498,7 @@ async function executeChatRuntimeRequestNow(
     humanize: pluginCtx.humanize,
     targetMessage,
     selfId,
+    audioService: pluginCtx.audioService,
   });
 
   if (options.send === false) {

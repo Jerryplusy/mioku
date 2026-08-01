@@ -7,7 +7,7 @@ export function registerLikeCommand(
 ): () => void {
   return ctx.handle(
     "message",
-    async (event: any) => {
+    async (event) => {
       const cfg = getConfig();
       const text = ctx.text(event)?.trim();
       if (!text || event?.user_id === event?.self_id) {

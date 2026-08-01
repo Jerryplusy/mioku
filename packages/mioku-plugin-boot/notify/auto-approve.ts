@@ -6,7 +6,7 @@ export function registerAutoApprove(
   ctx: MiokiContext,
   getConfig: () => BootPluginConfig,
 ): () => void {
-  const offFriend = ctx.handle("request.friend", async (event: any) => {
+  const offFriend = ctx.handle("request.friend", async (event) => {
     if (!getConfig().friend.autoApprove) {
       return;
     }
@@ -19,7 +19,7 @@ export function registerAutoApprove(
     }
   });
 
-  const offGroup = ctx.handle("request.group.invite" as any, async (event: any) => {
+  const offGroup = ctx.handle("request.group.invite", async (event) => {
     if (!isPrivilegedUser(event?.user_id)) {
       return;
     }

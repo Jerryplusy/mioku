@@ -71,6 +71,7 @@ export type SendMessage = (
   text: string,
   config: ChatConfig,
   selfId: number,
+  audioService?: import("mioku-service-audio").AudioServiceApi,
 ) => Promise<void>;
 
 export type BuildToolContext = (options: {
@@ -87,6 +88,7 @@ export type BuildToolContext = (options: {
   pendingImageUrls?: string[];
   humanize: HumanizeEngine;
   targetMessage: TargetMessage;
+  audioService?: import("mioku-service-audio").AudioServiceApi;
 }) => ToolContext;
 
 export type BuildStructuredUserInput = (event: any, content: string, fallbackTimestamp?: number) => StructuredUserInput;

@@ -1,6 +1,6 @@
 {
   "name": "mioku-plugin-chat",
-  "version": "2.8.0",
+  "version": "2.9.9",
   "description": "AI 智能聊天插件",
   "main": "index.ts",
   "type": "module",
@@ -38,12 +38,18 @@
           "cmd": "/重置群会话",
           "desc": "重置当前群的AI聊天记录",
           "role": "admin"
+        },
+        {
+          "cmd": "/tts <文本>",
+          "desc": "TTS 推理",
+          "role": "owner"
         }
       ]
     }
   },
   "dependencies": {
     "openai": "^4.0.0",
+    "puppeteer": "^23.0.0",
     "sharp": "^0.34.5"
   },
   "devDependencies": {
@@ -52,7 +58,8 @@
     "mioku": "workspace:*"
   },
   "peerDependencies": {
-    "mioku": "^0.8.0",
+    "mioku": "^0.9.0",
+    "mioku-service-audio": "workspace:*",
     "mioki": "^0.16.0"
   }
 }

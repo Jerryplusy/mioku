@@ -1,73 +1,64 @@
-import type { AudioConfig } from "../../types";
+import { readFile } from "node:fs/promises";
+import type { MiokiContext } from "mioki";
+import type { AudioServiceApi, SupportedLang } from "mioku-service-audio";
 
-interface TTSResponse {
-  audio_base64?: string;
-  detail?: string;
-  error?: string;
-}
-
-function ensureTrailingSlash(value: string): string {
-  return value.endsWith("/") ? value : `${value}/`;
-}
-
-function detectAudioLanguage(text: string): string {
-  if (/[\u3040-\u30ff]/.test(text)) {
-    return "all_ja";
-  }
-  if (/[\u4e00-\u9fff]/.test(text)) {
-    return "all_zh";
-  }
+function detectAudioLanguage(text: string): SupportedLang {
+  if (/[\u3040-\u30ff]/.test(text)) return "ja";
+  if (/[\u4e00-\u9fff]/.test(text)) return "zh";
+  if (/[\uac00-\ud7af]/.test(text)) return "ko";
   return "en";
 }
 
-export async function synthesizeAudioBase64(
-  config: AudioConfig,
+export async function synthesizeAudioSource(
+  audioService: AudioServiceApi | undefined,
   text: string,
-): Promise<string> {
-  const trimmedText = String(text || "").trim();
-  if (!config.enabled) {
-    throw new Error("Audio output is disabled");
-  }
-  if (!trimmedText) {
-    throw new Error("Audio text cannot be empty");
-  }
-  if (!config.baseUrl?.trim()) {
-    throw new Error("Audio service baseUrl is not configured");
-  }
+): Promise<string | null> {
+  const trimmed = String(text || "").trim();
+  if (!audioService) return null;
+  if (!trimmed) return null;
 
-  const endpoint = new URL("tts", ensureTrailingSlash(config.baseUrl.trim()));
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
+  const isReady = await audioService.ready().catch(() => false);
+  if (!isReady) return null;
 
-  const apiKey = config.apiKey?.trim();
-  if (apiKey) {
-    headers["X-API-Key"] = apiKey;
-  }
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      text: trimmedText,
-      text_lang: detectAudioLanguage(trimmedText),
-    }),
-    signal: AbortSignal.timeout(Math.max(1000, config.timeoutMs || 20_000)),
+  const result = await audioService.generateByText({
+    text: trimmed,
+    textLang: detectAudioLanguage(trimmed),
+    mediaType: "wav",
   });
 
-  const payload = (await response.json().catch(() => ({}))) as TTSResponse;
-  if (!response.ok) {
-    throw new Error(
-      payload?.detail ||
-        payload?.error ||
-        `TTS request failed with status ${response.status}`,
+  if (!result?.filePath) return null;
+  const filePath = result.filePath.replace(/^file:\/\//, "");
+  const buf = await readFile(filePath);
+  return `base64://${buf.toString("base64")}`;
+}
+
+export async function sendVoice(
+  ctx: MiokiContext,
+  e: any,
+  filePath: string,
+  logTag = "[audio]",
+): Promise<void> {
+  const fileUrl = filePath.startsWith("file://")
+    ? filePath
+    : `file://${filePath}`;
+  try {
+    await e.reply([ctx.segment.record(fileUrl)]);
+    return;
+  } catch (err: any) {
+    const msg = String(err?.message ?? err);
+    if (
+      !/File URL path must be absolute|ENOENT|cannot access|No such file/i.test(
+        msg,
+      )
+    ) {
+      throw err;
+    }
+    const localPath = filePath.replace(/^file:\/\//, "");
+    const buf = await readFile(localPath);
+    const b64 = `base64://${buf.toString("base64")}`;
+    ctx.logger.info(
+      `${logTag} file:// 发送失败 (${msg})，回退 base64 (${buf.length} bytes)`,
     );
+    await e.reply([ctx.segment.record(b64)]);
   }
-
-  const audioBase64 = String(payload.audio_base64 || "").trim();
-  if (!audioBase64) {
-    throw new Error("TTS response missing audio_base64");
-  }
-
-  return `base64://${audioBase64}`;
 }

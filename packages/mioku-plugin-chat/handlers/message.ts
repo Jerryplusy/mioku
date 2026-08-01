@@ -1,4 +1,8 @@
 import type { ChatPluginContext, ChatHandlerState } from "../context";
+import type {
+  GroupMessageEvent,
+  PrivateMessageEvent,
+} from "napcat-sdk";
 import {
   isGroupAllowed,
   shouldTrigger,
@@ -21,6 +25,7 @@ import {
   summarizeHistoryVideo,
 } from "../core/media/history-media";
 import { handleIdleCheckDebug } from "./idle-debug";
+import { handleTtsCommand } from "./tts-command";
 import { processChat } from "../core/chat-turn";
 
 const POKE_COOLDOWN_MS = 10 * 60_000;
@@ -32,7 +37,7 @@ export function createMessageHandler(
   const { ctx } = pluginCtx;
   const { getConfig, matchMessageCommands, runtimeState } = state;
 
-  return async (e: any) => {
+  return async (e: GroupMessageEvent | PrivateMessageEvent) => {
     const isGroup = e.message_type === "group";
     const groupId: number | undefined = isGroup ? e.group_id : undefined;
     const cfg = await getConfig(groupId);
@@ -48,6 +53,12 @@ export function createMessageHandler(
 
     if (text.startsWith("/空闲检查 ")) {
       await handleIdleCheckDebug(pluginCtx, e, cfg);
+      return;
+    }
+
+    if (text.startsWith("/tts")) {
+      const payload = text.replace(/^\/tts\s*/, "");
+      await handleTtsCommand(pluginCtx, e, payload);
       return;
     }
 
@@ -68,11 +79,11 @@ export function createMessageHandler(
 
     // 媒体分析
     if (isGroup && groupId && e.message && !isMediaAnalysisBlocked(cfg, userId)) {
-      const ai = pluginCtx.aiService.getDefault();
+      const visionAI = pluginCtx.visionAIInstance ?? pluginCtx.aiService.getDefault();
       const bot = ctx.pickBot(e.self_id) as any;
-      const mediaOptions = ai
+      const mediaOptions = visionAI
         ? buildHistoryMediaProcessingOptions(
-            ai,
+            visionAI,
             cfg,
             pluginCtx.db,
             bot,
@@ -91,13 +102,13 @@ export function createMessageHandler(
           )
         : undefined;
 
-      if (ai && cfg.enableMediaRecognition) {
+      if (visionAI && cfg.enableMediaRecognition) {
         const { processImage } = await import("../core/media/image-analyzer");
         for (const seg of e.message) {
           if (seg.type === "image") {
             const imageUrl = getSegmentUrl(seg);
             if (imageUrl) {
-              processImage(ai, imageUrl, cfg.multimodalWorkingModel, pluginCtx.db, {
+              processImage(visionAI, imageUrl, cfg.multimodalWorkingModel, pluginCtx.db, {
                 runAIRequest: (request) =>
                   pluginCtx.runWithRateLimitGuard(request, {
                     userId,

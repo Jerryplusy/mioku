@@ -15,13 +15,12 @@ import type { SkillSessionManager } from "../manage/skill-session";
  * Everything here is required to be identical across consecutive requests for the same bot
  * so OpenAI's auto prompt caching can hit the system block.
  *
- * Concretely: persona, config flags, enabled features, allowed external skills, persona style.
- * Anything that changes turn-to-turn (time, group, history, target, emotion, replies context, etc.)
+ * Concretely: persona, config flags, enabled features, allowed external skills.
+ * Anything that changes turn-to-turn (time, group, history, target, emotion, reply style, replies context, etc.)
  * belongs in DynamicPromptContext instead.
  */
 export interface StaticPromptContext {
   config: ChatConfig;
-  botNickname: string;
   aiService: AIService;
   enableExternalSkills: boolean;
   triggerSkillRole?: SkillPermissionRole;
@@ -144,17 +143,16 @@ const REPLY_STYLE_LENGTH: Record<Strength, string> = {
 };
 
 const AUDIO_MODE_LINE: Record<Strength, string> = {
-  high:
-    "- Use voice sparingly. Only use it when spoken delivery is clearly better than text, such as a greeting, a sharp emotional reaction, or a daily phrase.",
+  high: "- Use voice sparingly. Only use it when spoken delivery is clearly better than text, such as a greeting, a sharp emotional reaction, or a daily phrase.",
   medium:
     "- You may use voice for greetings, reactions, calls, confirmations, or comforting words, but stay selective.",
   low: "- When a short spoken reaction would make the conversation feel more natural or vivid, you can use voice more freely.",
 };
 
 const MARKDOWN_MODE_LINE: Record<Strength, string> = {
-  high:
-    "- Prefer normal chat text. Use Markdown only when the reply truly needs structured presentation, such as a tutorial, comparison, detailed explanation, code sample or processing large amounts of data, such as after a web search or viewing a webpage.",
-  medium: "- Use Markdown when your responses require a structured presentation.",
+  high: "- Prefer normal chat text. Use Markdown only when the reply truly needs structured presentation, such as a tutorial, comparison, detailed explanation, code sample or processing large amounts of data, such as after a web search or viewing a webpage.",
+  medium:
+    "- Use Markdown when your responses require a structured presentation.",
   low: "- Use Markdown freely where it can make your responses clearer.",
 };
 
@@ -175,15 +173,13 @@ const TOOL_INTENSITY_BLOCK: Record<Strength, string> = {
 };
 
 const EMOJI_MODE_LINE: Record<Strength, string> = {
-  high:
-    "- Do not use stickers in consecutive chat turns. Use a sticker only when you are in an emotionally intense state.",
+  high: "- Do not use stickers in consecutive chat turns. Use a sticker only when you are in an emotionally intense state.",
   medium: "- Do not use stickers in consecutive chat turns.",
   low: "- Feel free to use a sticker whenever you want.",
 };
 
 const WEB_SEARCH_LINE: Record<Strength, string> = {
-  high:
-    "- When facts may be outdated or uncertain, proactively call web_search instead of guessing.",
+  high: "- When facts may be outdated or uncertain, proactively call web_search instead of guessing.",
   medium: "- Use web_search when current or external info is needed.",
   low: "- Use web_search only when the user explicitly needs external/current information.",
 };
@@ -210,7 +206,6 @@ export function buildStaticSystemPrompt(ctx: StaticPromptContext): string {
   const sections: string[] = [];
 
   sections.push(buildPersonaSection(ctx.config.persona));
-  sections.push(buildReplyStyleSection(ctx.config, ctx.botNickname, lengthStrength));
   sections.push(
     buildResponseFormatSection(
       ctx,
@@ -244,7 +239,7 @@ function buildReplyStyleSection(
  ### Behavior Guidelines
  - You are a participant in this chat, not an assistant. Chat naturally like a real person.
  - ${REPLY_STYLE_LENGTH[lengthStrength]}
- - Match the language used by others in the chat (if they speak Chinese, reply in Chinese, etc.).
+ - Match the language used by others in the chat.
  - Don't repeat yourself or echo what others just said.
  - **NEVER use action descriptions like *xxx* or (xxx) — just speak as a normal person would**
  - **${markdownBehaviorLine(config)}**
@@ -272,31 +267,24 @@ function buildResponseFormatSection(
 
   lines.push(`Your text response IS your reply to the chat. It will be sent directly as a message.
 - **IMPORTANT: Output ONLY your final reply text. Do NOT include your thinking process, reasoning, analysis, or internal thoughts.**
-- Do NOT prefix your response with phrases like "Let me think", "I should", "I need to", "Based on", "Looking at", etc.
 - Do NOT explain what you're doing or why. Just say what you want to say directly.
-- **MULTIPLE MESSAGES (CRITICAL!): Each line (separated by Enter/Return) will be sent as a SEPARATE message.**
+- **MULTIPLE MESSAGES: Each line (separated by Enter/Return) will be sent as a SEPARATE message.**
   - If you want to send multiple messages, just press Enter and write the next line
-  - Each line = one message sent to the chat
   - **If your reply has multiple sentences or different points, ALWAYS use real line breaks to separate them**
-  - NEVER use "\\" or literal "\\n" to simulate a new line
-- **MESSAGE ORDER MATTERS**: messages are sent top-to-bottom, one line at a time.
-- For action markers like [] or [audio:...], put them on their own line when they are meant to be a separate action.
+- For action markers like [] , put them on their own line when they are meant to be a separate action.
 
 - **SPECIAL ACTIONS in your text (auto-parsed and removed from message):**
   - Use [at:123456] in your text to @ someone (123456 is the QQ number)
-  - Use [poke:123456] in your text to poke someone. IMPORTANT: when you plan to poke a user, DON't emphasize words like "戳你一下 or 戳回去" to describe your actions
+  - Use [poke:123456] in your text to poke someone. IMPORTANT: when you plan to poke a user, DON't describe your poke actions.
   - Use [reply:123456] at the START of a line to quote-reply that message (123456 is message_id)
-  - **You can use MULTIPLE [reply:xxx] markers in different lines to quote multiple messages!**
-  - These markers will be automatically parsed and removed from your sent message`);
+  - **You can use MULTIPLE [reply:xxx] markers in different lines to quote multiple messages!**`);
 
-  if (ctx.config.audio?.enabled && ctx.config.audio.baseUrl?.trim()) {
+  if (ctx.config.audio?.enabled) {
     lines.push(`
 ### Optional Voice Message Format
 - You MAY optionally send one voice message by writing [audio:content]
 - Audio is OPTIONAL. Do NOT use it in every reply
-The voice message function sends plain text and cannot be used for singing. If a user needs you to sing, other skills should be considered first.
-- Put [audio:...] on its own line when you want it sent as a separate message in sequence
-- Example: "[audio:おはようー]"
+The voice message function sends plain text and cannot be used for singing。
 ${AUDIO_MODE_LINE[audioStrength]}`);
   }
 
@@ -316,9 +304,6 @@ ${MARKDOWN_MODE_LINE[markdownStrength]}
   lines.push(`
 ### Tool Calling Format
 - When you decide to use a tool, you MUST use the structured tool_calls mechanism provided by the API
-- Do NOT output tool calls, tool names, or tool arguments in your reply text under any circumstances
-- Do NOT use XML, JSON, or any text format to describe tool calls — only use the API's tool_calls field
-- Each tool's description contains its own usage guidance; read those before calling a tool. If a tool's description says "use only when X" or "do not call for every question", respect that.
 - web_search and web_read_page are limited per conversation; do not retry excessively`);
 
   appendEmojiSection(lines, ctx, emojiStrength);
@@ -343,9 +328,7 @@ function appendEmojiSection(
 ### Optional Sticker / Emoji Format
 - You MAY optionally request one matching sticker by writing exactly [] on its own line
 ${EMOJI_MODE_LINE[emojiStrength]}
-- Never put an emotion, label, character, or any other text inside the brackets
-- Output at most one [] block in a turn
-- A separate sticker selection agent will read the current conversation and choose the actual sticker`);
+- Never put an emotion, label, character, or any other text inside the brackets`);
 }
 
 function appendExternalSkillsSection(
@@ -455,6 +438,9 @@ export function buildDynamicUserContext(ctx: DynamicPromptContext): string {
     sections.push(`## Planner's Analysis\n${ctx.plannerThoughts}`);
   }
 
+  sections.push(
+    buildReplyStyleSection(ctx.config, ctx.botNickname, lengthStrength),
+  );
   sections.push(buildEmotionSection(ctx));
 
   return sections.join("\n\n");
@@ -539,8 +525,7 @@ function buildReviewGuidance(isMulti: boolean, length: Strength): string[] {
 function buildPokedGuidance(length: Strength): string[] {
   return [
     "Someone pokes you in a group, probably out of non-malicious play or to draw your attention to what happened in the group chat.",
-    "Don't make a fuss about replying, just observe whether the chat history in the group has noteworthy content, and if not, simply say hello or express concern to the user.",
-    "Reply naturally in combination with the context, don't say something like \"怎么又来戳我了\"",
+    "Don't make a fuss about replying, just observe whether the chat history in the group has noteworthy content, and if not, simply say hello or express concern to the user. Don't stress about being poked.",
     POKED_LENGTH[length],
   ].filter(Boolean);
 }
@@ -622,13 +607,8 @@ function buildChatHistorySection(ctx: DynamicPromptContext): string {
   }
   flushAssistant();
 
-  return `## Recent Context (Only reference if directly relevant)
-Just the last few messages - don't overthink it or dig into old conversations:
-
+  return `## Recent Context
 ${mergedLines.join("\n")}
-
-Note: Messages may contain media tags like [image:描述], [video:描述], [forward:摘要], [card:摘要], or [group_notice:摘要]. If you need detailed information about an image or video, use the view_media tool with the message ID.
-
 -- DON'T repeat yourself or bring up old topics - focus on what's being said right now. --`;
 }
 
@@ -657,7 +637,7 @@ ${messageBlocks.join("\n")}
 IMPORTANT: You do NOT need to reply to each person or each message above. Give ONE casual response to the group as a whole.`;
   }
 
-  return `## >>> Target Message (Reply to THIS) <<<
+  return `## >>> Target Message <<<
 [${timeStr}] ${target.userName}(${target.userId}, ${target.userRole}${target.userTitle ? `, ${target.userTitle}` : ""})${msgIdStr}: ${target.content}`;
 }
 
@@ -687,7 +667,7 @@ function buildEmotionSection(ctx: DynamicPromptContext): string {
     lines.push(`Available emotions: ${availableEmotions.join(", ")}`);
   }
   lines.push(
-    "You may switch your emotion state by writing [emotion:emotion_name]. The marker is not sent to the chat. Only use available emotions.",
+    "You may switch your emotion state by writing [emotion:emotion_name].",
   );
 
   if (examples.length > 0) {
@@ -702,7 +682,9 @@ function buildEmotionSection(ctx: DynamicPromptContext): string {
 }
 
 function normalizeEmotionName(value: unknown): string {
-  return String(value || "").trim().toLowerCase();
+  return String(value || "")
+    .trim()
+    .toLowerCase();
 }
 
 function normalizeEmotionExamples(value: unknown): string[] {
@@ -744,7 +726,5 @@ export function buildRecallMemoryFeatureSection(config: ChatConfig): string {
   return `
 ### Memory Recall Tool
 - recall_memory: Delegate recall to a memory worker model. Pass a clear recall question and let the worker search historical logs.
-- Use recall_memory ONLY when there is explicit need to recall past content and required information is clearly missing from current context.
-- Do NOT call recall_memory for every question.
-- The worker returns historical logs with timestamps; treat them as past records, not newly sent messages.`;
+- Use recall_memory ONLY when there is explicit need to recall past content and required information is clearly missing from current context.`;
 }

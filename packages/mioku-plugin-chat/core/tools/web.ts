@@ -234,7 +234,7 @@ export function createWebReadPageTool(toolCtx: ToolContext): AITool {
     handler: async (args) => {
       try {
         const ai = toolCtx.config.webReader.useWorkingModel
-          ? toolCtx.aiService.getDefault()
+          ? (toolCtx.aiService.getInstanceByRole?.("working") ?? toolCtx.aiService.getDefault())
           : undefined;
         if (toolCtx.config.webReader.useWorkingModel && !ai) {
           return { success: false, error: "AI instance not available" };
@@ -275,7 +275,7 @@ export function createRecallMemoryTool(toolCtx: ToolContext): AITool {
       const question = String(args?.question || "").trim();
       if (!question) return { success: false, error: "question is required" };
 
-      const ai = toolCtx.aiService.getDefault();
+      const ai = toolCtx.aiService.getInstanceByRole?.("working") ?? toolCtx.aiService.getDefault();
       if (!ai) return { success: false, error: "AI instance not available" };
 
       const groupHistoryLimit = resolveGroupRecallLimit(toolCtx.config.memory?.groupHistoryLimit);

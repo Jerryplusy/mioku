@@ -87,6 +87,7 @@ export interface UnifiedMessage {
   role: UnifiedRole;
   content: string | UnifiedContentPart[];
   toolCalls?: UnifiedToolCall[];
+  responseItems?: any[];
   toolCallId?: string;
   name?: string;
 }

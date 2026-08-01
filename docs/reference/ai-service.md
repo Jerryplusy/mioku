@@ -10,12 +10,13 @@ AI 服务，提供 AI 实例管理、提示词管理、Skills 管理等。
 
 #### create
 
-创建一个新的 AI 实例。
+基于给定 API 端点创建一个新的 AI 实例(兼容式入口,内部构建一个 `openai-chat` 协议运行时)。
 
 > - `name`: 实例名称
 > - `apiUrl`: API 地址
 > - `apiKey`: API 密钥
 > - `modelType`: 模型类型
+> - `model?`: 模型 ID,省略时按 `modelType` 推断
 >   返回: `Promise<AIInstance>` - AI 实例
 
 #### get
@@ -47,6 +48,7 @@ function create(options: {
   apiUrl: string;
   apiKey: string;
   modelType: "text" | "multimodal";
+  model?: string;
 }): Promise<AIInstance>;
 function get(name: string): AIInstance | undefined;
 function list(): string[];
@@ -395,20 +397,21 @@ interface MultimodalContentItem {
 ```typescript
 interface CompleteOptions {
   model?: string;
-  messages: ChatCompletionMessageParam[];
-  tools?: ChatCompletionTool[];
+  messages: any[];
+  tools?: any[];
   executableTools?: SessionToolDefinition[];
   executableToolsProvider?: () => SessionToolDefinition[];
   temperature?: number;
   max_tokens?: number;
   maxIterations?: number;
   stream?: boolean;
+  cachePreference?: "prefer" | "none";
   onTextDelta?: (delta: string) => void | Promise<void>;
 }
 ```
 
 > - `model?`: 模型名称
-> - `messages`: 消息列表
+> - `messages`: 消息列表(已统一为内部协议消息)
 > - `tools?`: 工具定义
 > - `executableTools?`: 可执行工具
 > - `executableToolsProvider?`: 动态获取工具函数
@@ -416,6 +419,7 @@ interface CompleteOptions {
 > - `max_tokens?`: 最大 Token 数
 > - `maxIterations?`: 最大迭代次数
 > - `stream?`: 是否流式输出
+> - `cachePreference?`: 是否优先使用提示词缓存(`"prefer"` / `"none"`)
 > - `onTextDelta?`: 流式文本回调
 
 ### CompleteResponse
@@ -427,10 +431,10 @@ interface CompleteResponse {
   content: string | null;
   reasoning: string | null;
   toolCalls: { id: string; name: string; arguments: string }[];
-  raw: ChatCompletionMessageParam;
+  raw: any;
   iterations?: number;
   allToolCalls?: ToolCallRecord[];
-  turnMessages?: ChatCompletionMessageParam[];
+  turnMessages?: any[];
 }
 ```
 

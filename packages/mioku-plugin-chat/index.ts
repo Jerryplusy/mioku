@@ -1,8 +1,13 @@
-import { definePlugin } from "mioki";
-import type { MiokiContext } from "mioki";
-import type { AIInstance, AIModelRole, AIService, ConfigService, ScreenshotService } from "mioku";
-import { getPluginRuntimeState } from "mioku";
-import type { ChatConfig, ChatMessage, ChatGroupsFile, TargetMessage } from "./types";
+import { definePlugin, type MiokiContext } from "mioki";
+import type { AIInstance, AIModelRole, AIService } from "mioku";
+import type { AudioServiceApi } from "mioku-service-audio";
+import { getPluginRuntimeState, getService, Services } from "mioku";
+import type {
+  ChatConfig,
+  ChatMessage,
+  ChatGroupsFile,
+  TargetMessage,
+} from "./types";
 import { initDatabase } from "./db";
 import { SessionManager } from "./manage/session";
 import { RateLimiter } from "./manage/rate-limiter";
@@ -56,14 +61,10 @@ function resolveRoleInstances(aiService: AIService): {
   isMultimodal: boolean;
 } | null {
   const getByRole = (role: AIModelRole) =>
-    aiService.getInstanceByRole?.(role) ??
-    aiService.get?.(role) ??
-    undefined;
+    aiService.getInstanceByRole?.(role) ?? aiService.get?.(role) ?? undefined;
 
   const main =
-    getByRole("main") ??
-    aiService.getDefault?.() ??
-    aiService.get?.("main");
+    getByRole("main") ?? aiService.getDefault?.() ?? aiService.get?.("main");
   if (!main) return null;
 
   const work = getByRole("working") ?? aiService.get?.("work") ?? main;
@@ -78,9 +79,13 @@ function resolveRoleInstances(aiService: AIService): {
   const findModel = (role: AIModelRole, fallbackInstance: AIInstance) => {
     const full = bindings[role];
     if (full && full.includes("/")) return full.split("/").slice(1).join("/");
-    const info = instances.find((item) => item.role === role || item.name === role);
+    const info = instances.find(
+      (item) => item.role === role || item.name === role,
+    );
     if (info?.modelId) return info.modelId;
-    const anyInfo = instances.find((item) => item.name === (fallbackInstance as any).name);
+    const anyInfo = instances.find(
+      (item) => item.name === (fallbackInstance as any).name,
+    );
     return anyInfo?.modelId || "";
   };
 
@@ -115,16 +120,28 @@ export default definePlugin({
   async setup(ctx: MiokiContext) {
     ctx.logger.info("聊天插件正在初始化...");
 
-    const aiService = ctx.services?.ai as AIService | undefined;
-    const configService = ctx.services?.config as ConfigService | undefined;
-    const screenshotService = ctx.services?.screenshot as ScreenshotService | undefined;
+    const aiService = getService(ctx, Services.AI);
+    const configService = getService(ctx, Services.Config);
+    const screenshotService = getService(ctx, Services.Screenshot);
+    const audioService = ctx.services.audio as AudioServiceApi | undefined;
     let warnedMarkdownScreenshotUnavailable = false;
+    if (!audioService) {
+      ctx.logger.warn("聊天插件检测到 audio 服务未安装 语音消息将不会发出");
+    }
 
     if (configService) {
       await configService.registerConfig("chat", "base", BASE_CONFIG);
       await configService.registerConfig("chat", "settings", SETTINGS_CONFIG);
-      await configService.registerConfig("chat", "personalization", PERSONALIZATION_CONFIG);
-      await configService.registerConfig("chat", "groups", DEFAULT_GROUPS_CONFIG);
+      await configService.registerConfig(
+        "chat",
+        "personalization",
+        PERSONALIZATION_CONFIG,
+      );
+      await configService.registerConfig(
+        "chat",
+        "groups",
+        DEFAULT_GROUPS_CONFIG,
+      );
     }
 
     let cachedBaseConfig: ChatConfig | null = null;
@@ -147,7 +164,8 @@ export default definePlugin({
         );
       }
       const base = (await configService.getConfig("chat", "base")) ?? {};
-      const settings = (await configService.getConfig("chat", "settings")) ?? {};
+      const settings =
+        (await configService.getConfig("chat", "settings")) ?? {};
       const personalization =
         (await configService.getConfig("chat", "personalization")) ?? {};
       const mergedDefaults = mergeChatConfig(
@@ -172,20 +190,26 @@ export default definePlugin({
       if (!screenshotService && merged.enableMarkdownScreenshot) {
         merged.enableMarkdownScreenshot = false;
         if (!warnedMarkdownScreenshotUnavailable) {
-          ctx.logger.warn("聊天插件未加载 screenshot 服务，Markdown 截图渲染已自动关闭");
+          ctx.logger.warn(
+            "聊天插件未加载 screenshot 服务，Markdown 截图渲染已自动关闭",
+          );
           warnedMarkdownScreenshotUnavailable = true;
         }
       }
       merged.whitelistGroups = normalizeIdList(merged.whitelistGroups);
       merged.blacklistGroups = normalizeIdList(merged.blacklistGroups);
-      merged.mediaAnalysisBlacklistUsers =
-        normalizeMediaAnalysisBlacklist(merged as Record<string, any>);
+      merged.mediaAnalysisBlacklistUsers = normalizeMediaAnalysisBlacklist(
+        merged as Record<string, any>,
+      );
       delete (merged as any).imageAnalysisBlacklistUsers;
 
       merged.model = roleModels.main || merged.model || "";
-      merged.workingModel = roleModels.working || merged.workingModel || merged.model;
+      merged.workingModel =
+        roleModels.working || merged.workingModel || merged.model;
       merged.multimodalWorkingModel =
-        roleModels.vision || merged.multimodalWorkingModel || merged.workingModel;
+        roleModels.vision ||
+        merged.multimodalWorkingModel ||
+        merged.workingModel;
       merged.isMultimodal = roleIsMultimodal;
       if (!roleIsMultimodal) merged.enableMediaRecognition = false;
       if (!merged.apiKey) merged.apiKey = "__ai_service__";
@@ -200,7 +224,10 @@ export default definePlugin({
       }
       const raw = await configService.getConfig("chat", "groups");
       cachedGroupsConfig =
-        raw && typeof raw === "object" && raw.groups && typeof raw.groups === "object"
+        raw &&
+        typeof raw === "object" &&
+        raw.groups &&
+        typeof raw.groups === "object"
           ? (raw as ChatGroupsFile)
           : DEFAULT_GROUPS_CONFIG;
     };
@@ -276,7 +303,9 @@ export default definePlugin({
           apiUrl: legacyApiUrl,
           apiKey: legacyApiKey,
           modelType: "text",
-          model: String((earlyConfig as any).workingModel || legacyModel || "default"),
+          model: String(
+            (earlyConfig as any).workingModel || legacyModel || "default",
+          ),
         });
         await aiService.create({
           name: "vision",
@@ -284,7 +313,9 @@ export default definePlugin({
           apiKey: legacyApiKey,
           modelType: "multimodal",
           model: String(
-            (earlyConfig as any).multimodalWorkingModel || legacyModel || "default",
+            (earlyConfig as any).multimodalWorkingModel ||
+              legacyModel ||
+              "default",
           ),
         });
         aiService.setDefault("main");
@@ -364,7 +395,9 @@ export default definePlugin({
     const rateLimitGuard = new RateLimitGuard(rateLimiter, ctx.logger);
     const runWithRateLimitGuard = rateLimitGuard.run.bind(rateLimitGuard);
 
-    const getAIInstance = (role: AIModelRole = "main"): AIInstance | undefined => {
+    const getAIInstance = (
+      role: AIModelRole = "main",
+    ): AIInstance | undefined => {
       if (role === "working") {
         return aiService.getInstanceByRole?.("working") ?? workAIInstance;
       }
@@ -375,12 +408,21 @@ export default definePlugin({
     };
 
     const pluginCtx = {
-      ctx, defaultConfig: configProvider(), configProvider, getConfig,
+      ctx,
+      defaultConfig: configProvider(),
+      configProvider,
+      getConfig,
       db,
-      aiInstance: mainAIInstance, workAIInstance, visionAIInstance,
+      aiInstance: mainAIInstance,
+      workAIInstance,
+      visionAIInstance,
       getAIInstance,
-      aiService, humanize,
-      sessionManager, skillManager, rateLimiter, queueManager,
+      aiService,
+      humanize,
+      sessionManager,
+      skillManager,
+      rateLimiter,
+      queueManager,
       groupStructuredHistory,
       cooldownManager: undefined as unknown as CooldownManager,
       idleCheckManager: undefined as unknown as IdleCheckManager,
@@ -388,28 +430,41 @@ export default definePlugin({
       sessionTurnScheduler,
       runWithRateLimitGuard,
       buildHistoryMediaOptions,
-      getGroupHistoryMessages, getGroupInfoData, getHumanizeContexts,
-      sendAIResponse, sendMessage, saveBotMessages, sendEmoji,
+      getGroupHistoryMessages,
+      getGroupInfoData,
+      getHumanizeContexts,
+      sendAIResponse,
+      sendMessage,
+      saveBotMessages,
+      sendEmoji,
       buildToolContext,
       buildStructuredUserInputFromTarget,
       runChat,
+      audioService,
       startCooldownTimer: (
         groupSessionId: string,
         groupId: number,
         selfId: number,
       ) => cooldownManager.startCooldownTimer(groupSessionId, groupId, selfId),
-      async recordGroupMessageForLearning(userMsg: ChatMessage, groupSessionId: string) {
+      async recordGroupMessageForLearning(
+        userMsg: ChatMessage,
+        groupSessionId: string,
+      ) {
         db.saveMessage(userMsg);
         await Promise.all([
           humanize.expressionLearner.onMessage(userMsg),
           humanize.topicTracker.onMessage(groupSessionId),
         ]);
         if (userMsg.groupId) {
-          const ttlMs = configProvider(userMsg.groupId).groupStructuredHistoryTtlMs;
+          const ttlMs = configProvider(
+            userMsg.groupId,
+          ).groupStructuredHistoryTtlMs;
           groupStructuredHistory.append(
             groupSessionId,
             buildStructuredUserMessages([
-              buildStructuredUserInputFromTarget(userMsg as unknown as TargetMessage),
+              buildStructuredUserInputFromTarget(
+                userMsg as unknown as TargetMessage,
+              ),
             ]),
             ttlMs,
           );
@@ -424,8 +479,14 @@ export default definePlugin({
     const queueProcessor = new QueueProcessor(pluginCtx);
     pluginCtx.queueProcessor = queueProcessor;
 
-    const cleanupInterval = setInterval(() => skillManager.cleanup(), 10 * 60_000);
-    const dbCleanup = new ChatDatabaseCleanup(db, configProvider().retention ?? DEFAULT_CLEANUP_CONFIG);
+    const cleanupInterval = setInterval(
+      () => skillManager.cleanup(),
+      10 * 60_000,
+    );
+    const dbCleanup = new ChatDatabaseCleanup(
+      db,
+      configProvider().retention ?? DEFAULT_CLEANUP_CONFIG,
+    );
     dbCleanup.start();
     idleCheckManager.start();
 
@@ -437,7 +498,11 @@ export default definePlugin({
       },
       matchMessageCommands: (
         getPluginRuntimeState("boot") as
-          | { matchMessageCommands?: (text: string) => Array<{ plugin: string; command: string }> }
+          | {
+              matchMessageCommands?: (
+                text: string,
+              ) => Array<{ plugin: string; command: string }>;
+            }
           | undefined
       )?.matchMessageCommands,
       pokeCooldowns,
@@ -447,7 +512,7 @@ export default definePlugin({
     aiService.registerChatRuntime(runtime);
 
     ctx.handle("message", createMessageHandler(pluginCtx, handlerState));
-    ctx.handle("notice.group.poke" as any, createPokeHandler(pluginCtx, handlerState));
+    ctx.handle("notice.group.poke", createPokeHandler(pluginCtx, handlerState));
 
     ctx.logger.info(
       `聊天插件加载成功 (main=${roleModels.main || "?"}, work=${roleModels.working || "?"}, vision=${roleModels.vision || "?"})`,

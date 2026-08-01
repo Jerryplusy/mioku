@@ -184,6 +184,7 @@ export class QueueProcessor {
     const toolCtx = this.buildToolContext({
       ctx: this.ctx, event: firstMsg.event, groupSessionId, groupId, userId: firstMsg.userId,
       config: cfg, aiService: this.aiService, db: this.db, botRole, humanize: this.humanize, targetMessage, selfId,
+      audioService: this.pluginCtx.audioService,
     });
 
     this.sessionManager.getOrCreate(groupSessionId, "group", groupId);
@@ -264,6 +265,7 @@ export class QueueProcessor {
       const toolCtx = this.buildToolContext({
         ctx: this.ctx, event: null, groupSessionId, groupId, userId: targetMessage.userId,
         config: cfg, aiService: this.aiService, db: this.db, botRole, humanize: this.humanize, targetMessage, selfId,
+        audioService: this.pluginCtx.audioService,
       });
 
       const { history } = await this.getGroupHistoryMessages(groupId, groupSessionId, this.ctx, cfg.historyCount, this.db, selfId, this.buildHistoryMediaOptions(this.aiInstance, cfg));

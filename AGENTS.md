@@ -16,7 +16,7 @@ Concise guide for coding agents working in this repo. Read `CLAUDE.md` for the f
 
 - **Verify with**: `bunx tsc --noEmit` (whole monorepo) + `cd packages/mioku && bun run build` + `bun run start` (example bot smoke). There's no test suite — type-check + boot smoke are the guardrails.
 - **Match the house style**: TypeScript ESM, `bun` runtime, **default to no comments** (one-line `//` only where the *why* is non-obvious), split logic across focused files (folder per concern), keep `index.ts` as wiring.
-- **Plugin state** goes through `getPluginRuntimeState`/`setPluginRuntimeState` from `mioku` (not module-level singletons — jiti `moduleCache` is off).
+- **Plugin AI skills** use factory functions in `skills/<name>.ts` + `aiService.registerSkill()` in `setup()` (closures over setup locals, no need for runtime.ts). **Non-AI cross-handler state** goes through `getPluginRuntimeState`/`setPluginRuntimeState` from `mioku`.
 - **Use `ctx.pickBot(e.self_id)`**, not `ctx.bot`. **Storage paths** via `getPluginDataDir`/`getPluginConfigDir`/`ensureDataDir` from `mioku`, never hard-coded `process.cwd() + ...`.
 - **Errors users can act on**: send a QQ message (prefer `chatRuntime.generateNotice` to stay in-voice, fall back to `event.reply`).
 - **Don't** import service types from `mioku-service-*/types.ts` — import them from `"mioku"`.

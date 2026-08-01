@@ -1,5 +1,5 @@
 import { type MiokiContext, isOwner } from "mioki";
-import type { ScreenshotService } from "mioku";
+import { getService, Services } from "mioku";
 import { replyNotice, replyText } from "./notify";
 import { getCommandPrefix } from "./prefix";
 import {
@@ -26,7 +26,7 @@ function renderMarketText(
 }
 
 export function registerMarketCommands(ctx: MiokiContext): () => void {
-  const dispose = ctx.handle("message", async (event: any) => {
+  const dispose = ctx.handle("message", async (event) => {
     const text = ctx.text(event)?.trim();
     if (!text || event?.user_id === event?.self_id) return;
 
@@ -44,9 +44,7 @@ export function registerMarketCommands(ctx: MiokiContext): () => void {
       return;
     }
 
-    const screenshotService = ctx.services?.screenshot as
-      | ScreenshotService
-      | undefined;
+    const screenshotService = getService(ctx, Services.Screenshot);
 
     let items;
     try {

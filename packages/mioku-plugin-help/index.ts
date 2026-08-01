@@ -1,7 +1,5 @@
-import type { ConfigService } from "mioku";
-import type { HelpService } from "mioku";
-import type { ScreenshotService } from "mioku";
 import { definePlugin, type MiokiContext } from "mioki";
+import { getService, Services } from "mioku";
 import * as path from "path";
 import { HELP_DEMO_CONFIG } from "./demo-config";
 import {
@@ -12,13 +10,13 @@ import {
   resolveViewerRole,
 } from "./help";
 import { getRenderVersions } from "./utils";
-import { resetHelpRuntimeState, setHelpRuntimeState } from "./runtime";
 import {
   generateStatusImage,
   networkSampler,
   perfMonitor,
   resolveStatusIntent,
 } from "./status";
+import { createHelpSkills } from "./skills";
 
 const helpPlugin = definePlugin({
   name: "help",
@@ -30,18 +28,16 @@ const helpPlugin = definePlugin({
     networkSampler.start();
     perfMonitor.start();
 
-    const configService = ctx.services?.config as ConfigService | undefined;
-    const helpService = ctx.services?.help as HelpService | undefined;
-    const screenshotService = ctx.services?.screenshot as
-      | ScreenshotService
-      | undefined;
+    const configService = getService(ctx, Services.Config);
+    const helpService = getService(ctx, Services.Help);
+    const screenshotService = getService(ctx, Services.Screenshot);
+    const aiService = getService(ctx, Services.AI);
 
     if (!helpService) {
       ctx.logger.warn("help-service 未加载，帮助插件无法运行");
       return () => {
         networkSampler.stop();
         perfMonitor.stop();
-        resetHelpRuntimeState();
         ctx.logger.info("帮助插件已卸载");
       };
     }
@@ -69,12 +65,11 @@ const helpPlugin = definePlugin({
 
     const { miokiVersion, miokuVersion } = await getRenderVersions();
 
-    setHelpRuntimeState({
-      miokiVersion,
-      miokuVersion,
-    });
+    if (aiService) {
+      for (const skill of createHelpSkills()) aiService.registerSkill(skill);
+    }
 
-    ctx.handle("message", async (event: any) => {
+    ctx.handle("message", async (event) => {
       const text = ctx.text(event);
       if (!text) {
         return;
@@ -159,7 +154,10 @@ const helpPlugin = definePlugin({
     return () => {
       networkSampler.stop();
       perfMonitor.stop();
-      resetHelpRuntimeState();
+      if (aiService) {
+        aiService.removeSkill("help");
+        aiService.removeSkill("status");
+      }
       ctx.logger.info("帮助插件已卸载");
     };
   },
