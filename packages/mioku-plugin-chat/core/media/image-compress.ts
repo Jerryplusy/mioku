@@ -5,11 +5,13 @@ const IMAGE_MAX_BYTES = 1 * 1024 * 1024;
 const COMPRESS_MAX_WIDTH = 1280;
 const COMPRESS_JPEG_QUALITY = 80;
 
-const FETCH_HEADERS = {
+export const QQ_IMAGE_FETCH_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   Referer: "https://qq.com/",
 };
+
+const FETCH_HEADERS = QQ_IMAGE_FETCH_HEADERS;
 
 /**
  * 准备发给模型的图片 URL：体积超过 1MB 时压缩为 JPEG data URL，否则原样返回。

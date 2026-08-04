@@ -16,10 +16,10 @@ export async function handleTtsCommand(
 ): Promise<void> {
   const { ctx } = pluginCtx;
   const isOwner = ctx.isOwner?.(e) ?? false;
-  if (!isOwner) {
-    await e.reply("只有主人才能使用 /tts 指令~");
-    return;
-  }
+  // if (!isOwner) {
+  //   await e.reply("只有主人才能使用 /tts 指令~");
+  //   return;
+  // }
 
   const text = String(payload || "").trim();
   if (!text) {

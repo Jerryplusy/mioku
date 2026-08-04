@@ -3,7 +3,10 @@ import type { AIInstance } from "mioku";
 import { logger } from "mioki";
 import type { ChatDatabase } from "../../db";
 import type { ImageRecord } from "../../types";
-import { prepareImageUrlsForModel } from "./image-compress";
+import {
+  prepareImageUrlsForModel,
+  QQ_IMAGE_FETCH_HEADERS,
+} from "./image-compress";
 
 export interface ImageAnalysisResult {
   success: boolean;
@@ -17,10 +20,18 @@ export interface ImageAnalysisOptions {
 
 export async function calculateImageHash(url: string): Promise<string | null> {
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: QQ_IMAGE_FETCH_HEADERS });
     if (!response.ok) {
       logger.warn(
         `[image-analyzer] Failed to download image for hashing: ${response.status} ${response.statusText}`,
+      );
+      return null;
+    }
+
+    const contentType = response.headers.get("content-type");
+    if (contentType && contentType.startsWith("text/")) {
+      logger.warn(
+        `[image-analyzer] Non-image content for hashing (${contentType}): ${url}`,
       );
       return null;
     }
