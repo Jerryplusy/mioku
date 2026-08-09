@@ -157,7 +157,7 @@ export async function processImage(
 
     const record: ImageRecord = {
       hash,
-      url: normalizeImageUrl(imageUrl) || imageUrl,
+      url: imageUrl,
       type: "image",
       description: analysis.description || "未知",
       createdAt: Date.now(),
@@ -177,17 +177,11 @@ export async function getImageTag(
   const exact = db.getImageByUrl(imageUrl);
   if (exact) return `[image:${exact.description}]`;
 
-  const normalized = normalizeImageUrl(imageUrl);
-  if (normalized && normalized !== imageUrl) {
-    const normalizedHit = db.getImageByUrl(normalized);
-    if (normalizedHit) return `[image:${normalizedHit.description}]`;
-  }
-
   const hash = await calculateImageHash(imageUrl);
   if (hash) {
     const byHash = db.getImageByHash(hash);
     if (byHash) {
-      db.saveImage(asImageRecord(byHash, normalized || imageUrl));
+      db.saveImage(asImageRecord(byHash, imageUrl));
       return `[image:${byHash.description}]`;
     }
   }
@@ -198,7 +192,7 @@ export async function getImageTag(
 function asImageRecord(record: ImageRecord, url: string): ImageRecord {
   return {
     ...record,
-    url: normalizeImageUrl(url) || url,
+    url,
     type: "image",
   };
 }
