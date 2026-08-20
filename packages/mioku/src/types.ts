@@ -350,6 +350,8 @@ export interface AIService {
   getRoleBindings?(): Record<AIModelRole, string | undefined>;
   setRoleBinding?(role: AIModelRole, modelFullId: string | undefined): boolean;
   getInstanceByRole?(role: AIModelRole): AIInstance | undefined;
+  setMainFallbackChain?(modelFullIds: string[]): void;
+  getMainFallbackChain?(): string[];
   registerChatRuntime(runtime: any): boolean;
   getChatRuntime(): any;
   removeChatRuntime(): boolean;
@@ -458,6 +460,8 @@ export interface AIUsageContext {
   userId?: number;
   userName?: string;
   sessionId?: string;
+  fallbackUsed?: boolean;
+  fallbackFrom?: string;
 }
 
 export interface AIUsageBreakdown {
