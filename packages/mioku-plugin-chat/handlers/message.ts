@@ -98,6 +98,7 @@ export function createMessageHandler(
                 userId,
                 groupId,
                 label: "history-media",
+                skipRetryOnRateLimit: true,
               }),
           )
         : undefined;
@@ -114,6 +115,7 @@ export function createMessageHandler(
                     userId,
                     groupId,
                     label: "image-analysis",
+                    skipRetryOnRateLimit: true,
                   }),
               }).catch((err) =>
                 ctx.logger.error(`[image-analyzer] Failed: ${err}`),

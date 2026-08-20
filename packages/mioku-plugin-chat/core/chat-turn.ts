@@ -351,7 +351,7 @@ export async function processChat(
               }
             : undefined,
         ),
-      { userId, groupId, label: isGroup ? "group-chat" : "private-chat" },
+      { userId, groupId, label: isGroup ? "group-chat" : "private-chat", skipRetryOnRateLimit: true },
     );
 
     if (!result) {

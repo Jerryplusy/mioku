@@ -342,7 +342,7 @@ export default definePlugin({
       return;
     }
 
-    roleModels = resolved.models;
+roleModels = resolved.models;
     roleIsMultimodal = resolved.isMultimodal;
     await refreshBaseCache();
 

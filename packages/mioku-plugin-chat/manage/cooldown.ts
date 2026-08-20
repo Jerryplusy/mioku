@@ -277,7 +277,7 @@ export class CooldownManager {
             ),
           },
         ),
-      { userId: targetMessage.userId, groupId, label: "cooldown" },
+      { userId: targetMessage.userId, groupId, label: "cooldown", skipRetryOnRateLimit: true },
     );
     if (!result) return;
 
@@ -414,7 +414,7 @@ export class CooldownManager {
             ),
           },
         ),
-      { userId: targetMessage.userId, groupId, label: "cooldown-planner" },
+      { userId: targetMessage.userId, groupId, label: "cooldown-planner", skipRetryOnRateLimit: true },
     );
     if (!result) {
       this.ctx.logger.warn(

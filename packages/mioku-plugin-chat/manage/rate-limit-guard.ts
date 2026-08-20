@@ -1,12 +1,38 @@
 import type { RateLimiter } from "./rate-limiter";
 
-const RATE_LIMIT_RETRY_DELAY_MS = 5_000;
-const RATE_LIMIT_MAX_RETRIES = 2;
+const RATE_LIMIT_RETRY_DELAYS_MS = [5_000, 10_000, 30_000, 60_000];
 
 type Logger = { warn: (...args: unknown[]) => void };
 
-// Wraps an AI request with global rate-limit blocking + per-user/group RPM
-// limiting. On a 429 it backs off and retries up to RATE_LIMIT_MAX_RETRIES.
+function isRateLimitError(err: unknown): boolean {
+  if (err === null || err === undefined) return false;
+  const s = String(err).toLowerCase();
+  return s.includes("429") || s.includes("rate limit") || s.includes("rate_limit");
+}
+
+async function retryOn429<T>(
+  fn: () => Promise<T>,
+  log: Logger,
+  label?: string,
+): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isRateLimitError(err)) throw err;
+      if (attempt >= RATE_LIMIT_RETRY_DELAYS_MS.length) throw err;
+      const delay = RATE_LIMIT_RETRY_DELAYS_MS[attempt];
+      const attemptLabel = `${attempt + 1}/${RATE_LIMIT_RETRY_DELAYS_MS.length}`;
+      log.warn(
+        `[Chat]${label ? ` ${label}` : ""} 命中 429，等待 ${delay / 1000}s 后第 ${attemptLabel} 次重试: ${err}`,
+      );
+      attempt += 1;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 export class RateLimitGuard {
   private blockedUntil = 0;
 
@@ -20,17 +46,17 @@ export class RateLimitGuard {
   }
 
   private markBlocked(): void {
-    this.blockedUntil = Date.now() + RATE_LIMIT_RETRY_DELAY_MS;
-  }
-
-  private isRateLimitError(err: unknown): boolean {
-    const s = String(err).toLowerCase();
-    return s.includes("429") || s.includes("rate limit");
+    this.blockedUntil = Date.now() + RATE_LIMIT_RETRY_DELAYS_MS[0];
   }
 
   async run<T>(
     request: () => Promise<T>,
-    opts?: { userId?: number; groupId?: number; label?: string },
+    opts?: {
+      userId?: number;
+      groupId?: number;
+      label?: string;
+      skipRetryOnRateLimit?: boolean;
+    },
   ): Promise<T | null> {
     if (this.isBlocked()) {
       this.log.warn(
@@ -46,25 +72,15 @@ export class RateLimitGuard {
     }
     this.rateLimiter.recordAIRequest(opts?.userId, opts?.groupId);
 
-    let retries = 0;
-    while (true) {
-      try {
-        const result = await request();
-        this.blockedUntil = 0;
-        return result;
-      } catch (err) {
-        if (!this.isRateLimitError(err)) throw err;
-        this.markBlocked();
-        if (retries >= RATE_LIMIT_MAX_RETRIES) throw err;
-        retries += 1;
-        this.log.warn(
-          `[Chat] Rate limit hit, waiting ${RATE_LIMIT_RETRY_DELAY_MS / 1000}s...`,
-        );
-        await new Promise((resolve) =>
-          setTimeout(resolve, RATE_LIMIT_RETRY_DELAY_MS),
-        );
-        if (this.isBlocked()) this.blockedUntil = 0;
-      }
+    if (opts?.skipRetryOnRateLimit) {
+      return await request();
+    }
+
+    try {
+      return await retryOn429(request, this.log, opts?.label);
+    } catch (err) {
+      this.markBlocked();
+      throw err;
     }
   }
 }

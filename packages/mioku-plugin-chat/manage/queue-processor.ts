@@ -199,7 +199,7 @@ export class QueueProcessor {
       }, this.humanize, this.skillManager, {
         manager: this.groupStructuredHistory, ttlMs: cfg.groupStructuredHistoryTtlMs, currentUserInputs: structuredUserInputs,
       }),
-      { userId: targetMessage.userId, groupId, label: "dynamic-delay" },
+      { userId: targetMessage.userId, groupId, label: "dynamic-delay", skipRetryOnRateLimit: true },
     );
     if (!result) return;
 
@@ -280,7 +280,7 @@ export class QueueProcessor {
         }, this.humanize, this.skillManager, {
           manager: this.groupStructuredHistory, ttlMs: cfg.groupStructuredHistoryTtlMs, currentUserInputs: structuredUserInputs,
         }),
-        { userId: targetMessage.userId, groupId, label: "queue" },
+        { userId: targetMessage.userId, groupId, label: "queue", skipRetryOnRateLimit: true },
       );
       if (!result) return;
 

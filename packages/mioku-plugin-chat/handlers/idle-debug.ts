@@ -104,7 +104,7 @@ export async function handleIdleCheckDebug(
               pluginCtx.humanize,
               pluginCtx.skillManager,
             ),
-          { groupId: targetGroupId, label: "idle-check" },
+          { groupId: targetGroupId, label: "idle-check", skipRetryOnRateLimit: true },
         );
         if (!result) {
           await e.reply(`[空闲检测] 群 ${targetGroupId} 因限流被跳过`);

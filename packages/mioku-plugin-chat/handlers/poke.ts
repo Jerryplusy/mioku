@@ -120,7 +120,7 @@ export function createPokeHandler(
                   ],
                 },
               ),
-            { userId, groupId, label: "poke" },
+            { userId, groupId, label: "poke", skipRetryOnRateLimit: true },
           );
           if (!result) return;
 
