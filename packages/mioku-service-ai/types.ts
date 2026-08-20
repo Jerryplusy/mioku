@@ -166,6 +166,11 @@ export interface AssistantMessageResult {
   toolCalls: UnifiedToolCall[];
   raw: any;
   usage?: AIUsageMeasuredTokens;
+  servedBy?: {
+    providerId: string;
+    modelId: string;
+    isFallback: boolean;
+  };
 }
 
 export interface AIInstance {
@@ -251,6 +256,8 @@ export interface AIService {
   getRoleBindings(): Record<AIModelRole, string | undefined>;
   setRoleBinding(role: AIModelRole, modelFullId: string | undefined): boolean;
   getInstanceByRole(role: AIModelRole): AIInstance | undefined;
+  setMainFallbackChain?(modelFullIds: string[]): void;
+  getMainFallbackChain?(): string[];
   registerChatRuntime(runtime: ChatRuntime): boolean;
   getChatRuntime(): ChatRuntime | undefined;
   removeChatRuntime(): boolean;
@@ -272,6 +279,7 @@ export interface ProvidersFile {
   providers: AIProviderConfig[];
   models: AIModelDescriptor[];
   roles: Partial<Record<AIModelRole, string>>;
+  mainFallback?: string[];
   defaultInstance?: string;
 }
 

@@ -1,3 +1,4 @@
+import { logger as miokiLogger } from "mioki";
 import type {
   AIInstance,
   AIModelRole,
@@ -23,6 +24,37 @@ import type {
 } from "../types";
 import { contentToText } from "../providers/base";
 
+const RATE_LIMIT_RETRY_DELAYS_MS = [5_000, 10_000, 30_000, 60_000];
+
+function isRateLimitError(err: unknown): boolean {
+  if (err === null || err === undefined) return false;
+  const s = String(err).toLowerCase();
+  return s.includes("429") || s.includes("rate limit") || s.includes("rate_limit");
+}
+
+async function retryOn429<T>(
+  fn: () => Promise<T>,
+  log: { warn: (...args: unknown[]) => void },
+  label?: string,
+): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isRateLimitError(err)) throw err;
+      if (attempt >= RATE_LIMIT_RETRY_DELAYS_MS.length) throw err;
+      const delay = RATE_LIMIT_RETRY_DELAYS_MS[attempt];
+      const attemptLabel = `${attempt + 1}/${RATE_LIMIT_RETRY_DELAYS_MS.length}`;
+      log.warn(
+        `[ai]${label ? ` ${label}` : ""} 命中 429，等待 ${delay / 1000}s 后第 ${attemptLabel} 次重试: ${err}`,
+      );
+      attempt += 1;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 export interface AIInstanceOptions {
   name: string;
   providerId: string;
@@ -31,6 +63,7 @@ export interface AIInstanceOptions {
   globalSkills: Map<string, AISkill>;
   usageStore: AIUsageStore;
   role?: AIModelRole;
+  fallbackChain?: AIInstanceImpl[];
 }
 
 export class AIInstanceImpl implements LocalAIInstance {
@@ -43,6 +76,7 @@ export class AIInstanceImpl implements LocalAIInstance {
   private readonly usageStore: AIUsageStore;
   private readonly prompts = new Map<string, string>();
   private usageContext: AIUsageContext | undefined;
+  private fallbackChain: AIInstanceImpl[];
 
   constructor(options: AIInstanceOptions) {
     this.name = options.name;
@@ -52,6 +86,15 @@ export class AIInstanceImpl implements LocalAIInstance {
     this.client = options.client;
     this.globalSkills = options.globalSkills;
     this.usageStore = options.usageStore;
+    this.fallbackChain = options.fallbackChain ?? [];
+  }
+
+  setFallbackChain(chain: AIInstanceImpl[]): void {
+    this.fallbackChain = chain;
+  }
+
+  getFallbackChain(): AIInstanceImpl[] {
+    return this.fallbackChain;
   }
 
   async generateText(options: {
@@ -193,6 +236,63 @@ export class AIInstanceImpl implements LocalAIInstance {
   }
 
   private async requestAssistantMessage(args: {
+    model: string;
+    messages: UnifiedMessage[] | any[];
+    tools?: UnifiedToolDefinition[] | any[];
+    temperature: number;
+    max_tokens?: number;
+    stream?: boolean;
+    onTextDelta?: (delta: string) => void | Promise<void>;
+    cachePreference?: "prefer" | "none";
+  }): Promise<AssistantMessageResult> {
+    const mainCall = () => this.callOwnClient(args);
+    try {
+      const result = await mainCall();
+      return {
+        ...result,
+        servedBy: { providerId: this.providerId, modelId: this.modelId, isFallback: false },
+      };
+    } catch (mainErr) {
+      if (this.role === "main" && this.fallbackChain.length > 0) {
+        miokiLogger.warn(
+          `[ai] 主模型 (${this.providerId}/${this.modelId}) 调用失败: ${mainErr}`,
+        );
+        let lastErr: unknown = mainErr;
+        for (let i = 0; i < this.fallbackChain.length; i++) {
+          const fb = this.fallbackChain[i];
+          try {
+            const result = await retryOn429(
+              () => fb.callOwnClient(args),
+              miokiLogger,
+              `错误转移 ${i + 1} (${fb.providerId}/${fb.modelId})`,
+            );
+            return {
+              ...result,
+              servedBy: { providerId: fb.providerId, modelId: fb.modelId, isFallback: true },
+            };
+          } catch (fbErr) {
+            miokiLogger.warn(
+              `[ai] 错误转移 ${i + 1}/${this.fallbackChain.length} (${fb.providerId}/${fb.modelId}) 失败: ${fbErr}`,
+            );
+            lastErr = fbErr;
+          }
+        }
+        throw lastErr;
+      }
+
+      const result = await retryOn429(
+        mainCall,
+        miokiLogger,
+        `${this.providerId}/${this.modelId}`,
+      );
+      return {
+        ...result,
+        servedBy: { providerId: this.providerId, modelId: this.modelId, isFallback: false },
+      };
+    }
+  }
+
+  private async callOwnClient(args: {
     model: string;
     messages: UnifiedMessage[] | any[];
     tools?: UnifiedToolDefinition[] | any[];
