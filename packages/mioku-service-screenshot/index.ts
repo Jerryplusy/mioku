@@ -1,6 +1,6 @@
 import { logger } from "mioki";
 import type { MiokuService } from "mioku";
-import puppeteer, { Browser } from "puppeteer";
+import puppeteer, { Browser, type Page } from "puppeteer";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -151,12 +151,6 @@ class ScreenshotServiceImpl implements ScreenshotService {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class'
-    }
-  </script>
   <style>
     * {
       margin: 0;
@@ -175,6 +169,26 @@ class ScreenshotServiceImpl implements ScreenshotService {
   ${htmlContent}
 </body>
 </html>`;
+  }
+
+  private async gotoPage(
+    page: Page,
+    url: string,
+  ): Promise<void> {
+    const attempts = [
+      { waitUntil: "networkidle0" as const, timeout: 20_000 },
+      { waitUntil: "domcontentloaded" as const, timeout: 10_000 },
+    ];
+    let lastErr: unknown;
+    for (const opts of attempts) {
+      try {
+        await page.goto(url, opts);
+        return;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw new Error(`页面加载超时（外部资源不可达）: ${String(lastErr)}`);
   }
 
   /**
@@ -199,7 +213,7 @@ class ScreenshotServiceImpl implements ScreenshotService {
       const htmlId = this.generateId();
       const htmlPath = path.join(this.tempDir, `${htmlId}.html`);
       await fs.promises.writeFile(htmlPath, fullHtml, "utf-8");
-      await page.goto(`file://${htmlPath}`, { waitUntil: "networkidle0" });
+      await this.gotoPage(page, `file://${htmlPath}`);
 
       // if (options?.waitTime) {
       //   await this.delay(options.waitTime);
@@ -263,7 +277,7 @@ class ScreenshotServiceImpl implements ScreenshotService {
       const height = options?.height || 1080;
       await page.setViewport({ width, height });
 
-      await page.goto(url, { waitUntil: "networkidle0" });
+      await this.gotoPage(page, url);
 
       if (options?.waitTime) {
         await this.delay(options.waitTime);
