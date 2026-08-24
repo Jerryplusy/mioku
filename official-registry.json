@@ -10,7 +10,9 @@
     "boot": { "npm": "mioku-plugin-boot" },
     "mc": { "npm": "mioku-plugin-mc" },
     "deerpipe": { "npm": "mioku-plugin-deerpipe" },
-    "impact": { "npm": "mioku-plugin-impact" }
+    "impact": { "npm": "mioku-plugin-impact" },
+    "sekai": { "npm": "mioku-plugin-sekai" },
+    "terraria": { "npm": "mioku-plugin-terraria" }
   },
   "services": {
     "60s": { "npm": "mioku-service-60s" },
