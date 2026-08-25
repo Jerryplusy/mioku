@@ -68,12 +68,7 @@ export async function runChat(
       return isSkillAllowedForRole(skill, toolCtx.triggerSkillRole);
     },
   );
-  const emotionState = await humanize.emotionAgent.refreshIfNeeded({
-    sessionId: toolCtx.sessionId,
-    botNickname: promptCtx.botNickname,
-    chatHistory: history,
-    targetMessage,
-  });
+  const emotionState = humanize.emotionAgent.getCurrent(toolCtx.sessionId);
 
   const staticCtx: StaticPromptContext = {
     config: promptCtx.config,
@@ -248,6 +243,17 @@ export async function runChat(
   const response = ai.withUsageContext
     ? await ai.withUsageContext(usageContext, runComplete)
     : await runComplete();
+
+  humanize.emotionAgent
+    .refreshIfNeeded({
+      sessionId: toolCtx.sessionId,
+      botNickname: promptCtx.botNickname,
+      chatHistory: history,
+      targetMessage,
+    })
+    .catch((err) =>
+      logger.warn(`[chat-engine] background emotion refresh failed: ${err}`),
+    );
 
   if (streamEnabled) {
     streamBuffer += streamThinkFilter.push("", true);
@@ -715,7 +721,6 @@ function cleanMarkers(text: string): string {
   let cleaned = stripThinkBlocks(text).trim();
 
   cleaned = cleaned
-    .replace(/<Ai>\s*<think>[\s\S]*?<\/Ai>/gi, "")
     .replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/gi, "")
     .replace(/<｜｜DSML｜｜invoke[^>]*>[\s\S]*?<\/｜｜DSML｜｜invoke>/gi, "")
     .replace(
@@ -818,7 +823,7 @@ function stripThinkBlocks(text: string): string {
     source = afterOpen.slice(close.end);
   }
 
-  return output.replace(/<\/think\s*>/gi, "");
+  return output.replace(/<\/?(?:think|thinking)\s*>/gi, "");
 }
 
 function createThinkTagStreamFilter() {
@@ -834,7 +839,7 @@ function createThinkTagStreamFilter() {
         if (insideThink) {
           const close = findThinkCloseTag(buffer);
           if (!close) {
-            buffer = force ? "" : keepTagPrefixSuffix(buffer, "</think>");
+            buffer = force ? "" : keepTagPrefixSuffix(buffer, "</thinking>");
             break;
           }
 
@@ -845,7 +850,7 @@ function createThinkTagStreamFilter() {
 
         const open = findThinkOpenTag(buffer);
         if (!open) {
-          const keep = force ? "" : keepTagPrefixSuffix(buffer, "<think");
+          const keep = force ? "" : keepTagPrefixSuffix(buffer, "<thinking>");
           output += buffer.slice(0, buffer.length - keep.length);
           buffer = keep;
           break;
@@ -856,38 +861,22 @@ function createThinkTagStreamFilter() {
         insideThink = true;
       }
 
-      return output.replace(/<\/think\s*>/gi, "");
+      return output.replace(/<\/?(?:think|thinking)\s*>/gi, "");
     },
   };
 }
 
 function findThinkOpenTag(text: string): { index: number; end: number } | null {
-  const lower = text.toLowerCase();
-  const index = lower.indexOf("<think");
-  if (index < 0) {
-    return null;
-  }
-
-  const afterName = text[index + "<think".length];
-  if (afterName && !/[\s>]/.test(afterName)) {
-    const next = findThinkOpenTag(text.slice(index + 1));
-    return next
-      ? { index: index + 1 + next.index, end: index + 1 + next.end }
-      : null;
-  }
-
-  const closeIndex = text.indexOf(">", index + "<think".length);
-  if (closeIndex < 0) {
-    return { index, end: text.length };
-  }
-
-  return { index, end: closeIndex + 1 };
+  const match = /<(think|thinking)\b[^>]*>/i.exec(text);
+  return match
+    ? { index: match.index, end: match.index + match[0].length }
+    : null;
 }
 
 function findThinkCloseTag(
   text: string,
 ): { index: number; end: number } | null {
-  const match = /<\/think\s*>/i.exec(text);
+  const match = /<\/(think|thinking)\s*>/i.exec(text);
   return match
     ? { index: match.index, end: match.index + match[0].length }
     : null;

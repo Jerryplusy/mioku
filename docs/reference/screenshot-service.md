@@ -63,6 +63,7 @@ cleanupTemp(olderThanMs?): Promise<number>
 interface ScreenshotOptions {
   width?: number;
   height?: number;
+  deviceScaleFactor?: number;
   fullPage?: boolean;
   quality?: number;
   type?: "png" | "jpeg" | "webp";
@@ -73,6 +74,7 @@ interface ScreenshotOptions {
 
 > - `width?`: 视图宽度，默认 1920
 > - `height?`: 视图高度，默认 1080
+> - `deviceScaleFactor?`: 设备像素比，默认 1；CSS 布局尺寸不变，输出物理像素按比例放大
 > - `fullPage?`: 是否截取完整页面，默认 false
 > - `quality?`: 图片质量 1-100，仅 jpeg/webp
 > - `type?`: 输出图片格式，默认 png

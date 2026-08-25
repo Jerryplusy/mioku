@@ -21,7 +21,12 @@ export type HistoryMediaOptions = {
 
 export type RunRateLimitGuard = <T>(
   request: () => Promise<T>,
-  opts?: { userId?: number; groupId?: number; label?: string },
+  opts?: {
+    userId?: number;
+    groupId?: number;
+    label?: string;
+    skipRetryOnRateLimit?: boolean;
+  },
 ) => Promise<T | null>;
 
 export type GetGroupHistoryMessages = (

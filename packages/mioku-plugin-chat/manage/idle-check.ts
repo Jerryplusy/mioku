@@ -277,7 +277,7 @@ export class IdleCheckManager {
           this.humanize,
           this.skillManager,
         ),
-      { groupId, label: "idle-check" },
+      { groupId, label: "idle-check", skipRetryOnRateLimit: true },
     );
     if (!result) {
       this.groupMessageCount.set(groupSessionId, 0);

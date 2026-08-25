@@ -13,10 +13,7 @@ import { createProviderClient } from "./providers";
 import { AIInstanceImpl } from "./instance";
 import { ProvidersRegistry } from "./providers-registry";
 import { createAIUsageStore } from "./usage/store";
-import type {
-  AIInstance,
-  AIService,
-} from "./types";
+import type { AIInstance, AIService } from "./types";
 import type {
   AIUsageFinalization,
   AIUsageRange,
@@ -34,6 +31,7 @@ export class AIServiceImpl implements AIService {
   private readonly usageStore: AIUsageStore;
   private readonly registry: ProvidersRegistry;
   private roleInstances = new Map<AIModelRole, string>();
+  private mainFallbackModelFullIds: string[] = [];
 
   constructor(usageStore: AIUsageStore, registry?: ProvidersRegistry) {
     this.usageStore = usageStore;
@@ -41,7 +39,9 @@ export class AIServiceImpl implements AIService {
     this.registry.load();
     this.registry.migrateFromChatBaseIfNeeded();
     this.defaultInstanceName = this.registry.getDefaultInstanceName() || null;
+    this.mainFallbackModelFullIds = this.registry.getMainFallback();
     this.bootstrapRoleInstances();
+    this.resolveMainFallbackChain();
   }
 
   private bootstrapRoleInstances(): void {
@@ -74,6 +74,62 @@ export class AIServiceImpl implements AIService {
         logger.warn(`[ai] bootstrap role ${role} failed: ${error}`);
       }
     }
+  }
+
+  private resolveMainFallbackChain(): AIInstanceImpl[] {
+    const main = this.instances.get("main");
+    if (!main) return [];
+    const chain: AIInstanceImpl[] = [];
+    const seen = new Set<string>([main.name]);
+    for (const fullId of this.mainFallbackModelFullIds) {
+      const parsed = parseModelFullId(fullId);
+      if (!parsed) {
+        logger.warn(`[ai] 主模型错误转移解析失败: ${fullId}`);
+        continue;
+      }
+      const provider = this.registry.getProvider(parsed.providerId);
+      if (!provider) {
+        logger.warn(`[ai] 主模型错误转移提供商不存在: ${fullId}`);
+        continue;
+      }
+      const client = this.registry.getClient(parsed.providerId);
+      if (!client) {
+        logger.warn(`[ai] 主模型错误转移提供商未启用: ${fullId}`);
+        continue;
+      }
+      const key = `${parsed.providerId}/${parsed.modelId}`;
+      if (seen.has(key)) {
+        logger.warn(`[ai] 主模型错误转移重复: ${fullId}`);
+        continue;
+      }
+      seen.add(key);
+      let fb = this.instances.get(key);
+      if (!fb) {
+        fb = new AIInstanceImpl({
+          name: `__fb_${parsed.providerId}_${parsed.modelId}`,
+          providerId: parsed.providerId,
+          modelId: parsed.modelId,
+          client,
+          globalSkills: this.globalSkills,
+          usageStore: this.usageStore,
+          role: "working",
+        });
+        this.instances.set(fb.name, fb);
+      }
+      chain.push(fb);
+    }
+    main.setFallbackChain(chain);
+    return chain;
+  }
+
+  setMainFallbackChain(modelFullIds: string[]): void {
+    this.registry.setMainFallback(modelFullIds);
+    this.mainFallbackModelFullIds = this.registry.getMainFallback();
+    const chain = this.resolveMainFallbackChain();
+  }
+
+  getMainFallbackChain(): string[] {
+    return [...this.mainFallbackModelFullIds];
   }
 
   async create(options: {
@@ -143,7 +199,9 @@ export class AIServiceImpl implements AIService {
 
     const client = this.registry.getClient(options.providerId);
     if (!client) {
-      throw new Error(`Failed to create client for provider: ${options.providerId}`);
+      throw new Error(
+        `Failed to create client for provider: ${options.providerId}`,
+      );
     }
 
     const modelId = String(options.modelId || "").trim();
@@ -175,6 +233,9 @@ export class AIServiceImpl implements AIService {
     }
     if (!this.defaultInstanceName) {
       this.setDefault(options.name);
+    }
+    if (options.role === "main") {
+      this.resolveMainFallbackChain();
     }
     logger.info(
       `AI instance ${options.name} created (${options.providerId}/${modelId})`,
@@ -372,6 +433,9 @@ export class AIServiceImpl implements AIService {
     });
     this.instances.set(role, created);
     this.roleInstances.set(role, role);
+    if (role === "main") {
+      this.resolveMainFallbackChain();
+    }
     return created;
   }
 

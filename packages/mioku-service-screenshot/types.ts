@@ -6,6 +6,8 @@ export interface ScreenshotOptions {
   width?: number;
   // 视图高度
   height?: number;
+  // 设备像素比，CSS 尺寸保持不变，输出物理像素按比例放大；默认 1
+  deviceScaleFactor?: number;
   // 是否截取完整页面
   fullPage?: boolean;
   // 图片质量 1-100

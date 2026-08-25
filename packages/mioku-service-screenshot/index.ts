@@ -1,6 +1,6 @@
 import { logger } from "mioki";
 import type { MiokuService } from "mioku";
-import puppeteer, { Browser } from "puppeteer";
+import puppeteer, { Browser, type Page } from "puppeteer";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -151,12 +151,6 @@ class ScreenshotServiceImpl implements ScreenshotService {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class'
-    }
-  </script>
   <style>
     * {
       margin: 0;
@@ -177,6 +171,44 @@ class ScreenshotServiceImpl implements ScreenshotService {
 </html>`;
   }
 
+  private async gotoPage(
+    page: Page,
+    url: string,
+  ): Promise<void> {
+    const attempts = [
+      { waitUntil: "networkidle0" as const, timeout: 20_000 },
+      { waitUntil: "domcontentloaded" as const, timeout: 10_000 },
+    ];
+    let lastErr: unknown;
+    for (const opts of attempts) {
+      try {
+        await page.goto(url, opts);
+        return;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw new Error(`页面加载超时（外部资源不可达）: ${String(lastErr)}`);
+  }
+
+  private async waitForImages(page: Page): Promise<void> {
+    try {
+      await Promise.race([
+        page.evaluate(async () => {
+          const doc = globalThis as unknown as { document?: { images?: unknown[] } };
+          const images = doc.document?.images ? Array.from(doc.document.images) : [];
+          await Promise.all(
+            images.map((img) =>
+              (img as { decode?: () => Promise<void> }).decode?.().catch(() => {}),
+            ),
+          );
+        }),
+        new Promise<void>((resolve) => setTimeout(resolve, 15_000)),
+      ]);
+    } catch {
+    }
+  }
+
   /**
    * 从 HTML 内容生成截图
    */
@@ -193,13 +225,15 @@ class ScreenshotServiceImpl implements ScreenshotService {
     try {
       const width = options?.width || 1920;
       const height = options?.height || 1080;
-      await page.setViewport({ width, height });
+      const deviceScaleFactor = options?.deviceScaleFactor ?? 1;
+      await page.setViewport({ width, height, deviceScaleFactor });
 
       const fullHtml = this.createHtmlPage(htmlContent, options?.themeMode);
       const htmlId = this.generateId();
       const htmlPath = path.join(this.tempDir, `${htmlId}.html`);
       await fs.promises.writeFile(htmlPath, fullHtml, "utf-8");
-      await page.goto(`file://${htmlPath}`, { waitUntil: "networkidle0" });
+      await this.gotoPage(page, `file://${htmlPath}`);
+      await this.waitForImages(page);
 
       // if (options?.waitTime) {
       //   await this.delay(options.waitTime);
@@ -261,9 +295,11 @@ class ScreenshotServiceImpl implements ScreenshotService {
     try {
       const width = options?.width || 1920;
       const height = options?.height || 1080;
-      await page.setViewport({ width, height });
+      const deviceScaleFactor = options?.deviceScaleFactor ?? 1;
+      await page.setViewport({ width, height, deviceScaleFactor });
 
-      await page.goto(url, { waitUntil: "networkidle0" });
+      await this.gotoPage(page, url);
+      await this.waitForImages(page);
 
       if (options?.waitTime) {
         await this.delay(options.waitTime);

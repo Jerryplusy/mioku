@@ -14,10 +14,7 @@ import {
   type HistoryMediaProcessingOptions,
   type MediaMessageSegment,
 } from "../core/media/history-media";
-import {
-  calculateImageHash,
-  normalizeImageUrl,
-} from "../core/media/image-analyzer";
+import { calculateImageHash } from "../core/media/image-analyzer";
 
 const HISTORY_MEDIA_CONCURRENCY = 8;
 
@@ -310,12 +307,6 @@ async function getImageTagWithHashCache(
   const exact = db.getImageByUrl?.(imageUrl);
   if (exact) return `[image:${exact.description}]`;
 
-  const normalized = normalizeImageUrl(imageUrl);
-  if (normalized && normalized !== imageUrl) {
-    const hit = db.getImageByUrl?.(normalized);
-    if (hit) return `[image:${hit.description}]`;
-  }
-
   let hash = ctx.hashLookupCache.get(`hash:${imageUrl}`);
   if (hash === undefined) {
     hash = (await calculateImageHash(imageUrl)) || null;
@@ -328,7 +319,7 @@ async function getImageTagWithHashCache(
     try {
       db.saveImage?.({
         hash: byHash.hash,
-        url: normalized || imageUrl,
+        url: imageUrl,
         type: "image",
         description: byHash.description,
         createdAt: byHash.createdAt,

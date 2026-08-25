@@ -23,6 +23,7 @@ function emptyFile(): ProvidersFile {
     providers: [],
     models: [],
     roles: {},
+    mainFallback: [],
   };
 }
 
@@ -67,6 +68,11 @@ export class ProvidersRegistry {
         providers: Array.isArray(parsed.providers) ? parsed.providers : [],
         models: Array.isArray(parsed.models) ? parsed.models : [],
         roles: parsed.roles && typeof parsed.roles === "object" ? parsed.roles : {},
+        mainFallback: Array.isArray(parsed.mainFallback)
+          ? parsed.mainFallback
+              .map((id: unknown) => String(id || "").trim())
+              .filter(Boolean)
+          : [],
         defaultInstance:
           typeof parsed.defaultInstance === "string"
             ? parsed.defaultInstance
@@ -260,6 +266,27 @@ export class ProvidersRegistry {
       working: this.data.roles.working,
       vision: this.data.roles.vision,
     };
+  }
+
+  getMainFallback(): string[] {
+    return Array.isArray(this.data.mainFallback)
+      ? [...this.data.mainFallback]
+      : [];
+  }
+
+  setMainFallback(chain: string[]): void {
+    const filtered = Array.isArray(chain)
+      ? chain.map((id) => String(id || "").trim()).filter(Boolean)
+      : [];
+    const unique: string[] = [];
+    const seen = new Set<string>();
+    for (const id of filtered) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      unique.push(id);
+    }
+    this.data.mainFallback = unique;
+    this.save();
   }
 
   setRoleBinding(role: AIModelRole, modelFullIdValue: string | undefined): boolean {

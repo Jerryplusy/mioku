@@ -18,6 +18,8 @@ const ACCESS_HOOK_KEYS = new Set([
   "description",
 ]);
 
+const HELP_KEYS = new Set(["title", "description", "commands"]);
+
 const HELP_COMMAND_KEYS = new Set(["cmd", "desc", "usage", "role"]);
 
 function warnUnknownFields(
@@ -42,7 +44,7 @@ function validateHelp(value: unknown, pluginName: string): PluginHelp | undefine
     logger.warn(`[plugin-manifest] ${pluginName}.help 必须是对象，已忽略`);
     return undefined;
   }
-  warnUnknownFields(`${pluginName}.help`, value, HELP_COMMAND_KEYS);
+  warnUnknownFields(`${pluginName}.help`, value, HELP_KEYS);
 
   const title = String(value.title ?? "").trim();
   const description = String(value.description ?? "").trim();

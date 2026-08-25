@@ -43,6 +43,17 @@ export class UsageTracker {
 
   recordAssistant(assistant: AssistantMessageResult): void {
     this.recordMessage(assistant.raw);
+    if (assistant.servedBy?.isFallback) {
+      this.markFallback(assistant.servedBy.providerId, assistant.servedBy.modelId);
+    }
+  }
+
+  markFallback(providerId: string, modelId: string): void {
+    if (!this.options.context) return;
+    this.options.context.fallbackUsed = true;
+    if (!this.options.context.fallbackFrom) {
+      this.options.context.fallbackFrom = `${providerId}/${modelId}`;
+    }
   }
 
   recordMeasuredTokens(tokens: AIUsageMeasuredTokens): void {

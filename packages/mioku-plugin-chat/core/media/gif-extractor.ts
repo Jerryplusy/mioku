@@ -1,5 +1,6 @@
 import { logger } from "mioki";
 import sharp from "sharp";
+import { QQ_IMAGE_FETCH_HEADERS } from "./image-compress";
 
 /**
  * GIF 帧提取结果
@@ -19,7 +20,7 @@ export async function extractGifFrames(
 ): Promise<GifFramesResult | null> {
   try {
     // 下载 GIF
-    const response = await fetch(gifUrl);
+    const response = await fetch(gifUrl, { headers: QQ_IMAGE_FETCH_HEADERS });
     if (!response.ok) {
       logger.error(
         `[gif-extractor] Failed to fetch GIF: ${response.statusText}`,
@@ -102,11 +103,7 @@ export async function isGifUrl(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, {
       method: "GET",
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        Referer: "https://qq.com/",
-      },
+      headers: QQ_IMAGE_FETCH_HEADERS,
     });
     const contentType = response.headers.get("content-type");
     if (contentType && contentType.includes("image/gif")) {
