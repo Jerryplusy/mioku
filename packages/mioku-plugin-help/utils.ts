@@ -96,9 +96,9 @@ export async function getRenderVersions(): Promise<{
 
   const miokiCandidates = [
     // Nested under mioku (the typical workspace case).
-    path.join(process.cwd(), "node_modules", "mioku", "node_modules", "mioki", "package.json"),
+    path.join(process.cwd(), "node_modules", "mioku", "node_modules", "mioku", "package.json"),
     // Hoisted top-level (a single-package install).
-    path.join(process.cwd(), "node_modules", "mioki", "package.json"),
+    path.join(process.cwd(), "node_modules", "mioku", "package.json"),
   ];
   const miokuCandidates = [
     path.join(process.cwd(), "node_modules", "mioku", "package.json"),
@@ -107,7 +107,7 @@ export async function getRenderVersions(): Promise<{
 
   let miokiVersion = "unknown";
   for (const candidate of miokiCandidates) {
-    const v = await readNamedPackageVersion(candidate, "mioki");
+    const v = await readNamedPackageVersion(candidate, "mioku");
     if (v !== "unknown") {
       miokiVersion = v;
       break;

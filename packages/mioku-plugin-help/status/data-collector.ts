@@ -1,13 +1,13 @@
 import * as os from "node:os";
 import * as path from "node:path";
+import systemInfo from "systeminformation";
 import {
   connectedBots,
-  getMiokiStatus,
-  systemInfo,
-  type ExtendedNapCat,
-  type MiokiStatus,
-} from "mioki";
-import type { AIService, MiokiContext } from "mioku";
+  friendGetList,
+  getPluginMetadataList,
+  groupGetList,
+} from "mioku";
+import type { AIService, Bot, MiokuContext } from "mioku";
 import { getRenderVersions } from "../utils";
 import { perfMonitor } from "./performance-monitor";
 import { networkSampler } from "./network-sampler";
@@ -194,36 +194,15 @@ async function collectBots(): Promise<BotAccountStatus[]> {
 }
 
 async function collectBotStatuses(
-  bots: ExtendedNapCat[],
+  bots: readonly Bot[],
 ): Promise<BotAccountStatus[]> {
-  let perBotCounts = new Map<number, { send: number; receive: number }>();
-  try {
-    const miokiStatus = await withTimeout(
-      Promise.resolve().then(() => getMiokiStatus(bots)),
-    );
-    if (Array.isArray(miokiStatus?.bots)) {
-      for (const b of miokiStatus.bots) {
-        const u = safeNumber(b?.uin);
-        if (u > 0) {
-          perBotCounts.set(u, {
-            send: safeNumber(b?.send),
-            receive: safeNumber(b?.receive),
-          });
-        }
-      }
-    }
-  } catch {
-    // ignore
-  }
-
   const results: BotAccountStatus[] = [];
   for (const bot of bots) {
-    const uin = safeNumber(bot?.bot_id || bot?.uin || bot?.user_id);
-    const nickname = String(bot?.nickname || "Unknown Bot");
-    const framework = String(bot?.app_name || "unknown");
+    const uin = safeNumber(bot.bot_id);
+    const nickname = String(bot.nickname || "Unknown Bot");
+    let framework = "unknown";
     const avatarUrl = `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=160`;
 
-    // 并行拿 OneBot API 的 status / group / friend / version
     let online = true;
     let groupCount = 0;
     let friendCount = 0;
@@ -231,26 +210,25 @@ async function collectBotStatuses(
     let protocolVersion = "unknown";
     const [statusResult, groupsResult, friendsResult, versionResult] =
       await Promise.allSettled([
-        withTimeout(
-          Promise.resolve().then(() => bot.api<OneBotStatusData>("get_status")),
-        ).catch(() => null),
-        withTimeout(Promise.resolve().then(() => bot.getGroupList())).catch(
+        withTimeout(Promise.resolve().then(() => bot.sendApi<OneBotStatusData>("get_status"))).catch(
+          () => null,
+        ),
+        withTimeout(Promise.resolve().then(() => bot.invoke(groupGetList, {}))).catch(
           () => [],
         ),
-        withTimeout(Promise.resolve().then(() => bot.getFriendList())).catch(
+        withTimeout(Promise.resolve().then(() => bot.invoke(friendGetList, {}))).catch(
           () => [],
         ),
         withTimeout(
-          Promise.resolve().then(() =>
-            bot.api<OneBotVersionInfoData>("get_version_info"),
-          ),
+          Promise.resolve().then(() => bot.sendApi<OneBotVersionInfoData>("get_version_info")),
         ).catch(() => null),
       ]);
     if (statusResult.status === "fulfilled" && statusResult.value) {
-      online = statusResult.value.online;
+      online = Boolean(statusResult.value.online);
     }
     if (versionResult.status === "fulfilled" && versionResult.value) {
       const v = versionResult.value;
+      framework = String(v.app_name || "").trim() || framework;
       if (v.app_version && v.app_version.trim()) {
         appVersion = v.app_version.trim();
       }
@@ -271,8 +249,6 @@ async function collectBotStatuses(
       friendCount = friendsResult.value.length;
     }
 
-    const counts = perBotCounts.get(uin) || { send: 0, receive: 0 };
-
     results.push({
       uin,
       nickname,
@@ -283,15 +259,15 @@ async function collectBotStatuses(
       online,
       groupCount,
       friendCount,
-      send: counts.send,
-      receive: counts.receive,
+      send: 0,
+      receive: 0,
     });
   }
   return results;
 }
 
 async function collectFramework(
-  rawBots: ExtendedNapCat[],
+  rawBots: readonly Bot[],
   botStatuses: BotAccountStatus[],
 ): Promise<FrameworkStatus> {
   const adapters = new Set<string>();
@@ -301,28 +277,17 @@ async function collectFramework(
     }
   }
 
-  // 从 mioki 内部服务读 plugins / versions
-  let miokiStatus: MiokiStatus | null = null;
-  try {
-    miokiStatus = await withTimeout(
-      Promise.resolve().then(() => getMiokiStatus(rawBots)),
-    );
-  } catch {
-    // ignore
-  }
-
   const runtime = detectRuntime();
   // Read both versions from the same `getRenderVersions` helper that the
-  // help panel uses, so the status footer and the help footer agree even
-  // when `mioki` is only installed under `mioku/node_modules`.
+  // help panel uses.
   const { miokiVersion, miokuVersion } = await getRenderVersions();
+  const pluginCount = getPluginMetadataList().length;
   return {
     miokuVersion,
     miokiVersion,
-    napcatVersion:
-      miokiStatus?.versions?.napcat ?? botStatuses[0]?.framework ?? "unknown",
-    pluginCount: safeNumber(miokiStatus?.plugins?.total),
-    pluginEnabled: safeNumber(miokiStatus?.plugins?.enabled),
+    napcatVersion: botStatuses[0]?.framework ?? "unknown",
+    pluginCount,
+    pluginEnabled: pluginCount,
     adapterCount: adapters.size,
     onlineBotCount: botStatuses.filter((b) => b.online).length,
     uptimeMs: safeNumber(process.uptime()) * 1000,
@@ -632,7 +597,7 @@ async function collectSystem(): Promise<SystemInfo> {
   };
 }
 
-async function collectAI(ctx: MiokiContext): Promise<AIUsageStatsLite> {
+async function collectAI(ctx: MiokuContext): Promise<AIUsageStatsLite> {
   const ai = ctx?.services?.ai as AIService | undefined;
   if (!ai || typeof ai.getUsageSummary !== "function") {
     return {
@@ -691,7 +656,7 @@ async function collectAI(ctx: MiokiContext): Promise<AIUsageStatsLite> {
 }
 
 export async function collectSnapshot(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   options: { isNightMode: boolean } = { isNightMode: false },
 ): Promise<StatusSnapshot> {
   if (cache && Date.now() - cache.at < TTL_MS) {

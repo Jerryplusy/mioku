@@ -1,4 +1,4 @@
-import type { MiokiContext, ScreenshotService } from "mioku";
+import type { MiokuContext, ScreenshotService } from "mioku";
 import { checkNightMode } from "../utils";
 import { collectSnapshot } from "./data-collector";
 import { renderStatusHtml } from "./html-generator";
@@ -28,7 +28,7 @@ function withTimeout<T>(p: PromiseLike<T>, ms: number): Promise<T> {
 }
 
 export interface GenerateStatusImageOptions {
-  ctx: MiokiContext;
+  ctx: MiokuContext;
   event?: any;
   intent: StatusIntent;
   botNickname?: string;

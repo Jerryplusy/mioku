@@ -1,4 +1,4 @@
-import { definePlugin, type MiokiContext } from "mioki";
+import { definePlugin, type MiokuContext } from "mioku";
 import { getService, Services } from "mioku";
 import * as path from "path";
 import { HELP_DEMO_CONFIG } from "./demo-config";
@@ -23,7 +23,7 @@ const helpPlugin = definePlugin({
   version: "2.1.0",
   description: "帮助插件，生成帮助图片，并提供 #状态 指令",
 
-  async setup(ctx: MiokiContext) {
+  async setup(ctx: MiokuContext) {
     // 启动后台采样器
     networkSampler.start();
     perfMonitor.start();

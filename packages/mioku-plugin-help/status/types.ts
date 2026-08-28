@@ -25,7 +25,7 @@ export interface BotAccountStatus {
 
 /**
  * OneBot v11 `get_version_info` payload (already unwrapped from the
- * `{ status, retcode, data, ... }` envelope by napcat-sdk's `bot.api`).
+ * `{ status, retcode, data, ... }` envelope by the adapter's `bot.sendApi`).
  */
 export interface OneBotVersionInfoData {
   app_name: string;
