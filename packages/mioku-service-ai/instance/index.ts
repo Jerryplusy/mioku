@@ -1,4 +1,4 @@
-import { logger as miokiLogger } from "mioki";
+import { logger as miokiLogger } from "mioku";
 import type {
   AIInstance,
   AIModelRole,

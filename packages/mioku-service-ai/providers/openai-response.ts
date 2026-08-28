@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { logger } from "mioki";
+import { logger } from "mioku";
 import { extractUsageTokens } from "../usage/tracker";
 import type {
   AIModelDescriptor,
@@ -268,9 +268,14 @@ function summarizeErrorBody(value: unknown): unknown {
 
 function pickResponseHeaders(headers: unknown): Record<string, string> | undefined {
   if (!headers || typeof headers !== "object") return undefined;
-  const values = headers instanceof Headers
-    ? Object.fromEntries(headers.entries())
-    : headers as Record<string, unknown>;
+  const values: Record<string, unknown> = {};
+  if (headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      values[key] = value;
+    });
+  } else {
+    Object.assign(values, headers);
+  }
   const allowed = ["content-type", "server", "x-request-id", "cf-ray"];
   const selected = Object.fromEntries(
     allowed.flatMap((name) => {

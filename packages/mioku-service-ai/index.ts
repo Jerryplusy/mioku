@@ -1,4 +1,4 @@
-import { logger } from "mioki";
+import { logger } from "mioku";
 import type { MiokuService } from "mioku";
 import { createAIService } from "./service";
 import type { AIService } from "./types";
