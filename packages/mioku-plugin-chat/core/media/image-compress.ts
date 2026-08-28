@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import { logger } from "mioki";
+import { logger } from "mioku";
 
 const IMAGE_MAX_BYTES = 1 * 1024 * 1024;
 const COMPRESS_MAX_WIDTH = 1280;

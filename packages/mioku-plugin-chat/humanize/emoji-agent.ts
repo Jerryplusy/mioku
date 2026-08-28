@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "fs";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { getPluginDataDir, type AIInstance } from "mioku";
-import { logger } from "mioki";
+import { logger } from "mioku";
 import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
 import { extractGroupIdFromSession } from "../utils/group-config";
 import { extractJsonObject } from "../utils/json";

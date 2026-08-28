@@ -1,8 +1,5 @@
 import type { ChatPluginContext, ChatHandlerState } from "../context";
-import type {
-  GroupMessageEvent,
-  PrivateMessageEvent,
-} from "napcat-sdk";
+import type { MessageEvent } from "mioku";
 import {
   isGroupAllowed,
   shouldTrigger,
@@ -37,17 +34,17 @@ export function createMessageHandler(
   const { ctx } = pluginCtx;
   const { getConfig, matchMessageCommands, runtimeState } = state;
 
-  return async (e: GroupMessageEvent | PrivateMessageEvent) => {
+  return async (e: MessageEvent) => {
     const isGroup = e.message_type === "group";
-    const groupId: number | undefined = isGroup ? e.group_id : undefined;
+    const groupId: number | undefined = isGroup ? Number(e.group_id) : undefined;
     const cfg = await getConfig(groupId);
     if (!cfg.model && !cfg.apiKey) return;
     if (!e?.message || !Array.isArray(e.message)) return;
 
     const text = ctx.text(e) || "";
-    const userId: number = e.user_id || e.sender?.user_id;
+    const userId: number = Number(e.user_id || e.sender?.user_id || 0);
 
-    if (userId === e.self_id) return;
+    if (userId === Number(e.self_id || 0)) return;
 
     if (matchMessageCommands && matchMessageCommands(text).length > 0) return;
 
@@ -162,7 +159,7 @@ export function createMessageHandler(
             }
           }
         }
-        if (e.sub_type === "notice") {
+        if ((e.raw as { sub_type?: string } | undefined)?.sub_type === "notice") {
           summarizeGroupNotice(e, mediaOptions)
             .then((noticeMessage) => {
               if (!noticeMessage) return;
@@ -259,7 +256,7 @@ export function createMessageHandler(
               groupSessionId,
               groupId,
               delayInfo.delayMs,
-              e.self_id,
+              Number(e.self_id || 0),
             );
             return;
           }
@@ -278,11 +275,11 @@ export function createMessageHandler(
           ctx,
           cfg.historyCount,
           pluginCtx.db,
-          e.self_id,
+          Number(e.self_id || 0),
           pluginCtx.buildHistoryMediaOptions(pluginCtx.aiInstance, cfg),
         );
         const botNickname =
-          cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
+          cfg.nicknames[0] || ctx.pickBot(e.self_id)?.nickname || "Bot";
         const planResult = await pluginCtx.humanize.actionPlanner.plan(
           groupSessionId,
           botNickname,
@@ -304,7 +301,7 @@ export function createMessageHandler(
           pluginCtx.rateLimiter.recordInteraction(groupId, userId);
           pluginCtx.queueProcessor.scheduleQueuedMessages(
             groupSessionId,
-            e.self_id,
+            Number(e.self_id || 0),
           );
         }
         return;

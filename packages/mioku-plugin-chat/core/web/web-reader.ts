@@ -1,4 +1,4 @@
-import { logger } from "mioki";
+import { logger } from "mioku";
 import puppeteer from "puppeteer";
 import type { AIInstance } from "mioku";
 import type { WebReaderConfig } from "../../types";

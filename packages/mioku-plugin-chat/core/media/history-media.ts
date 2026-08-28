@@ -4,7 +4,7 @@ import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import { promisify } from "util";
-import { logger } from "mioki";
+import { logger } from "mioku";
 import type { AIInstance } from "mioku";
 import type { MediaSummaryKind, MediaSummaryRecord } from "../../types";
 
@@ -70,7 +70,7 @@ export interface HistoryMediaProcessingOptions {
     error(message: string): void;
   };
   bot?: {
-    api<T = any>(action: string, params?: Record<string, any>): Promise<T>;
+    sendApi<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T>;
   };
   groupId?: number;
   runAIRequest?<T>(request: () => Promise<T>): Promise<T | null>;
@@ -252,7 +252,7 @@ export async function summarizeHistoryForward(
     return "[forward]";
   }
 
-  const forwardResult = await options.bot.api("get_forward_msg", { id });
+  const forwardResult = await options.bot.sendApi("get_forward_msg", { id });
   const text = extractForwardText(forwardResult);
   const source = `forward:${id}`;
   if (!text) {
@@ -293,7 +293,7 @@ export async function getCachedHistoryForwardTag(
   if (!id) return "[forward]";
   if (!options.bot) return "[forward]";
   try {
-    const forwardResult = await options.bot.api("get_forward_msg", { id });
+    const forwardResult = await options.bot.sendApi("get_forward_msg", { id });
     const text = extractForwardText(forwardResult);
     const summary = getCachedSummaryByHash(
       "forward",

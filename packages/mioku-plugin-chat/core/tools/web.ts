@@ -1,4 +1,4 @@
-import { logger } from "mioki";
+import { logger } from "mioku";
 import type { AITool } from "mioku";
 import type { ChatMessage, ToolContext } from "../../types";
 import { searchWebWithSearxng } from "../web/searxng";
@@ -71,7 +71,7 @@ async function fetchGroupHistoryByMessageIdPaging(
   const selfId = Number(toolCtx.event?.self_id || 0);
   if (!selfId) return [];
 
-  const bot = toolCtx.ctx.pickBot(selfId);
+  const bot = toolCtx.ctx.pickBot(String(selfId));
   if (!bot) return [];
 
   const collected: ChatMessage[] = [];
@@ -86,7 +86,7 @@ async function fetchGroupHistoryByMessageIdPaging(
 
     let response: any;
     try {
-      response = await (bot as any).api("get_group_msg_history", {
+      response = await bot.sendApi("get_group_msg_history", {
         group_id: String(toolCtx.groupId),
         message_seq: String(cursorMessageId),
         count: pageSize,

@@ -1,4 +1,4 @@
-import type { MiokiContext } from "mioki";
+import type { MiokuContext } from "mioku";
 import type { AIInstance, AIService } from "mioku";
 import type { SkillPermissionRole } from "mioku";
 import type { ChatRuntimePromptInjection } from "mioku";
@@ -32,7 +32,7 @@ export type RunRateLimitGuard = <T>(
 export type GetGroupHistoryMessages = (
   groupId: number,
   groupSessionId: string,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   historyCount: number,
   db: ChatDatabase,
   selfId: number,
@@ -40,7 +40,7 @@ export type GetGroupHistoryMessages = (
 ) => Promise<{ history: ChatMessage[] }>;
 
 export type GetGroupInfoData = (
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   groupId: number,
   selfId: number,
   fallbackGroupName?: string,
@@ -63,14 +63,14 @@ export type SaveBotMessages = (
   timestamp: number,
   config: ChatConfig,
   db: ChatDatabase,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   selfId: number,
 ) => void;
 
-export type SendEmoji = (ctx: MiokiContext, groupId: number, emojiPath: string | null | undefined, selfId: number) => Promise<void>;
+export type SendEmoji = (ctx: MiokuContext, groupId: number, emojiPath: string | null | undefined, selfId: number) => Promise<void>;
 
 export type SendMessage = (
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   groupId: number | undefined,
   userId: number,
   text: string,
@@ -80,7 +80,7 @@ export type SendMessage = (
 ) => Promise<void>;
 
 export type BuildToolContext = (options: {
-  ctx: MiokiContext;
+  ctx: MiokuContext;
   event: any;
   selfId: number;
   groupSessionId: string;

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import type { MiokiContext } from "mioki";
+import type { MiokuContext } from "mioku";
 import type { AudioServiceApi, SupportedLang } from "mioku-service-audio";
 
 function detectAudioLanguage(text: string): SupportedLang {
@@ -33,7 +33,7 @@ export async function synthesizeAudioSource(
 }
 
 export async function sendVoice(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   e: any,
   filePath: string,
   logTag = "[audio]",
@@ -42,7 +42,7 @@ export async function sendVoice(
     ? filePath
     : `file://${filePath}`;
   try {
-    await e.reply([ctx.segment.record(fileUrl)]);
+    await e.reply([ctx.segment.raw("record", { file: fileUrl })]);
     return;
   } catch (err: any) {
     const msg = String(err?.message ?? err);
@@ -59,6 +59,6 @@ export async function sendVoice(
     ctx.logger.info(
       `${logTag} file:// 发送失败 (${msg})，回退 base64 (${buf.length} bytes)`,
     );
-    await e.reply([ctx.segment.record(b64)]);
+    await e.reply([ctx.segment.raw("record", { file: b64 })]);
   }
 }

@@ -1,4 +1,4 @@
-import type { MiokiContext } from "mioki";
+import type { MiokuContext } from "mioku";
 import type { AIInstance, AIModelRole, AIService } from "mioku";
 import type { ChatConfig } from "./types";
 import type { ChatDatabase } from "./db";
@@ -35,7 +35,7 @@ import type { AudioServiceApi } from "mioku-service-audio";
 import type { ChatMessage } from "./types";
 
 export interface ChatPluginContext {
-  ctx: MiokiContext;
+  ctx: MiokuContext;
   defaultConfig: ChatConfig;
   configProvider: ChatConfigProvider;
   getConfig: (groupId?: number) => Promise<ChatConfig>;

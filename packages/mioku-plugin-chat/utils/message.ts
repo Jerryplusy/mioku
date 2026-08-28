@@ -1,5 +1,6 @@
-import { logger, MiokiContext } from "mioki";
-import type { AIInstance } from "mioku";
+import { logger, type MiokuContext } from "mioku";
+import type { AIInstance, Bot } from "mioku";
+import { memberGetInfo, messageGet } from "mioku";
 import type {
   ChatConfig,
   ChatMessage,
@@ -22,13 +23,15 @@ export function shouldTrigger(
   e: any,
   text: string,
   cfg: ChatConfig,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
 ): boolean {
   if (e.message_type === "private") return false;
 
-  // Only check if message @s the bot (seg format: {type: "at", qq: "123456"})
   const atSeg = e.message?.find((seg: any) => seg.type === "at");
-  return !!(atSeg && String(atSeg.qq) === String(e.self_id));
+  if (!atSeg) return false;
+  const data = (atSeg.data ?? {}) as { qq?: unknown; target?: unknown };
+  const qq = data.qq ?? data.target;
+  return String(qq ?? "") === String(e.self_id ?? "");
 }
 
 /**
@@ -37,15 +40,15 @@ export function shouldTrigger(
  */
 export async function isQuotingBot(
   e: any,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
 ): Promise<{ quoted: true; messageId: string; content: string } | null> {
   if (e.quote_id) {
     try {
-      const quoteMsg = await ctx.getQuoteMsg(e);
-      if (quoteMsg && String(quoteMsg.sender.user_id) === String(e.self_id)) {
+      const quoteMsg = await fetchQuotedMessage(e, ctx);
+      if (quoteMsg && String(quoteMsg.sender?.user_id) === String(e.self_id)) {
         const quotedText = quoteMsg.message
           ?.filter((s: any) => s.type === "text")
-          .map((s: any) => s.text)
+          .map((s: any) => String(s.data?.text ?? s.text ?? ""))
           .join("");
         if (quotedText) {
           return { quoted: true, messageId: e.quote_id, content: quotedText };
@@ -65,7 +68,7 @@ export async function isQuotingBot(
  */
 export async function getQuotedContent(
   e: any,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
 ): Promise<
   | {
       messageId: string;
@@ -78,13 +81,13 @@ export async function getQuotedContent(
 > {
   if (e.quote_id) {
     try {
-      const quotedMsg = await ctx.getQuoteMsg(e);
+      const quotedMsg = await fetchQuotedMessage(e, ctx);
       if (quotedMsg && quotedMsg.message) {
-        const senderName = quotedMsg.sender.nickname;
+        const senderName = quotedMsg.sender?.nickname || "";
         // 提取文本内容
         const textContent = quotedMsg.message
           .filter((s: any) => s.type === "text")
-          .map((s: any) => s.text || "")
+          .map((s: any) => String(s.data?.text ?? s.text ?? ""))
           .join("");
 
         // 检测是否有图片
@@ -120,7 +123,7 @@ export function isGroupAllowed(groupId: number, cfg: ChatConfig): boolean {
 export function extractContent(
   e: any,
   cfg: ChatConfig,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
 ): { text: string; multimodal: any[] | null } {
   let text = "";
   try {
@@ -129,9 +132,12 @@ export function extractContent(
 
   // If text is empty but user @'d the bot, describe the action
   if (!text.trim() && e.message) {
-    const hasAt = e.message.some(
-      (seg: any) => seg.type === "at" && String(seg.qq) === String(e.self_id),
-    );
+    const hasAt = e.message.some((seg: any) => {
+      if (seg.type !== "at") return false;
+      const data = (seg.data ?? {}) as { qq?: unknown; target?: unknown };
+      const qq = data.qq ?? data.target;
+      return String(qq ?? "") === String(e.self_id ?? "");
+    });
     if (hasAt) {
       text = "[@you with no text]";
     }
@@ -190,14 +196,17 @@ async function mapWithConcurrency<T, R>(
 
 export async function getBotRole(
   groupId: number,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   selfId: number,
 ): Promise<"owner" | "admin" | "member"> {
   try {
-    const memberInfo = await ctx
-      .pickBot(selfId)
-      .getGroupMemberInfo(groupId, selfId);
-    return (memberInfo.role as "owner" | "admin" | "member") || "member";
+    const bot = ctx.pickBot(String(selfId));
+    if (!bot) return "member";
+    const memberInfo = await bot.invoke(memberGetInfo, {
+      group_id: String(groupId),
+      user_id: String(selfId),
+    });
+    return (memberInfo?.role as "owner" | "admin" | "member") || "member";
   } catch {
     return "member";
   }
@@ -237,12 +246,12 @@ async function resolveMemberName(
   }
   ctx.memberNameCache.set(key, key);
   try {
-    const bot = ctx.historyMediaOptions.bot as any;
-    if (!bot || typeof bot.getGroupMemberInfo !== "function") return key;
-    const info = await bot.getGroupMemberInfo(
-      ctx.historyMediaOptions.groupId,
-      Number(userId),
-    );
+    const bot = ctx.historyMediaOptions.bot as Bot | undefined;
+    if (!bot || typeof bot.invoke !== "function") return key;
+    const info = await bot.invoke(memberGetInfo, {
+      group_id: String(ctx.historyMediaOptions.groupId),
+      user_id: String(userId),
+    });
     const name = info?.card || info?.nickname || key;
     ctx.memberNameCache.set(key, name);
     return name;
@@ -474,7 +483,7 @@ async function buildMessageContent(
  */
 export async function getGroupHistory(
   groupId: number,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   count: number = 100,
   selfId: number,
   db?: {
@@ -547,8 +556,13 @@ export async function getGroupHistory(
   }
 
   try {
-    const bot = ctx.pickBot(selfId) as any;
+    const bot = ctx.pickBot(String(selfId));
     const historyMediaOptions: HistoryMediaProcessingOptions = {
+      bot: bot
+        ? {
+            sendApi: (action, params) => bot.sendApi(action, params),
+          }
+        : undefined,
       ai: mediaOptions?.ai,
       workingModel: mediaOptions?.workingModel,
       multimodalWorkingModel: mediaOptions?.multimodalWorkingModel,
@@ -561,19 +575,22 @@ export async function getGroupHistory(
               saveMediaSummarySource: db.saveMediaSummarySource?.bind(db),
             }
           : undefined,
-      bot,
       groupId,
     };
-    // 调用 OneBot API 获取群聊历史
-    const result = await bot.api("get_group_msg_history", {
-      group_id: String(groupId),
-      message_seq: "0",
-      count: Math.min(count, 200), // 最多获取200条
-      reverse_order: false,
-      disable_get_url: false,
-      parse_mult_msg: true,
-      quick_reply: false,
-    });
+    const result = bot
+      ? await bot.sendApi<{ messages?: unknown[]; data?: { messages?: unknown[] } }>(
+          "get_group_msg_history",
+          {
+            group_id: String(groupId),
+            message_seq: "0",
+            count: Math.min(count, 200),
+            reverse_order: false,
+            disable_get_url: false,
+            parse_mult_msg: true,
+            quick_reply: false,
+          },
+        )
+      : undefined;
     const messages = result?.messages || result?.data?.messages || [];
     if (!Array.isArray(messages)) {
       logger.warn("[getGroupHistory] API 返回格式异常:", result);
@@ -585,8 +602,9 @@ export async function getGroupHistory(
     const hashLookupCache = new Map<string, string | null>();
 
     for (const m of messages) {
-      const uid = m?.user_id;
-      const senderName = m?.sender?.card || m?.sender?.nickname;
+      const member = m as { user_id?: unknown; sender?: { card?: unknown; nickname?: unknown } };
+      const uid = member?.user_id;
+      const senderName = member?.sender?.card || member?.sender?.nickname;
       if (uid != null && senderName && !memberNameCache.has(String(uid))) {
         memberNameCache.set(String(uid), String(senderName));
       }
@@ -656,4 +674,19 @@ export function normalizeIdList(input: unknown): number[] {
         .filter((id) => Number.isFinite(id) && id > 0),
     ),
   );
+}
+
+
+async function fetchQuotedMessage(
+  e: any,
+  ctx: MiokuContext,
+): Promise<{ message: any[]; sender?: { user_id?: string; nickname?: string } } | null> {
+  const bot = e?.bot ?? ctx.pickBot(String(e?.self_id ?? ""));
+  if (!bot || !e?.quote_id) return null;
+  try {
+    const result = await bot.invoke(messageGet, { message_id: String(e.quote_id) });
+    return result ?? null;
+  } catch {
+    return null;
+  }
 }

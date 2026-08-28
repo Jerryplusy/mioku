@@ -28,7 +28,7 @@ export function buildHistoryMediaProcessingOptions(
     saveMediaSummary(summary: MediaSummaryRecord): void;
   },
   bot: {
-    api<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T>;
+    sendApi<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T>;
   },
   groupId: number,
   log: HistoryMediaProcessingOptions["logger"],
@@ -54,12 +54,12 @@ export function getSegmentUrl(seg: {
 
 export async function getVideoSourceCandidatesFromMessage(
   bot: {
-    api(action: string, params?: Record<string, unknown>): Promise<unknown>;
+    sendApi(action: string, params?: Record<string, unknown>): Promise<unknown>;
   },
   messageId: number | string | undefined,
 ): Promise<string[]> {
   if (messageId == null) return [];
-  const result = (await bot.api("get_msg", { message_id: messageId })) as {
+  const result = (await bot.sendApi("get_msg", { message_id: messageId })) as {
     message?: unknown[];
     data?: { message?: unknown[] };
   };

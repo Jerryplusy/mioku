@@ -1,4 +1,4 @@
-import type { MiokiContext } from "mioki";
+import type { MiokuContext } from "mioku";
 import type { AITool, ChatRuntimePromptInjection } from "mioku";
 import type { ChatPluginContext, ChatRuntimeState } from "../context";
 import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
@@ -48,7 +48,7 @@ const NO_NEW_MESSAGE =
   "[No new user message in this turn. Reply naturally based on the runtime instruction and recent context.]";
 
 function buildRuntimeTargetMessageContent(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   event: any,
   overrideContent?: string,
 ): string {
@@ -58,7 +58,7 @@ function buildRuntimeTargetMessageContent(
 }
 
 function resolveRuntimeContext(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   options: ExecuteChatRuntimeRequestOptions,
 ): ResolvedRuntimeContext {
   if (options.event) {
@@ -170,9 +170,9 @@ export async function finalizeChatTurn(
         if (args.isLive) {
           await event.reply([emojiSegment]);
         } else {
-          const bot = ctx.pickBot(selfId);
+          const bot = ctx.pickBot(String(selfId));
           if (!bot) throw new Error(`bot ${selfId} not found`);
-          await bot.sendPrivateMsg(userId, [emojiSegment]);
+          await bot.sendMessage({ type: "private", user_id: String(userId) }, [emojiSegment]);
         }
       } catch (err) {
         ctx.logger.warn(
@@ -260,7 +260,7 @@ export async function processChat(
     }));
 
     const botNickname =
-      cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
+      cfg.nicknames[0] || ctx.pickBot(e.self_id)?.nickname || "Bot";
     const botRole = groupId ? await getBotRole(groupId, ctx, e.self_id) : "member";
     let groupName: string | undefined;
     let memberCount: number | undefined;
@@ -451,7 +451,7 @@ async function executeChatRuntimeRequestNow(
 
   const botRole = groupId ? await getBotRole(groupId, pluginCtx.ctx, selfId) : "member";
   const botNickname =
-    cfg.nicknames[0] || pluginCtx.ctx.pickBot(selfId)?.nickname || "Bot";
+    cfg.nicknames[0] || pluginCtx.ctx.pickBot(String(selfId))?.nickname || "Bot";
 
   let groupName: string | undefined;
   let memberCount: number | undefined;

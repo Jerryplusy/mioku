@@ -1,4 +1,4 @@
-import type { MiokiContext } from "mioki";
+import type { MiokuContext } from "mioku";
 import type { AIInstance } from "mioku";
 import type { ChatConfig, TargetMessage } from "../types";
 import type { ChatDatabase } from "../db";
@@ -39,7 +39,7 @@ export class CooldownManager {
   private pluginCtx: ChatPluginContext;
   private sessionTurnScheduler: SessionTurnScheduler;
 
-  private ctx: MiokiContext;
+  private ctx: MiokuContext;
   private configProvider: ChatConfigProvider;
   private defaultConfig: ChatConfig;
   private db: ChatDatabase;
@@ -206,7 +206,7 @@ export class CooldownManager {
       this.buildHistoryMediaOptions(this.aiInstance, cfg),
     );
     const botNickname =
-      cfg.nicknames[0] || this.ctx.pickBot(selfId).nickname || "Bot";
+      cfg.nicknames[0] || this.ctx.pickBot(String(selfId))?.nickname || "Bot";
     const botRole = await getBotRole(groupId, this.ctx, selfId);
     const { groupName, memberCount } = await this.getGroupInfoData(
       this.ctx,
@@ -316,7 +316,7 @@ export class CooldownManager {
       this.buildHistoryMediaOptions(this.aiInstance, cfg),
     );
     const botNickname =
-      cfg.nicknames[0] || this.ctx.pickBot(selfId).nickname || "Bot";
+      cfg.nicknames[0] || this.ctx.pickBot(String(selfId))?.nickname || "Bot";
 
     const planResult = await this.humanize.actionPlanner.plan(
       groupSessionId,

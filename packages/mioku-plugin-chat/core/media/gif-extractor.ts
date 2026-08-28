@@ -1,4 +1,4 @@
-import { logger } from "mioki";
+import { logger } from "mioku";
 import sharp from "sharp";
 import { QQ_IMAGE_FETCH_HEADERS } from "./image-compress";
 

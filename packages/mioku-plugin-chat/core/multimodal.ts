@@ -1,6 +1,6 @@
 import type { AIInstance } from "mioku";
-import type { MiokiContext } from "mioki";
-import { logger } from "mioki";
+import type { MiokuContext } from "mioku";
+import { logger, messageGet } from "mioku";
 import { prepareImageUrlsForModel } from "./media/image-compress";
 
 /**
@@ -126,19 +126,21 @@ export type MediaByMessageId =
  * @returns 媒体信息或 null
  */
 export async function getMediaByMessageId(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   messageId: number,
   e: any,
 ): Promise<MediaByMessageId> {
   try {
-    const msg = await ctx.pickBot(e.self_id).getMsg(messageId);
+    const bot = ctx.pickBot(String(e.self_id ?? ""));
+    if (!bot) return null;
+    const msg = await bot.invoke(messageGet, { message_id: String(messageId) });
     if (!msg || !msg.message) {
       return null;
     }
 
-    for (const seg of msg.message as any[]) {
+    for (const seg of Array.from(msg.message)) {
       if (seg.type === "image") {
-        const url = seg.url || seg.data?.url;
+        const url = String(seg.data?.url ?? seg.data?.file ?? "");
         if (url) return { kind: "image", url };
       }
       if (seg.type === "video") {
@@ -164,7 +166,7 @@ export async function getMediaByMessageId(
  * @returns 图片 URL 或 null
  */
 export async function getQuoteImageUrl(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   event: any,
 ): Promise<string | null> {
   if (!event.quote_id) {
@@ -172,7 +174,9 @@ export async function getQuoteImageUrl(
   }
 
   try {
-    const quotedMsg = await ctx.getQuoteMsg(event);
+    const bot = event?.bot ?? ctx.pickBot(String(event?.self_id ?? ""));
+    if (!bot) return null;
+    const quotedMsg = await bot.invoke(messageGet, { message_id: String(event.quote_id) });
     if (!quotedMsg || !quotedMsg.message) {
       return null;
     }

@@ -1,5 +1,5 @@
 import type { AIInstance } from "mioku";
-import { logger } from "mioki";
+import { logger } from "mioku";
 import { extractJsonObject } from "../utils/json";
 import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
 import { extractGroupIdFromSession } from "../utils/group-config";

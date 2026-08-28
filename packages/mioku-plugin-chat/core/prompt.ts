@@ -1,5 +1,5 @@
 import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
-import { logger } from "mioki";
+import { logger } from "mioku";
 import type {
   SkillPermissionRole,
   AIService,

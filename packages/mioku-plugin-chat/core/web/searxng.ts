@@ -1,4 +1,4 @@
-import { logger } from "mioki";
+import { logger } from "mioku";
 import type { SearxngConfig } from "../../types";
 
 type TimeRange = "day" | "month" | "year";
