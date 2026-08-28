@@ -1,7 +1,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { existsSync, mkdirSync } from "fs";
-import { logger } from "./logger";
+import { rootLogger as logger } from "../logger";
 
 const SERVICE_CONFIG_ROOT = "service";
 

@@ -24,9 +24,6 @@ export async function resolveRealpath(p: string): Promise<string> {
   }
 }
 
-// Windows requires file:// URLs for absolute paths in dynamic import().
-// pathToFileURL also percent-encodes spaces and non-ASCII segments, which a
-// hand-rolled string replace leaves broken (e.g. "C:\用户\my bot").
 export function toImportPath(filePath: string): string {
   if (process.platform === "win32") {
     return pathToFileURL(filePath).href;
@@ -70,8 +67,6 @@ export async function scanNodeModules(prefix: string): Promise<DiscoveredModule[
     return results;
   }
 
-  // Don't filter by isDirectory(): node_modules entries are often symlinks
-  // into the workspace, and Dirent.isDirectory() returns false for symlinks.
   for (const entry of entries) {
     if (!entry.name.startsWith(prefix)) continue;
     const name = entry.name.slice(prefix.length);

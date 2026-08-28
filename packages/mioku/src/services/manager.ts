@@ -1,27 +1,28 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { existsSync, mkdirSync } from "fs";
-import type { MiokiContext } from "mioki";
+import type { MiokuContext } from "../runtime/mioku-context";
 import type {
   MiokuRuntimeConfig,
   PackageJsonLike,
   ServiceMetadata,
   MiokuService,
 } from "../types";
-import { logger } from "./logger";
+import { rootLogger as logger } from "../logger";
 import {
   scanLocalDir,
   scanNodeModules,
   pathExists,
   toImportPath,
-} from "./module-scanner";
-import { getOrCreate } from "./registry";
+} from "../internal/module-scanner";
+import { getOrCreate } from "../internal/registry";
+import { servicesRegistry } from "./registry";
 
 const SERVICE_PREFIX = "mioku-service-";
 
 export class ServiceManager {
-  private services = new Map<string, MiokuService>();
   private serviceMetadata = new Map<string, ServiceMetadata>();
+  private loaded = new Map<string, MiokuService>();
 
   static getInstance(): ServiceManager {
     return getOrCreate("service-manager", () => new ServiceManager());
@@ -78,26 +79,25 @@ export class ServiceManager {
     }
   }
 
-  async checkMissingServices(required: Set<string>): Promise<string[]> {
-    const missing: string[] = [];
-    for (const name of required) {
-      if (!this.serviceMetadata.has(name)) missing.push(name);
-    }
-    return missing;
+  getMetadata(name: string): ServiceMetadata | undefined {
+    return this.serviceMetadata.get(name);
   }
 
-  async loadAllServices(ctx: MiokiContext): Promise<void> {
+  getAllMetadata(): ServiceMetadata[] {
+    return [...this.serviceMetadata.values()];
+  }
+
+  async loadAllServices(ctx: MiokuContext): Promise<void> {
     const all = [...this.serviceMetadata.values()];
     logger.info(`O.o 准备加载 ${all.length} 个服务...`);
+    let loadedCount = 0;
     for (const metadata of all) {
-      await this.loadService(metadata, ctx);
+      if (await this.loadService(metadata, ctx)) loadedCount++;
     }
+    logger.info(`O.o 服务加载完成: ${loadedCount}/${all.length} 个就绪`);
   }
 
-  private async loadService(
-    metadata: ServiceMetadata,
-    ctx: MiokiContext,
-  ): Promise<boolean> {
+  private async loadService(metadata: ServiceMetadata, ctx: MiokuContext): Promise<boolean> {
     try {
       const tsEntry = path.join(metadata.path, "index.ts");
       const jsEntry = path.join(metadata.path, "index.js");
@@ -119,10 +119,8 @@ export class ServiceManager {
       }
 
       await service.init();
-      if (service.api) {
-        ctx.services[metadata.name] = service.api;
-      }
-      this.services.set(metadata.name, service);
+      servicesRegistry[metadata.name] = service.api;
+      this.loaded.set(metadata.name, service);
       return true;
     } catch (error) {
       logger.error(`[service-manager] 加载服务 ${metadata.name} 失败: ${error}`);
@@ -130,23 +128,21 @@ export class ServiceManager {
     }
   }
 
-  registerBuiltinService(name: string, service: MiokuService): void {
-    this.services.set(name, service);
-  }
-
-  getService(name: string): MiokuService | undefined {
-    return this.services.get(name);
-  }
-
   async disposeAll(): Promise<void> {
-    for (const [, service] of this.services) {
-      await service.dispose?.();
+    const entries = Array.from(this.loaded.entries()).reverse();
+    this.loaded.clear();
+    for (const [name, service] of entries) {
+      try {
+        await service.dispose?.();
+      } catch (error) {
+        logger.warn(`[service-manager] 服务 ${name} 卸载失败: ${error}`);
+      }
+      delete servicesRegistry[name];
     }
-    this.services.clear();
   }
 
-  reset(): void {
-    this.services.clear();
+  async reset(): Promise<void> {
+    await this.disposeAll();
     this.serviceMetadata.clear();
   }
 }

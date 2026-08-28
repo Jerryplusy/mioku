@@ -88,7 +88,7 @@ export async function scaffoldCommand(version: string): Promise<number> {
       "private": true,
       "type": "module",
       "dependencies": {},
-      "mioki": {
+      "mioku": {
         "prefix": "#",
         "owners": [${ownersList}],
         "admins": [],

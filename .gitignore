@@ -174,3 +174,4 @@ vite.config.ts.timestamp-*
 /example/data/
 /example/temp/
 /example/backup/
+/packages/mioku-adapter-icqq/vendor

@@ -1,12 +1,12 @@
 {
   "name": "mioku",
-  "version": "0.9.7",
+  "version": "1.0.0",
   "author": "Jerryplusy",
   "license": "MIT",
   "engines": {
     "node": ">= 22.18.0"
   },
-  "description": "Mioku - Plugin framework extended from mioki for NapCat OneBot v11",
+  "description": "Mioku - A plugin-based QQ bot framework",
   "private": false,
   "workspaces": [
     "packages/*",
@@ -16,6 +16,7 @@
     "start": "cd example && bun run start",
     "dev": "cd packages/mioku && bun run dev",
     "build": "for pkg in packages/*/; do [ -f \"$pkg/package.json\" ] && [ -d \"$pkg/src\" -o -f \"$pkg/tsdown.config.ts\" ] && (echo \"Building $pkg\" && cd \"$pkg\" && bun run build); done",
+    "typecheck": "bunx tsc --noEmit",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"

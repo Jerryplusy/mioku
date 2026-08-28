@@ -1,14 +1,13 @@
 {
   "name": "mioku",
   "type": "module",
-  "version": "0.9.9",
+  "version": "1.0.0",
   "packageManager": "bun@1.2.0",
-  "description": "Mioku - Plugin framework extended from mioki for NapCat OneBot v11",
+  "description": "Mioku - A plugin-based QQ bot framework",
   "keywords": [
     "onebot",
     "framework",
     "bot",
-    "mioki",
     "mioku"
   ],
   "bin": {
@@ -17,21 +16,22 @@
   "engines": {
     "node": ">= 22.18.0"
   },
-  "homepage": "https://github.com/jerryplusy/mioku#readme",
+  "homepage": "https://github.com/mioku-lab/mioku#readme",
   "files": [
     "dist"
   ],
   "bugs": {
-    "url": "https://github.com/jerryplusy/mioku/issues"
+    "url": "https://github.com/mioku-lab/mioku/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jerryplusy/mioku.git",
-    "directory": "src/packages/mioku"
+    "url": "git+https://github.com/mioku-lab/mioku.git",
+    "directory": "packages/mioku"
   },
   "scripts": {
     "dev": "tsdown -w",
-    "build": "tsdown"
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit"
   },
   "exports": {
     ".": {
@@ -43,7 +43,6 @@
   "author": "Jerryplusy <jerryplusy@outlook.com>",
   "license": "MIT",
   "dependencies": {
-    "mioki": "^0.16.0",
     "napcat-sdk": "^0.16.0",
     "consola": "^3.4.2",
     "dayjs": "^1.11.19",
@@ -54,17 +53,13 @@
     "lowdb": "^7.0.1",
     "mri": "^1.2.0",
     "node-cron": "^4.2.1",
-    "openai": "^4.0.0",
-    "puppeteer": "^23.10.0",
     "pretty-ms": "^9.3.0",
     "string2argv": "^1.0.2",
-    "systeminformation": "^5.30.7",
     "lodash": "^4.17.21"
   },
   "devDependencies": {
     "@types/lodash": "^4.17.0",
     "@types/node": "^22.0.0",
-    "@types/puppeteer": "^7.0.4",
     "tsdown": "^0.11.0",
     "typescript": "^5.8.0"
   }

@@ -1,4 +1,4 @@
-import { getOrCreate } from "./registry";
+import { getOrCreate } from "../internal/registry";
 
 const store = getOrCreate<Record<string, unknown>>(
   "plugin-runtime-state",

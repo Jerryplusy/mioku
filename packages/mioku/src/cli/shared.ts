@@ -7,7 +7,7 @@ import {
   commandExists,
   resolveCommand,
   runCommandInherit,
-} from "../core/exec";
+} from "../internal/exec";
 
 export const DEFAULT_PACKAGES = [
   "mioku",
@@ -108,7 +108,7 @@ export function execAdd(packages: string[], cwd?: string): void {
   run(cmd, args, { cwd });
 }
 
-export function appendToMiokiPlugins(cwd: string, pkgName: string): boolean {
+export function appendToMiokuPlugins(cwd: string, pkgName: string): boolean {
   if (!pkgName.startsWith(PLUGIN_PREFIX)) return false;
   const shortName = pkgName.slice(PLUGIN_PREFIX.length);
 
@@ -116,12 +116,12 @@ export function appendToMiokiPlugins(cwd: string, pkgName: string): boolean {
   if (!fs.existsSync(packageJsonPath)) return false;
 
   const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
-  const mioki = pkg.mioki ?? {};
-  const plugins = Array.isArray(mioki.plugins) ? [...mioki.plugins] : [];
+  const mioku = pkg.mioku ?? {};
+  const plugins = Array.isArray(mioku.plugins) ? [...mioku.plugins] : [];
   if (plugins.includes(shortName)) return false;
 
   plugins.push(shortName);
-  pkg.mioki = { ...mioki, plugins };
+  pkg.mioku = { ...mioku, plugins };
   fs.writeFileSync(packageJsonPath, `${JSON.stringify(pkg, null, 2)}\n`);
   return true;
 }

@@ -1,4 +1,4 @@
-import type { MiokiContext } from "mioki";
+import type { MiokuContext } from "../runtime/mioku-context";
 
 export interface ServiceRef<T> {
   readonly id: string;
@@ -9,14 +9,14 @@ export function defineService<T>(id: string): ServiceRef<T> {
 }
 
 export function getService<T>(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   ref: ServiceRef<T>,
 ): T | undefined {
   return ctx.services[ref.id] as T | undefined;
 }
 
 export function requireService<T>(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   ref: ServiceRef<T>,
 ): T {
   const svc = ctx.services[ref.id] as T | undefined;
@@ -29,7 +29,7 @@ export function requireService<T>(
 }
 
 export function hasService<T>(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   ref: ServiceRef<T>,
 ): boolean {
   return ctx.services[ref.id] !== undefined;

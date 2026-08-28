@@ -1,9 +1,11 @@
-import { logger } from "./logger";
+import { rootLogger as logger } from "../logger";
 import type {
   AccessHook,
   PluginHelp,
+  PluginMetadata,
   PluginPackageConfig,
 } from "../types";
+import type { PackageJsonLike } from "../types";
 
 const PLUGIN_CONFIG_KEYS = new Set([
   "services",
@@ -173,3 +175,16 @@ export function validatePluginPackageConfig(
 
   return config;
 }
+
+export const buildPluginMetadata = (
+  name: string,
+  resolvedPath: string,
+  packageJson: PackageJsonLike,
+): PluginMetadata => ({
+  name,
+  version: packageJson.version ?? "0.0.0",
+  description: packageJson.description,
+  path: resolvedPath,
+  packageJson,
+  config: validatePluginPackageConfig(packageJson.mioku, name),
+});

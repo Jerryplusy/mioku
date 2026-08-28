@@ -4,7 +4,7 @@ import type {
   ScreenshotService,
   HelpService,
 } from "../types";
-import { defineService } from "./service";
+import { defineService } from "./define";
 
 export const Services = {
   AI: defineService<AIService>("ai"),

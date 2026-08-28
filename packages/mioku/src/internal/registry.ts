@@ -1,5 +1,5 @@
 // Framework singletons are stashed on globalThis so they survive jiti's
-// moduleCache-off re-evaluation (mioki loads plugins via jiti). Callers that
+// moduleCache-off re-evaluation (mioku loads plugins via jiti). Callers that
 // live in the normally-cached `mioku` dist could use a plain module-level
 // const, but the global indirection keeps things stable if a plugin ever
 // re-imports the framework through jiti.

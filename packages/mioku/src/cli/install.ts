@@ -1,7 +1,7 @@
 import consola from "consola";
 import {
   ensurePackageManager,
-  appendToMiokiPlugins,
+  appendToMiokuPlugins,
   execAdd,
   fetchNpmKeywords,
   PLUGIN_PREFIX,
@@ -48,10 +48,10 @@ export async function installCommand(
 
     if (type === "plugin") {
       const shortName = normalized.slice(PLUGIN_PREFIX.length);
-      if (appendToMiokiPlugins(cwd, normalized)) {
-        consola.success(`已在 mioki.plugins 中启用 ${shortName}`);
+      if (appendToMiokuPlugins(cwd, normalized)) {
+        consola.success(`已在 mioku.plugins 中启用 ${shortName}`);
       } else {
-        consola.info(`${shortName} 已在 mioki.plugins 中，跳过`);
+        consola.info(`${shortName} 已在 mioku.plugins 中，跳过`);
       }
     }
     return 0;
