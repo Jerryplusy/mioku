@@ -1,5 +1,6 @@
-import { type MiokiContext, isOwner } from "mioki";
-import { replyNotice, replyText } from "./notify";
+import { isEventOwner } from "../../../runtime/mioku-context";
+import type { MiokuContext } from "../../../runtime/mioku-context";
+import { replyText } from "./notify";
 import { getCommandPrefix } from "./prefix";
 import { installPackage, uninstallPackage } from "../system/package-manager";
 
@@ -20,7 +21,7 @@ function typeLabel(type: "plugin" | "service"): string {
   return type === "plugin" ? "插件" : "服务";
 }
 
-export function registerInstallCommands(ctx: MiokiContext): () => void {
+export function registerInstallCommands(ctx: MiokuContext): () => void {
   const dispose = ctx.handle("message", async (event) => {
     const text = ctx.text(event)?.trim();
     if (!text || event?.user_id === event?.self_id) return;
@@ -30,8 +31,8 @@ export function registerInstallCommands(ctx: MiokiContext): () => void {
     if (!text.startsWith(installHead) && !text.startsWith(uninstallHead))
       return;
 
-    if (!isOwner(event)) {
-      ctx.logger.warn("[boot] install/uninstall 指令仅主人可用");
+    if (!isEventOwner(event)) {
+      ctx.logger.warn("[core] install/uninstall 指令仅主人可用");
       return;
     }
 
@@ -51,13 +52,8 @@ export function registerInstallCommands(ctx: MiokiContext): () => void {
       try {
         const result = await installPackage(parsed.type, parsed.name);
         if (!result.ok) {
-          await replyNotice({
-            ctx,
-            event,
-            instruction: `安装${typeLabel(parsed.type)} ${parsed.name} 失败，请简要说明失败并建议稍后重试。`,
-            fallbackMessage: `安装失败：${result.error || result.output}`,
-            error: result.error,
-          });
+          ctx.logger.error(`[core] 安装失败: ${result.error || result.output}`);
+          await replyText(event, `安装失败：${result.error || result.output}`);
           return;
         }
         const lines = [
@@ -67,13 +63,8 @@ export function registerInstallCommands(ctx: MiokiContext): () => void {
         ].filter(Boolean);
         await replyText(event, lines.join("\n"));
       } catch (error) {
-        await replyNotice({
-          ctx,
-          event,
-          instruction: `安装${typeLabel(parsed.type)} ${parsed.name} 失败，请简要说明失败并建议稍后重试。`,
-          fallbackMessage: `安装失败：${String(error)}`,
-          error: error,
-        });
+        ctx.logger.error(`[core] 安装失败: ${error}`);
+        await replyText(event, `安装失败：${String(error)}`);
       }
       return;
     }
@@ -93,13 +84,8 @@ export function registerInstallCommands(ctx: MiokiContext): () => void {
     try {
       const result = await uninstallPackage(parsed.type, parsed.name);
       if (!result.ok) {
-        await replyNotice({
-          ctx,
-          event,
-          instruction: `卸载${typeLabel(parsed.type)} ${parsed.name} 失败，请简要说明失败并建议稍后重试。`,
-          fallbackMessage: `卸载失败：${result.error || result.output}`,
-          error: result.error,
-        });
+        ctx.logger.error(`[core] 卸载失败: ${result.error || result.output}`);
+        await replyText(event, `卸载失败：${result.error || result.output}`);
         return;
       }
       const lines = [
@@ -109,13 +95,8 @@ export function registerInstallCommands(ctx: MiokiContext): () => void {
       ].filter(Boolean);
       await replyText(event, lines.join("\n"));
     } catch (error) {
-      await replyNotice({
-        ctx,
-        event,
-        instruction: `卸载${typeLabel(parsed.type)} ${parsed.name} 失败，请简要说明失败并建议稍后重试。`,
-        fallbackMessage: `卸载失败：${String(error)}`,
-        error: error,
-      });
+      ctx.logger.error(`[core] 卸载失败: ${error}`);
+      await replyText(event, `卸载失败：${String(error)}`);
     }
   });
 

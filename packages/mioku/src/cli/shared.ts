@@ -11,7 +11,6 @@ import {
 
 export const DEFAULT_PACKAGES = [
   "mioku",
-  "mioku-plugin-boot",
   "mioku-plugin-help",
   "mioku-plugin-chat",
   "mioku-service-config",

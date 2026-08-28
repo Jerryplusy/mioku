@@ -1,10 +1,10 @@
-import { type MiokiContext } from "mioki";
-import type { BootPluginConfig } from "../configs/base";
-import { isPrivilegedUser } from "../filter/access-rules";
+import type { MiokuContext } from "../../../runtime/mioku-context";
+import type { CorePluginConfig } from "../config";
+import { isPrivilegedUser } from "../access/privileged";
 
 export function registerAutoApprove(
-  ctx: MiokiContext,
-  getConfig: () => BootPluginConfig,
+  ctx: MiokuContext,
+  getConfig: () => CorePluginConfig,
 ): () => void {
   const offFriend = ctx.handle("request.friend", async (event) => {
     if (!getConfig().friend.autoApprove) {

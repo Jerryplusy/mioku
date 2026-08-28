@@ -1,13 +1,18 @@
 import * as fs from "fs";
 import * as path from "path";
-import { logger } from "mioki";
-import type { AccessControlConfig } from "mioku";
+import { rootLogger as logger } from "../../../logger";
+import type { AccessControlConfig } from "../../../types";
 import {
   ACCESS_DEFAULT_CONFIG,
   normalizeAccessConfig,
-} from "../configs/access-base";
+} from "./access-config";
 
-const NEW_ACCESS_CONFIG_PATH = path.resolve(
+const ACCESS_CONFIG_PATH = path.resolve(
+  process.cwd(),
+  "config/core/access-control.json",
+);
+
+const BOOT_ACCESS_CONFIG_PATH = path.resolve(
   process.cwd(),
   "config/boot/access-control.json",
 );
@@ -17,14 +22,9 @@ const LEGACY_ACCESS_CONFIG_PATH = path.resolve(
   "config/access-control/base.json",
 );
 
-interface LegacyAccessRuleConfig {
-  whitelist?: Array<string | number>;
-  blacklist?: Array<string | number>;
-}
-
 interface LegacyMessageFilter {
-  user?: LegacyAccessRuleConfig;
-  group?: LegacyAccessRuleConfig;
+  user?: { whitelist?: Array<string | number>; blacklist?: Array<string | number> };
+  group?: { whitelist?: Array<string | number>; blacklist?: Array<string | number> };
 }
 
 function readJsonSafe<T>(filePath: string): T | null {
@@ -42,50 +42,46 @@ function writeJsonSafe(filePath: string, data: unknown): void {
 }
 
 function copyFromLegacyLocation(): boolean {
-  if (fs.existsSync(NEW_ACCESS_CONFIG_PATH)) return false;
-  const legacy = readJsonSafe<AccessControlConfig>(LEGACY_ACCESS_CONFIG_PATH);
+  if (fs.existsSync(ACCESS_CONFIG_PATH)) return false;
+  const legacy = readJsonSafe<AccessControlConfig>(BOOT_ACCESS_CONFIG_PATH)
+    ?? readJsonSafe<AccessControlConfig>(LEGACY_ACCESS_CONFIG_PATH);
   if (!legacy) return false;
-  writeJsonSafe(NEW_ACCESS_CONFIG_PATH, normalizeAccessConfig(legacy));
+  writeJsonSafe(ACCESS_CONFIG_PATH, normalizeAccessConfig(legacy));
   logger.info(
-    `已从 ${path.relative(process.cwd(), LEGACY_ACCESS_CONFIG_PATH)} 复制到 ${path.relative(process.cwd(), NEW_ACCESS_CONFIG_PATH)}`,
+    `已从旧位置迁移 access-control 配置到 ${path.relative(process.cwd(), ACCESS_CONFIG_PATH)}`,
   );
   return true;
 }
 
 function migrateFromBootMessageFilter(): AccessControlConfig | null {
+  if (fs.existsSync(ACCESS_CONFIG_PATH)) return null;
+
   const bootConfigPath = path.resolve(process.cwd(), "config/boot/base.json");
-
-  if (fs.existsSync(NEW_ACCESS_CONFIG_PATH)) return null;
-
   const bootConfig = readJsonSafe<{ messageFilter?: LegacyMessageFilter }>(
     bootConfigPath,
   );
   if (!bootConfig?.messageFilter) return null;
 
-  const next: AccessControlConfig = normalizeAccessConfig({
-    ...ACCESS_DEFAULT_CONFIG,
-  });
-
-  writeJsonSafe(NEW_ACCESS_CONFIG_PATH, next);
-  logger.info("已从 boot.messageFilter 迁移到 boot/access-control.json");
+  writeJsonSafe(ACCESS_CONFIG_PATH, ACCESS_DEFAULT_CONFIG);
+  logger.info("已从旧 boot.messageFilter 迁移到 config/core/access-control.json");
 
   const stripped = { ...bootConfig };
   delete (stripped as any).messageFilter;
   writeJsonSafe(bootConfigPath, stripped);
-  logger.info("已从 boot/base.json 中移除 messageFilter 字段");
+  logger.info("已从 config/boot/base.json 中移除 messageFilter 字段");
 
-  return next;
+  return ACCESS_DEFAULT_CONFIG;
 }
 
 export function ensureAccessControlConfig(): AccessControlConfig {
   copyFromLegacyLocation();
 
-  const existing = readJsonSafe<AccessControlConfig>(NEW_ACCESS_CONFIG_PATH);
+  const existing = readJsonSafe<AccessControlConfig>(ACCESS_CONFIG_PATH);
   if (existing) return normalizeAccessConfig(existing);
 
   const migrated = migrateFromBootMessageFilter();
   if (migrated) return migrated;
 
-  writeJsonSafe(NEW_ACCESS_CONFIG_PATH, ACCESS_DEFAULT_CONFIG);
+  writeJsonSafe(ACCESS_CONFIG_PATH, ACCESS_DEFAULT_CONFIG);
   return ACCESS_DEFAULT_CONFIG;
 }

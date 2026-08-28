@@ -1,4 +1,5 @@
-import { type MiokiContext, isOwner } from "mioki";
+import { isEventOwner } from "../../../runtime/mioku-context";
+import type { MiokuContext } from "../../../runtime/mioku-context";
 import { replyText } from "./notify";
 import { getCommandPrefix } from "./prefix";
 import {
@@ -7,15 +8,15 @@ import {
   type RestartMarker,
 } from "../system/restart";
 
-export function registerRestartCommand(ctx: MiokiContext): () => void {
+export function registerRestartCommand(ctx: MiokuContext): () => void {
   const dispose = ctx.handle("message", async (event) => {
     const text = ctx.text(event)?.trim();
     if (!text || event?.user_id === event?.self_id) return;
     const prefix = getCommandPrefix();
-    if (text !== `${prefix}重启` && text !== `${prefix}restart`) return;
+    if (text !== `${prefix}restart` && text !== `${prefix}重启`) return;
 
-    if (!isOwner(event)) {
-      ctx.logger.warn("[boot] restart 指令仅主人可用");
+    if (!isEventOwner(event)) {
+      ctx.logger.warn("[core] restart 指令仅主人可用");
       return;
     }
 
@@ -37,10 +38,10 @@ export function registerRestartCommand(ctx: MiokiContext): () => void {
     try {
       await replyText(event, `Bot已运行${formatUptime(uptimeMs)}，正在重启...`);
     } catch (error) {
-      ctx.logger.warn(`[boot] 发送重启提示失败: ${error}`);
+      ctx.logger.warn(`[core] 发送重启提示失败: ${error}`);
     }
 
-    ctx.logger.info(`[boot] 正在执行重启命令 ${formatUptime(uptimeMs)}`);
+    ctx.logger.info(`[core] 正在执行重启命令 ${formatUptime(uptimeMs)}`);
     triggerRestart(marker);
   });
 

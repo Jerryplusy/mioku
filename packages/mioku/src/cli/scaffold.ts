@@ -89,10 +89,10 @@ export async function scaffoldCommand(version: string): Promise<number> {
       "type": "module",
       "dependencies": {},
       "mioku": {
-        "prefix": "#",
+        "prefix": ".",
         "owners": [${ownersList}],
         "admins": [],
-        "plugins": ["boot", "help", "chat", "demo"],
+        "plugins": ["help", "chat", "demo"],
         "log_level": "info",
         "online_push": false,
         "error_push": false,

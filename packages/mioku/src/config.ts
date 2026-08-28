@@ -72,7 +72,7 @@ export const readMiokuConfig = (): MiokuConfig => {
     owners: normalizeOwners((rawMioku as { owners?: unknown }).owners),
     admins: normalizeAdmins((rawMioku as { admins?: unknown }).admins),
     plugins: normalizePlugins((rawMioku as { plugins?: unknown }).plugins),
-    prefix: typeof (rawMioku as { prefix?: unknown }).prefix === 'string' ? ((rawMioku as { prefix: string }).prefix) : '#',
+    prefix: typeof (rawMioku as { prefix?: unknown }).prefix === 'string' ? ((rawMioku as { prefix: string }).prefix) : '.',
     plugins_dir: typeof (rawMioku as { plugins_dir?: unknown }).plugins_dir === 'string' ? ((rawMioku as { plugins_dir: string }).plugins_dir) : 'plugins',
   }
   if ((rawMioku as { log_level?: unknown }).log_level) {
@@ -96,7 +96,7 @@ const DEFAULT_CONFIG: RuntimeMiokuConfig = {
   admins: [],
   plugins: [],
   plugins_dir: 'plugins',
-  prefix: '#',
+  prefix: '.',
 }
 
 const loadInitialConfig = (): RuntimeMiokuConfig => {

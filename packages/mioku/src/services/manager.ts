@@ -87,7 +87,7 @@ export class ServiceManager {
     return [...this.serviceMetadata.values()];
   }
 
-  async loadAllServices(ctx: MiokuContext): Promise<void> {
+  async loadAllServices(ctx?: MiokuContext): Promise<void> {
     const all = [...this.serviceMetadata.values()];
     logger.info(`O.o 准备加载 ${all.length} 个服务...`);
     let loadedCount = 0;
@@ -97,7 +97,7 @@ export class ServiceManager {
     logger.info(`O.o 服务加载完成: ${loadedCount}/${all.length} 个就绪`);
   }
 
-  private async loadService(metadata: ServiceMetadata, ctx: MiokuContext): Promise<boolean> {
+  private async loadService(metadata: ServiceMetadata, ctx?: MiokuContext): Promise<boolean> {
     try {
       const tsEntry = path.join(metadata.path, "index.ts");
       const jsEntry = path.join(metadata.path, "index.js");

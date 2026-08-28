@@ -1,10 +1,18 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
-import { connectedBots, formatDuration, isInPm2, logger } from "mioki";
-import { getPluginDataDir } from "mioku";
+import { formatDuration } from "../../../utils";
+import { rootLogger as logger } from "../../../logger";
+import { connectedBots } from "../../../compat";
+import { getPluginDataDir } from "../../../internal/data-paths";
 
-const RESTART_MARKER_PATH = path.join(getPluginDataDir("boot"), "restart.json");
+import type { MiokuContext } from "../../../runtime/mioku-context";
+
+const isInPm2: boolean = Boolean(
+  typeof process !== "undefined" && (process.env.PM2_HOME || process.env.PM2 || process.env.pm_id),
+);
+
+const RESTART_MARKER_PATH = path.join(getPluginDataDir("core"), "restart.json");
 
 export interface RestartMarker {
   initiatedAt: number;
@@ -100,7 +108,7 @@ export function triggerRestart(marker: RestartMarker): void {
   writeRestartMarker(marker);
 
   if (isInPm2) {
-    logger.info("[boot] 检测到 PM2 环境，退出进程后将由 PM2 自动重启");
+    logger.info("[core] 检测到 PM2 环境，退出进程后将由 PM2 自动重启");
     setTimeout(() => process.exit(0), 300);
     return;
   }
@@ -113,9 +121,9 @@ export function triggerRestart(marker: RestartMarker): void {
       { detached: true, stdio: "ignore" },
     );
     child.unref();
-    logger.info(`[boot] 重启脚本已启动: ${scriptPath}`);
+    logger.info(`[core] 重启脚本已启动: ${scriptPath}`);
   } catch (error) {
-    logger.error(`[boot] 启动重启脚本失败: ${error}`);
+    logger.error(`[core] 启动重启脚本失败: ${error}`);
   }
 
   setTimeout(() => process.exit(0), 500);
@@ -136,33 +144,27 @@ async function waitForBot(timeoutMs = 60000): Promise<any | null> {
 }
 
 export async function notifyRestartComplete(
-  ctx: any,
+  ctx: MiokuContext | undefined,
   marker: RestartMarker,
 ): Promise<void> {
   const bot = await waitForBot();
   if (!bot) {
-    logger.warn("[boot] 重启完成但未等到 bot 上线，跳过通知");
+    logger.warn("[core] 重启完成但未等到 bot 上线，跳过通知");
     return;
   }
 
   const duration = Date.now() - marker.initiatedAt;
   const message = `Bot重启成功！用时${formatDuration(duration)}`;
+  const segment = ctx?.segment;
 
   try {
+    const payload = segment ? [segment.text(message)] : [];
     if (marker.groupId) {
-      await bot.sendGroupMsg(marker.groupId, [
-        ctx?.segment?.text
-          ? ctx.segment.text(message)
-          : { type: "text", data: { text: message } },
-      ]);
+      await bot.sendMessage({ type: "group", group_id: String(marker.groupId) }, payload);
     } else if (marker.userId) {
-      await bot.sendPrivateMsg(marker.userId, [
-        ctx?.segment?.text
-          ? ctx.segment.text(message)
-          : { type: "text", data: { text: message } },
-      ]);
+      await bot.sendMessage({ type: "private", user_id: String(marker.userId) }, payload);
     }
   } catch (error) {
-    ctx?.logger?.error?.(`[boot] 发送重启完成通知失败: ${error}`);
+    ctx?.logger?.error?.(`[core] 发送重启完成通知失败: ${error}`);
   }
 }

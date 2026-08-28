@@ -6,6 +6,8 @@ import { version } from "../package.json";
 import { getBuiltinPlugins } from "./runtime/runtime";
 import { unique } from "./utils";
 import { BUILTIN_PLUGINS } from "./builtin";
+import serviceManager from "./services/manager";
+import { registerPluginArtifacts } from "./runtime/plugin-artifacts";
 import { colors } from "consola/utils";
 
 import type { MiokuPlugin } from "./plugin";
@@ -62,7 +64,9 @@ export const startRuntime = async (
   );
   logger.info(colors.dim("=".repeat(40)));
 
+  await serviceManager.loadAllServices();
   await runtime.start();
+  await registerPluginArtifacts();
 
   const bots = runtime.bots;
   if (bots.length > 0) {
@@ -72,7 +76,7 @@ export const startRuntime = async (
   }
   logger.info(colors.dim("=".repeat(40)));
   logger.info(
-    `mioku v${version} 启动完成，向机器人发送「${colors.magentaBright(`${botConfig.prefix}帮助`)}」查看消息指令`,
+    `mioku v${version} 启动完成，向机器人发送「${colors.magentaBright(`${botConfig.prefix}help`)}」查看消息指令`,
   );
 
   if (botConfig.online_push && botConfig.owners[0]) {
@@ -89,6 +93,9 @@ export const startRuntime = async (
     }
   }
   return {
-    stop: (reason) => runtime.shutdown(reason),
+    stop: async (reason?: string) => {
+      await runtime.shutdown(reason);
+      await serviceManager.disposeAll();
+    },
   };
 };

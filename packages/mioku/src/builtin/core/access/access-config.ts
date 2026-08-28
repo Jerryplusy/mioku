@@ -1,4 +1,4 @@
-import type { AccessControlConfig } from "mioku";
+import type { AccessControlConfig } from "../../../types";
 
 export const ACCESS_DEFAULT_CONFIG: AccessControlConfig = {
   version: 1,

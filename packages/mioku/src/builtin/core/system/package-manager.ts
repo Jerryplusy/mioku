@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
-import { logger } from "mioki";
+import { rootLogger as logger } from "../../../logger";
 
 const NPM_REGISTRY = "https://registry.npmjs.org";
 const OFFICIAL_REGISTRY_URL =
@@ -96,7 +96,7 @@ function shortNameOf(name: string): string {
 
 export async function runBun(args: string[], cwd?: string): Promise<BunRunResult> {
   const runCwd = cwd ?? projectRoot();
-  logger.info(`[boot] 执行: bun ${args.join(" ")}  (cwd: ${runCwd})`);
+  logger.info(`[core] 执行: bun ${args.join(" ")}  (cwd: ${runCwd})`);
   const startedAt = Date.now();
   return new Promise((resolve) => {
     const child = spawn("bun", args, {
@@ -113,30 +113,22 @@ export async function runBun(args: string[], cwd?: string): Promise<BunRunResult
       stderr += String(chunk);
     });
     child.on("error", (err) => {
-      logger.error(`[boot] bun 进程异常: ${err}`);
+      logger.error(`[core] bun 进程异常: ${err}`);
       resolve({ code: -1, stdout, stderr: stderr + String(err) });
     });
     child.on("close", (code) => {
       const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
       const exitCode = code ?? -1;
       if (exitCode === 0) {
-        logger.info(`[boot] bun 完成 (耗时 ${elapsed}s)`);
+        logger.info(`[core] bun 完成 (耗时 ${elapsed}s)`);
       } else {
         logger.error(
-          `[boot] bun 退出码 ${exitCode} (耗时 ${elapsed}s)\n${stderr || stdout}`,
+          `[core] bun 退出码 ${exitCode} (耗时 ${elapsed}s)\n${stderr || stdout}`,
         );
       }
       resolve({ code: exitCode, stdout, stderr });
     });
   });
-}
-
-export async function runBunOrThrow(args: string[], cwd?: string): Promise<string> {
-  const result = await runBun(args, cwd);
-  if (result.code !== 0) {
-    throw new Error(result.stderr || result.stdout || `bun ${args.join(" ")} 失败`);
-  }
-  return result.stdout;
 }
 
 function readPackageJson(dir: string): any | null {
@@ -180,7 +172,7 @@ export function listInstalledPackages(): InstalledPackage[] {
 
 async function fetchJson(url: string): Promise<any> {
   const res = await fetch(url, {
-    headers: { Accept: "application/json", "User-Agent": "mioku-boot" },
+    headers: { Accept: "application/json", "User-Agent": "mioku-core" },
   });
   if (!res.ok) throw new Error(`HTTP_${res.status}`);
   return res.json();
@@ -294,32 +286,32 @@ export function snapshotAll(names: string[]): Map<string, string> {
   return snapshotVersions(names);
 }
 
-function appendToMiokiPlugins(pkgName: string): boolean {
+function appendToMiokuPlugins(pkgName: string): boolean {
   if (!pkgName.startsWith(PLUGIN_PREFIX)) return false;
   const shortName = pkgName.slice(PLUGIN_PREFIX.length);
   const packageJsonPath = path.join(projectRoot(), "package.json");
   if (!fs.existsSync(packageJsonPath)) return false;
   const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
-  const mioki = pkg.mioki ?? {};
-  const plugins = Array.isArray(mioki.plugins) ? [...mioki.plugins] : [];
+  const mioku = pkg.mioku ?? {};
+  const plugins = Array.isArray(mioku.plugins) ? [...mioku.plugins] : [];
   if (plugins.includes(shortName)) return false;
   plugins.push(shortName);
-  pkg.mioki = { ...mioki, plugins };
+  pkg.mioku = { ...mioku, plugins };
   fs.writeFileSync(packageJsonPath, `${JSON.stringify(pkg, null, 2)}\n`);
   return true;
 }
 
-function removeFromMiokiPlugins(pkgName: string): boolean {
+function removeFromMiokuPlugins(pkgName: string): boolean {
   if (!pkgName.startsWith(PLUGIN_PREFIX)) return false;
   const shortName = pkgName.slice(PLUGIN_PREFIX.length);
   const packageJsonPath = path.join(projectRoot(), "package.json");
   if (!fs.existsSync(packageJsonPath)) return false;
   const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
-  const mioki = pkg.mioki ?? {};
-  const plugins = Array.isArray(mioki.plugins) ? [...mioki.plugins] : [];
+  const mioku = pkg.mioku ?? {};
+  const plugins = Array.isArray(mioku.plugins) ? [...mioku.plugins] : [];
   if (!plugins.includes(shortName)) return false;
-  pkg.mioki = {
-    ...mioki,
+  pkg.mioku = {
+    ...mioku,
     plugins: plugins.filter((name: string) => name !== shortName),
   };
   fs.writeFileSync(packageJsonPath, `${JSON.stringify(pkg, null, 2)}\n`);
@@ -344,10 +336,10 @@ export async function installPackage(
   name: string,
 ): Promise<InstallResult> {
   const packageName = normalizeTargetName(type, name);
-  logger.info(`[boot] 开始安装 ${type} 包: ${packageName}`);
+  logger.info(`[core] 开始安装 ${type} 包: ${packageName}`);
   const result = await runBun(["add", packageName]);
   if (result.code !== 0) {
-    logger.error(`[boot] 安装 ${packageName} 失败: ${result.stderr || result.stdout}`);
+    logger.error(`[core] 安装 ${packageName} 失败: ${result.stderr || result.stdout}`);
     return {
       ok: false,
       packageName,
@@ -358,11 +350,11 @@ export async function installPackage(
   }
   let enabled = false;
   if (type === "plugin") {
-    enabled = appendToMiokiPlugins(packageName);
+    enabled = appendToMiokuPlugins(packageName);
   }
   const installedVersion = getInstalledVersion(packageName);
   logger.info(
-    `[boot] 安装成功 ${packageName}@${installedVersion}${enabled ? "（已启用）" : ""}`,
+    `[core] 安装成功 ${packageName}@${installedVersion}${enabled ? "（已启用）" : ""}`,
   );
   return {
     ok: true,
@@ -385,10 +377,10 @@ export async function uninstallPackage(
   name: string,
 ): Promise<UninstallResult> {
   const packageName = normalizeTargetName(type, name);
-  logger.info(`[boot] 开始卸载 ${type} 包: ${packageName}`);
+  logger.info(`[core] 开始卸载 ${type} 包: ${packageName}`);
   const result = await runBun(["remove", packageName]);
   if (result.code !== 0) {
-    logger.error(`[boot] 卸载 ${packageName} 失败: ${result.stderr || result.stdout}`);
+    logger.error(`[core] 卸载 ${packageName} 失败: ${result.stderr || result.stdout}`);
     return {
       ok: false,
       packageName,
@@ -399,10 +391,10 @@ export async function uninstallPackage(
   }
   let removedFromConfig = false;
   if (type === "plugin") {
-    removedFromConfig = removeFromMiokiPlugins(packageName);
+    removedFromConfig = removeFromMiokuPlugins(packageName);
   }
   logger.info(
-    `[boot] 卸载成功 ${packageName}${removedFromConfig ? "（已从配置移除）" : ""}`,
+    `[core] 卸载成功 ${packageName}${removedFromConfig ? "（已从配置移除）" : ""}`,
   );
   return {
     ok: true,

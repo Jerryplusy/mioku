@@ -14,7 +14,7 @@ export interface AutoUpdateConfig {
   frequency: "daily" | "weekly" | "monthly";
 }
 
-export interface BootPluginConfig {
+export interface CorePluginConfig {
   likeCommand: {
     enabled: boolean;
     keyword: string;
@@ -31,7 +31,7 @@ export interface BootPluginConfig {
   autoUpdate: AutoUpdateConfig;
 }
 
-export const BOOT_DEFAULT_CONFIG: BootPluginConfig = {
+export const CORE_DEFAULT_CONFIG: CorePluginConfig = {
   likeCommand: {
     enabled: true,
     keyword: "赞我",
@@ -77,36 +77,36 @@ export function cloneConfig<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-export function normalizeBootConfig(config: BootPluginConfig | any): BootPluginConfig {
-  const merged: BootPluginConfig = {
-    ...cloneConfig(BOOT_DEFAULT_CONFIG),
+export function normalizeCoreConfig(config: CorePluginConfig | any): CorePluginConfig {
+  const merged: CorePluginConfig = {
+    ...cloneConfig(CORE_DEFAULT_CONFIG),
     ...(config || {}),
     likeCommand: {
-      ...cloneConfig(BOOT_DEFAULT_CONFIG.likeCommand),
+      ...cloneConfig(CORE_DEFAULT_CONFIG.likeCommand),
       ...(config?.likeCommand || {}),
     },
     friend: {
-      ...cloneConfig(BOOT_DEFAULT_CONFIG.friend),
+      ...cloneConfig(CORE_DEFAULT_CONFIG.friend),
       ...(config?.friend || {}),
     },
     group: {
-      ...cloneConfig(BOOT_DEFAULT_CONFIG.group),
+      ...cloneConfig(CORE_DEFAULT_CONFIG.group),
       ...(config?.group || {}),
       minMemberCount:
         Number(config?.group?.minMemberCount) ||
-        BOOT_DEFAULT_CONFIG.group.minMemberCount,
+        CORE_DEFAULT_CONFIG.group.minMemberCount,
     },
     messageFilter: {
       user: normalizeFilterRule(config?.messageFilter?.user),
       group: normalizeFilterRule(config?.messageFilter?.group),
     },
     autoUpdate: {
-      ...cloneConfig(BOOT_DEFAULT_CONFIG.autoUpdate),
+      ...cloneConfig(CORE_DEFAULT_CONFIG.autoUpdate),
       ...(config?.autoUpdate || {}),
-      time: config?.autoUpdate?.time || BOOT_DEFAULT_CONFIG.autoUpdate.time,
+      time: config?.autoUpdate?.time || CORE_DEFAULT_CONFIG.autoUpdate.time,
       frequency: ["daily", "weekly", "monthly"].includes(config?.autoUpdate?.frequency)
         ? config.autoUpdate.frequency
-        : BOOT_DEFAULT_CONFIG.autoUpdate.frequency,
+        : CORE_DEFAULT_CONFIG.autoUpdate.frequency,
     },
   };
   return merged;

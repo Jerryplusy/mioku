@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { type MiokiContext, isOwner } from "mioki";
+import { isEventOwner } from "../../../runtime/mioku-context";
+import type { MiokuContext } from "../../../runtime/mioku-context";
 import { getCommandPrefix } from "./prefix";
 import { replyText } from "./notify";
 
@@ -40,19 +41,19 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return result;
 }
 
-export function registerLogCommand(ctx: MiokiContext): () => void {
+export function registerLogCommand(ctx: MiokuContext): () => void {
   const dispose = ctx.handle("message", async (event) => {
     const text = ctx.text(event)?.trim();
     if (!text || event?.user_id === event?.self_id) return;
     const prefix = getCommandPrefix();
-    if (text !== `${prefix}日志` && text !== `${prefix}log`) return;
+    if (text !== `${prefix}log` && text !== `${prefix}日志`) return;
 
-    if (!isOwner(event)) {
-      ctx.logger.warn("[boot] 日志指令仅主人可用");
+    if (!isEventOwner(event)) {
+      ctx.logger.warn("[core] 日志指令仅主人可用");
       return;
     }
 
-    const selfId = Number(event?.self_id || 0);
+    const selfId = String(event?.self_id || "");
     const bot = ctx.pickBot(selfId);
     if (!bot) return;
 
@@ -66,7 +67,7 @@ export function registerLogCommand(ctx: MiokiContext): () => void {
     try {
       lines = readLastLines(logFile, LOG_LINE_COUNT);
     } catch (error) {
-      ctx.logger.error(`[boot] 读取日志失败: ${error}`);
+      ctx.logger.error(`[core] 读取日志失败: ${error}`);
       await replyText(event, `读取日志失败：${String(error)}`);
       return;
     }
@@ -90,46 +91,26 @@ export function registerLogCommand(ctx: MiokiContext): () => void {
     const summary = `info ${infoCount} warn ${warnCount} error ${errorCount}`;
 
     const chunks = chunk(lines, LINES_PER_NODE);
-    const normalize = (elements: any[]): any[] => {
-      if (typeof bot?.normalizeSendable === "function") {
-        return bot.normalizeSendable(elements);
-      }
-      return elements.map((element: any) => {
-        if (
-          element &&
-          typeof element === "object" &&
-          "type" in element &&
-          "data" in element
-        ) {
-          return element;
-        }
-        if (element && typeof element === "object" && "type" in element) {
-          const { type, ...data } = element;
-          return { type, data };
-        }
-        return element;
-      });
-    };
 
     const messages = chunks.map((chunkLines, idx) => ({
       type: "node",
       data: {
-        user_id: String(selfId),
+        user_id: selfId,
         nickname: `第${idx + 1}条日志`,
-        content: normalize([ctx.segment.text(chunkLines.join("\n"))]),
+        content: [ctx.segment.text(chunkLines.join("\n"))],
       },
     }));
 
     try {
       if (event?.message_type === "group" && event?.group_id) {
-        await bot.api("send_group_forward_msg", {
+        await bot.sendApi("send_group_forward_msg", {
           group_id: event.group_id,
           messages,
           source: "最近100条运行日志",
           summary,
         });
       } else if (event?.user_id) {
-        await bot.api("send_private_forward_msg", {
+        await bot.sendApi("send_private_forward_msg", {
           user_id: event.user_id,
           messages,
           source: "最近100条运行日志",
@@ -137,7 +118,7 @@ export function registerLogCommand(ctx: MiokiContext): () => void {
         });
       }
     } catch (error) {
-      ctx.logger.error(`[boot] 发送日志转发失败: ${error}`);
+      ctx.logger.error(`[core] 发送日志转发失败: ${error}`);
       await replyText(event, `发送日志失败：${String(error)}`);
     }
   });
