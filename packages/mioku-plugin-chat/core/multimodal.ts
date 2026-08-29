@@ -1,6 +1,6 @@
-import type { AIInstance } from "mioku";
+import type { AIInstance, Bot } from "mioku";
 import type { MiokuContext } from "mioku";
-import { logger, messageGet } from "mioku";
+import { logger } from "mioku";
 import { prepareImageUrlsForModel } from "./media/image-compress";
 
 /**
@@ -131,9 +131,9 @@ export async function getMediaByMessageId(
   e: any,
 ): Promise<MediaByMessageId> {
   try {
-    const bot = ctx.pickBot(String(e.self_id ?? ""));
+    const bot: Bot = e?.bot ?? ctx.pickBot(e.self_id ?? "");
     if (!bot) return null;
-    const msg = await bot.invoke(messageGet, { message_id: String(messageId) });
+    const msg = await bot.getMessage(messageId);
     if (!msg || !msg.message) {
       return null;
     }
@@ -144,7 +144,8 @@ export async function getMediaByMessageId(
         if (url) return { kind: "image", url };
       }
       if (seg.type === "video") {
-        const { getSegmentSourceCandidates } = await import("./media/history-media");
+        const { getSegmentSourceCandidates } =
+          await import("./media/history-media");
         const sources = getSegmentSourceCandidates(seg);
         if (sources.length > 0) return { kind: "video", sources };
       }
@@ -174,9 +175,9 @@ export async function getQuoteImageUrl(
   }
 
   try {
-    const bot = event?.bot ?? ctx.pickBot(String(event?.self_id ?? ""));
+    const bot = event?.bot;
     if (!bot) return null;
-    const quotedMsg = await bot.invoke(messageGet, { message_id: String(event.quote_id) });
+    const quotedMsg = await bot.getMessage(event.quote_id);
     if (!quotedMsg || !quotedMsg.message) {
       return null;
     }

@@ -151,9 +151,9 @@ export async function finalizeChatTurn(
       { ctx, groupId, messages: result.messages, config: cfg, sentIndices: toolCtx.sentMessageIndices, audioService: pluginCtx.audioService },
       selfId,
     );
-    await pluginCtx.sendEmoji(ctx, groupId, result.emojiPath, selfId);
+    await pluginCtx.sendEmoji(ctx, groupId, result.emojiPath, event?.bot);
     const now = Date.now();
-    pluginCtx.saveBotMessages(groupId, groupSessionId, result.messages, now, cfg, pluginCtx.db, ctx, selfId);
+    pluginCtx.saveBotMessages(groupId, groupSessionId, result.messages, now, cfg, pluginCtx.db, ctx, event?.bot);
     if (args.isLive) {
       pluginCtx.idleCheckManager.recordBotMessages(groupSessionId, result.messages.length, selfId);
     }
@@ -170,9 +170,9 @@ export async function finalizeChatTurn(
         if (args.isLive) {
           await event.reply([emojiSegment]);
         } else {
-          const bot = ctx.pickBot(String(selfId));
+          const bot = args.event?.bot;
           if (!bot) throw new Error(`bot ${selfId} not found`);
-          await bot.sendMessage({ type: "private", user_id: String(userId) }, [emojiSegment]);
+          await bot.sendMessage({ type: "private", user_id: userId}, [emojiSegment]);
         }
       } catch (err) {
         ctx.logger.warn(
@@ -260,7 +260,7 @@ export async function processChat(
     }));
 
     const botNickname =
-      cfg.nicknames[0] || ctx.pickBot(e.self_id)?.nickname || "Bot";
+      cfg.nicknames[0] || e.bot?.nickname || "Bot";
     const botRole = groupId ? await getBotRole(groupId, ctx, e.self_id) : "member";
     let groupName: string | undefined;
     let memberCount: number | undefined;
@@ -451,7 +451,7 @@ async function executeChatRuntimeRequestNow(
 
   const botRole = groupId ? await getBotRole(groupId, pluginCtx.ctx, selfId) : "member";
   const botNickname =
-    cfg.nicknames[0] || pluginCtx.ctx.pickBot(String(selfId))?.nickname || "Bot";
+    cfg.nicknames[0] || event?.bot?.nickname || "Bot";
 
   let groupName: string | undefined;
   let memberCount: number | undefined;

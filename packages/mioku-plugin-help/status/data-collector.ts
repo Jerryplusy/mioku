@@ -3,9 +3,7 @@ import * as path from "node:path";
 import systemInfo from "systeminformation";
 import {
   connectedBots,
-  friendGetList,
   getPluginMetadataList,
-  groupGetList,
 } from "mioku";
 import type { AIService, Bot, MiokuContext } from "mioku";
 import { getRenderVersions } from "../utils";
@@ -213,10 +211,10 @@ async function collectBotStatuses(
         withTimeout(Promise.resolve().then(() => bot.sendApi<OneBotStatusData>("get_status"))).catch(
           () => null,
         ),
-        withTimeout(Promise.resolve().then(() => bot.invoke(groupGetList, {}))).catch(
+        withTimeout(Promise.resolve().then(() => bot.getGroupList())).catch(
           () => [],
         ),
-        withTimeout(Promise.resolve().then(() => bot.invoke(friendGetList, {}))).catch(
+        withTimeout(Promise.resolve().then(() => bot.getFriendList())).catch(
           () => [],
         ),
         withTimeout(

@@ -115,11 +115,9 @@ export function resolveHelpBotProfile(
   const fallbackNickname = "Mioku Bot";
   const selfId = event?.self_id;
   const bot =
-    (selfId && typeof ctx?.pickBot === "function"
-      ? ctx.pickBot(selfId)
-      : null) ||
+    event?.bot ??
     (ctx?.bots instanceof Map ? Array.from(ctx.bots.values())[0] : null);
-  const botId = selfId || bot?.uin || bot?.user_id || bot?.self_id;
+  const botId = selfId || bot?.bot_id;
   const botNickname = bot?.nickname || bot?.name || fallbackNickname;
   const botAvatarUrl = botId
     ? `https://q1.qlogo.cn/g?b=qq&nk=${botId}&s=640`
@@ -160,8 +158,8 @@ export async function replyWithImage(
 }
 
 /**
- * Send an image from inside an AI skill handler. Picks the right bot via
- * `ctx.pickBot(selfId)`, supports an optional quote-reply, and falls
+ * Send an image from inside an AI skill handler. Uses the event-bound bot
+ * (`event.bot`), supports an optional quote-reply, and falls
  * back to base64 when the adapter refuses a raw path.
  */
 export async function sendImageFromSkillContext(options: {
@@ -171,28 +169,20 @@ export async function sendImageFromSkillContext(options: {
   quoteReply?: boolean;
 }): Promise<void> {
   const { ctx, event, imagePath, quoteReply = false } = options;
-  const selfId = event?.self_id != null ? Number(event.self_id) : undefined;
-  const bot =
-    selfId != null && typeof ctx?.pickBot === "function"
-      ? ctx.pickBot(selfId)
-      : undefined;
+  const bot = event?.bot;
 
   if (!bot) {
     throw new Error("当前上下文不支持发送图片");
   }
 
   const buildImageSegment = (file: string) => {
-    const normalizedFile = normalizeImageSource(file);
-    if (ctx?.segment?.image) {
-      return ctx.segment.image(normalizedFile);
-    }
-    return { type: "image", file: normalizedFile };
+    return ctx.segment.image(normalizeImageSource(file));
   };
 
   const sendPayload = async (file: string) => {
     const payload: any[] = [];
     if (quoteReply && event?.message_id != null) {
-      payload.push({ type: "reply", id: String(event.message_id) });
+      payload.push(ctx.segment.reply(event.message_id));
     }
     payload.push(buildImageSegment(file));
 

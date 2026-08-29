@@ -216,7 +216,7 @@ export class IdleCheckManager {
       this.buildHistoryMediaOptions(this.aiInstance, cfg),
     );
     const botNickname =
-      cfg.nicknames[0] || this.ctx.pickBot(String(selfId))?.nickname || "Bot";
+      cfg.nicknames[0] || this.ctx.pickBot(selfId)?.nickname || "Bot";
     const planResult = await this.humanize.actionPlanner.plan(
       groupSessionId,
       botNickname,

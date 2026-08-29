@@ -206,7 +206,7 @@ export class CooldownManager {
       this.buildHistoryMediaOptions(this.aiInstance, cfg),
     );
     const botNickname =
-      cfg.nicknames[0] || this.ctx.pickBot(String(selfId))?.nickname || "Bot";
+      cfg.nicknames[0] || this.ctx.pickBot(selfId)?.nickname || "Bot";
     const botRole = await getBotRole(groupId, this.ctx, selfId);
     const { groupName, memberCount } = await this.getGroupInfoData(
       this.ctx,
@@ -316,7 +316,7 @@ export class CooldownManager {
       this.buildHistoryMediaOptions(this.aiInstance, cfg),
     );
     const botNickname =
-      cfg.nicknames[0] || this.ctx.pickBot(String(selfId))?.nickname || "Bot";
+      cfg.nicknames[0] || this.ctx.pickBot(selfId)?.nickname || "Bot";
 
     const planResult = await this.humanize.actionPlanner.plan(
       groupSessionId,

@@ -1,13 +1,22 @@
-import type { MiokuContext } from "mioku";
+import type { Bot, MiokuContext } from "mioku";
 import type { AIInstance, AIService } from "mioku";
 import type { SkillPermissionRole } from "mioku";
 import type { ChatRuntimePromptInjection } from "mioku";
-import type { ChatConfig, ChatMessage, TargetMessage, ToolContext, ChatResult } from "../types";
+import type {
+  ChatConfig,
+  ChatMessage,
+  TargetMessage,
+  ToolContext,
+  ChatResult,
+} from "../types";
 import type { ChatDatabase } from "../db";
 import type { HumanizeEngine } from "../humanize";
 import type { EmojiAgent } from "../humanize";
 import type { SkillSessionManager } from "./skill-session";
-import type { GroupStructuredHistoryManager, StructuredUserInput } from "./group-structured-history";
+import type {
+  GroupStructuredHistoryManager,
+  StructuredUserInput,
+} from "./group-structured-history";
 import type { SendAIResponseOptions } from "../core/base";
 import type { GroupInfoResult, HumanizeContextsResult } from "../core/base";
 
@@ -54,7 +63,10 @@ export type GetHumanizeContexts = (
   triggerUserId?: number,
 ) => Promise<HumanizeContextsResult>;
 
-export type SendAIResponse = (options: SendAIResponseOptions, selfId: number) => Promise<void>;
+export type SendAIResponse = (
+  options: SendAIResponseOptions,
+  selfId: number,
+) => Promise<void>;
 
 export type SaveBotMessages = (
   groupId: number,
@@ -64,10 +76,15 @@ export type SaveBotMessages = (
   config: ChatConfig,
   db: ChatDatabase,
   ctx: MiokuContext,
-  selfId: number,
+  bot?: Bot,
 ) => void;
 
-export type SendEmoji = (ctx: MiokuContext, groupId: number, emojiPath: string | null | undefined, selfId: number) => Promise<void>;
+export type SendEmoji = (
+  ctx: MiokuContext,
+  groupId: number,
+  emojiPath: string | null | undefined,
+  bot?: import("mioku").Bot,
+) => Promise<void>;
 
 export type SendMessage = (
   ctx: MiokuContext,
@@ -96,9 +113,15 @@ export type BuildToolContext = (options: {
   audioService?: import("mioku-service-audio").AudioServiceApi;
 }) => ToolContext;
 
-export type BuildStructuredUserInput = (event: any, content: string, fallbackTimestamp?: number) => StructuredUserInput;
+export type BuildStructuredUserInput = (
+  event: any,
+  content: string,
+  fallbackTimestamp?: number,
+) => StructuredUserInput;
 
-export type BuildStructuredUserInputFromTarget = (targetMessage: TargetMessage) => StructuredUserInput;
+export type BuildStructuredUserInputFromTarget = (
+  targetMessage: TargetMessage,
+) => StructuredUserInput;
 
 export type PromptCtxForRunChat = {
   config: ChatConfig;

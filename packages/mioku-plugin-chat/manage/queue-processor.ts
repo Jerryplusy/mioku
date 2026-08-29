@@ -177,7 +177,7 @@ export class QueueProcessor {
 
     const cfg = this.configProvider(groupId);
     const botRole = await getBotRole(groupId, this.ctx, selfId);
-    const botNickname = cfg.nicknames[0] || this.ctx.pickBot(String(selfId))?.nickname || "Bot";
+    const botNickname = cfg.nicknames[0] || this.ctx.pickBot(selfId)?.nickname || "Bot";
     const { groupName, memberCount } = await this.getGroupInfoData(this.ctx, groupId, selfId, String(groupId));
     const { history } = await this.getGroupHistoryMessages(groupId, groupSessionId, this.ctx, cfg.historyCount, this.db, selfId, this.buildHistoryMediaOptions(this.aiInstance, cfg));
 
@@ -261,7 +261,7 @@ export class QueueProcessor {
       };
 
       const botRole = await getBotRole(groupId, this.ctx, selfId);
-      const botNickname = cfg.nicknames[0] || this.ctx.pickBot(String(selfId))?.nickname || "Bot";
+      const botNickname = cfg.nicknames[0] || this.ctx.pickBot(selfId)?.nickname || "Bot";
       const toolCtx = this.buildToolContext({
         ctx: this.ctx, event: null, groupSessionId, groupId, userId: targetMessage.userId,
         config: cfg, aiService: this.aiService, db: this.db, botRole, humanize: this.humanize, targetMessage, selfId,

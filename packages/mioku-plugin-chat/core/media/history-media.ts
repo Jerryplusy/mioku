@@ -4,7 +4,7 @@ import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import { promisify } from "util";
-import { logger } from "mioku";
+import { Bot, ForwardNode, logger } from "mioku";
 import type { AIInstance } from "mioku";
 import type { MediaSummaryKind, MediaSummaryRecord } from "../../types";
 
@@ -69,9 +69,7 @@ export interface HistoryMediaProcessingOptions {
     warn(message: string): void;
     error(message: string): void;
   };
-  bot?: {
-    sendApi<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T>;
-  };
+  bot?: Bot;
   groupId?: number;
   runAIRequest?<T>(request: () => Promise<T>): Promise<T | null>;
 }
@@ -252,7 +250,7 @@ export async function summarizeHistoryForward(
     return "[forward]";
   }
 
-  const forwardResult = await options.bot.sendApi("get_forward_msg", { id });
+  const forwardResult = await options.bot.getForwardMessage(id);
   const text = extractForwardText(forwardResult);
   const source = `forward:${id}`;
   if (!text) {
@@ -293,7 +291,7 @@ export async function getCachedHistoryForwardTag(
   if (!id) return "[forward]";
   if (!options.bot) return "[forward]";
   try {
-    const forwardResult = await options.bot.sendApi("get_forward_msg", { id });
+    const forwardResult = await options.bot.getForwardMessage(id);
     const text = extractForwardText(forwardResult);
     const summary = getCachedSummaryByHash(
       "forward",
@@ -558,7 +556,7 @@ async function extractVideoFrames(
         { timeout: 30_000 },
       );
       const buffer = await fs.readFile(outputPath);
-      frames.push(`data:image/jpeg;base64,${buffer.toString("base64")}`);
+      frames.push(`data:image/jpeg);base64,${buffer.toString("base64")}`);
     }
 
     return frames;
@@ -645,16 +643,13 @@ function buildFrameTimestamps(duration: number, frameCount: number): number[] {
   });
 }
 
-function extractForwardText(result: any): string {
-  const messages =
-    result?.messages || result?.data?.messages || result?.data || [];
-  const nodes = Array.isArray(messages) ? messages : [];
+function extractForwardText(result: ForwardNode[]): string {
+  const nodes = Array.isArray(result) ? result : [];
   const lines: string[] = [];
 
   for (const node of nodes) {
-    const senderName =
-      node.sender?.nickname || node.sender?.card || node.nickname || "unknown";
-    const content = extractMessageSegmentsText(node.message || node.content);
+    const senderName = node.nickname || String(node.user_id || "unknown");
+    const content = extractMessageSegmentsText(node.message);
     if (content) {
       lines.push(`${senderName}: ${content}`);
     }

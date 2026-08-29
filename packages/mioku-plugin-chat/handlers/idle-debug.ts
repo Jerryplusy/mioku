@@ -32,7 +32,7 @@ export async function handleIdleCheckDebug(
       async () => {
         const now = Date.now();
         const botNickname =
-          cfg.nicknames[0] || ctx.pickBot(String(e.self_id || 0))?.nickname || "Bot";
+          cfg.nicknames[0] || e.bot?.nickname || "Bot";
         ctx.logger.info(`[Debug] Manual idle check: group ${targetGroupId}`);
 
         const { history } = await pluginCtx.getGroupHistoryMessages(

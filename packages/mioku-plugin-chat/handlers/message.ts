@@ -36,7 +36,9 @@ export function createMessageHandler(
 
   return async (e: MessageEvent) => {
     const isGroup = e.message_type === "group";
-    const groupId: number | undefined = isGroup ? Number(e.group_id) : undefined;
+    const groupId: number | undefined = isGroup
+      ? Number(e.group_id)
+      : undefined;
     const cfg = await getConfig(groupId);
     if (!cfg.model && !cfg.apiKey) return;
     if (!e?.message || !Array.isArray(e.message)) return;
@@ -75,9 +77,15 @@ export function createMessageHandler(
     if (groupId && !isGroupAllowed(groupId, cfg)) return;
 
     // 媒体分析
-    if (isGroup && groupId && e.message && !isMediaAnalysisBlocked(cfg, userId)) {
-      const visionAI = pluginCtx.visionAIInstance ?? pluginCtx.aiService.getDefault();
-      const bot = ctx.pickBot(e.self_id) as any;
+    if (
+      isGroup &&
+      groupId &&
+      e.message &&
+      !isMediaAnalysisBlocked(cfg, userId)
+    ) {
+      const visionAI =
+        pluginCtx.visionAIInstance ?? pluginCtx.aiService.getDefault();
+      const bot = e.bot;
       const mediaOptions = visionAI
         ? buildHistoryMediaProcessingOptions(
             visionAI,
@@ -106,15 +114,21 @@ export function createMessageHandler(
           if (seg.type === "image") {
             const imageUrl = getSegmentUrl(seg);
             if (imageUrl) {
-              processImage(visionAI, imageUrl, cfg.multimodalWorkingModel, pluginCtx.db, {
-                runAIRequest: (request) =>
-                  pluginCtx.runWithRateLimitGuard(request, {
-                    userId,
-                    groupId,
-                    label: "image-analysis",
-                    skipRetryOnRateLimit: true,
-                  }),
-              }).catch((err) =>
+              processImage(
+                visionAI,
+                imageUrl,
+                cfg.multimodalWorkingModel,
+                pluginCtx.db,
+                {
+                  runAIRequest: (request) =>
+                    pluginCtx.runWithRateLimitGuard(request, {
+                      userId,
+                      groupId,
+                      label: "image-analysis",
+                      skipRetryOnRateLimit: true,
+                    }),
+                },
+              ).catch((err) =>
                 ctx.logger.error(`[image-analyzer] Failed: ${err}`),
               );
             }
@@ -159,7 +173,9 @@ export function createMessageHandler(
             }
           }
         }
-        if ((e.raw as { sub_type?: string } | undefined)?.sub_type === "notice") {
+        if (
+          (e.raw as { sub_type?: string } | undefined)?.sub_type === "notice"
+        ) {
           summarizeGroupNotice(e, mediaOptions)
             .then((noticeMessage) => {
               if (!noticeMessage) return;
@@ -189,8 +205,7 @@ export function createMessageHandler(
       const learnSessionId = `group:${groupId}`;
       const learnMsg = buildChatMessageFromEvent(e, text, true, groupId);
       const hasText = !!learnMsg.content?.trim();
-      const hasMultimodal =
-        !!cfg.isMultimodal && !!cfg.multimodalWorkingModel;
+      const hasMultimodal = !!cfg.isMultimodal && !!cfg.multimodalWorkingModel;
       if (hasText || hasMultimodal) {
         pluginCtx
           .recordGroupMessageForLearning(learnMsg, learnSessionId)
@@ -232,7 +247,11 @@ export function createMessageHandler(
       if (pluginCtx.queueProcessor.isInDynamicDelay(groupSessionId)) {
         if (atBot && !runtimeState.isRateLimitBlocked()) {
           pluginCtx.rateLimiter.recordInteraction(groupId, userId);
-          pluginCtx.queueProcessor.collectDynamicDelayMessage(groupSessionId, e, text);
+          pluginCtx.queueProcessor.collectDynamicDelayMessage(
+            groupSessionId,
+            e,
+            text,
+          );
         }
         return;
       }
@@ -278,8 +297,7 @@ export function createMessageHandler(
           Number(e.self_id || 0),
           pluginCtx.buildHistoryMediaOptions(pluginCtx.aiInstance, cfg),
         );
-        const botNickname =
-          cfg.nicknames[0] || ctx.pickBot(e.self_id)?.nickname || "Bot";
+        const botNickname = cfg.nicknames[0] || e.bot?.nickname || "Bot";
         const planResult = await pluginCtx.humanize.actionPlanner.plan(
           groupSessionId,
           botNickname,

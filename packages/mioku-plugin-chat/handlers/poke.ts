@@ -1,7 +1,7 @@
 import type { ChatPluginContext, ChatHandlerState } from "../context";
 import type { TargetMessage } from "../types";
 import type { Bot, NoticeEvent } from "mioku";
-import { memberGetInfo } from "mioku";
+
 import { getBotRole, isGroupAllowed } from "../utils";
 import { buildStructuredUserInputFromTarget } from "../manage/group-structured-history";
 import { finalizeChatTurn } from "../core/chat-turn";
@@ -45,13 +45,13 @@ export function createPokeHandler(
           const userId = Number(e.user_id || 0);
           const botRole = await getBotRole(groupId, ctx, selfId);
           const botNickname =
-            cfg.nicknames[0] || ctx.pickBot(String(selfId))?.nickname || "Bot";
+            cfg.nicknames[0] || e.bot?.nickname || "Bot";
 
           let senderName = String(userId);
           try {
-            const bot: Bot | undefined = ctx.pickBot(String(selfId));
+            const bot: Bot | undefined = e.bot;
             const memberInfo = bot
-              ? await bot.invoke(memberGetInfo, { group_id: String(groupId), user_id: String(userId) })
+              ? await bot.getMemberInfo(groupId, userId)
               : undefined;
             senderName =
               memberInfo?.card ||

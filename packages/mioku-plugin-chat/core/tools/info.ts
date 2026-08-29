@@ -1,4 +1,4 @@
-import { memberGetInfo, groupGetMembers, logger } from "mioku";
+import {logger} from "mioku";
 import type { AITool } from "mioku";
 import { TOOL_RESULT_FOLLOWUP_KEY } from "mioku";
 import type { ToolContext } from "../../types";
@@ -73,12 +73,10 @@ export function createInfoTools(toolCtx: ToolContext): AITool[] {
       },
       handler: async (args) => {
         try {
-          const bot = toolCtx.ctx.pickBot(String(toolCtx.event?.self_id ?? ""));
+          const bot = toolCtx.event?.bot;
           if (!bot) return { error: `Failed to get member info: bot not found` };
-          const info = await bot.invoke(memberGetInfo, {
-            group_id: String(toolCtx.groupId!),
-            user_id: String(args.user_id),
-          });
+          const info = await bot.getMemberInfo(toolCtx.groupId!, args.user_id);
+          if (!info) return { error: `Failed to get member info: member not found` };
           return {
             nickname: info.nickname,
             card: info.card,
@@ -110,11 +108,9 @@ export function createInfoTools(toolCtx: ToolContext): AITool[] {
       },
       handler: async (args) => {
         try {
-          const bot = toolCtx.ctx.pickBot(String(toolCtx.event?.self_id ?? ""));
+          const bot = toolCtx.event?.bot;
           if (!bot) return { error: `Failed to get member list: bot not found` };
-          const list = await bot.invoke(groupGetMembers, {
-            group_id: String(toolCtx.groupId!),
-          });
+          const list = await bot.getGroupMembers(toolCtx.groupId!);
           const members = (list as any[]).map((m) => ({
             user_id: m.user_id,
             nickname: m.card || m.nickname,

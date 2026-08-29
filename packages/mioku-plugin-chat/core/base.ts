@@ -91,7 +91,7 @@ export async function sendAIResponse(
   } = options;
   const typingDelayEnabled = config.enableTypingDelay ?? false;
   const enableMarkdownScreenshot = config.enableMarkdownScreenshot ?? true;
-  const bot = ctx.pickBot(String(selfId));
+  const bot = ctx.pickBot(selfId);
   if (!bot) {
     ctx.logger.error(
       `[sendAIResponse] bot ${String(selfId)} not found, skip sending group message`,
@@ -141,10 +141,7 @@ export async function sendAIResponse(
 
       if (pokeUsers.length > 0) {
         for (const pokeId of pokeUsers) {
-          await bot.sendApi("group_poke", {
-            group_id: String(groupId),
-            user_id: String(pokeId),
-          });
+          await bot.pokeMember(String(groupId), String(pokeId));
         }
       }
 
@@ -152,11 +149,12 @@ export async function sendAIResponse(
 
       const finalQuoteId = pendingReply;
       if (finalQuoteId !== undefined) {
-        lineSegments.push(ctx.segment.reply(String(finalQuoteId)));
+        lineSegments.push(ctx.segment.reply(finalQuoteId));
         pendingReply = undefined;
       }
 
       for (const atId of atUsers) {
+        if (String(atId) === String(selfId)) continue;
         lineSegments.push(ctx.segment.at(String(atId)));
       }
 
@@ -178,9 +176,10 @@ export async function sendAIResponse(
             (imageSource?: string) => {
               const segments: any[] = [];
               if (finalQuoteIdForImage !== undefined) {
-                segments.push(ctx.segment.reply(String(finalQuoteIdForImage)));
+                segments.push(ctx.segment.reply(finalQuoteIdForImage));
               }
               for (const atId of atUsers) {
+                if (String(atId) === String(selfId)) continue;
                 segments.push(ctx.segment.at(String(atId)));
               }
               segments.push(
@@ -218,7 +217,7 @@ export async function sendAIResponse(
       }
 
       if (lineSegments.length > 0) {
-        await bot.sendMessage({ type: "group", group_id: String(groupId) }, lineSegments);
+        await bot.sendMessage({ type: "group", group_id: groupId}, lineSegments);
         lastDelayBasisText = sendableText || fallbackText || audioText || line;
       }
 
@@ -249,7 +248,7 @@ export async function sendMessage(
   const typingDelayEnabled = config.enableTypingDelay ?? false;
   const enableMarkdownScreenshot = config.enableMarkdownScreenshot ?? true;
   try {
-    const bot = ctx.pickBot(String(selfId));
+    const bot = ctx.pickBot(selfId);
     if (!bot) {
       ctx.logger.error(
         `[sendMessage] bot ${String(selfId)} not found, skip sending`,
@@ -295,10 +294,7 @@ export async function sendMessage(
 
       if (groupId && pokeUsers.length > 0) {
         for (const pokeId of pokeUsers) {
-          await bot.sendApi("group_poke", {
-            group_id: String(groupId),
-            user_id: String(pokeId),
-          });
+          await bot.pokeMember(String(groupId), String(pokeId));
         }
       }
 
@@ -323,7 +319,7 @@ export async function sendMessage(
             (imageSource?: string) => {
               const segments: any[] = [];
               if (finalQuoteIdForImage !== undefined) {
-                segments.push(ctx.segment.reply(String(finalQuoteIdForImage)));
+                segments.push(ctx.segment.reply(finalQuoteIdForImage));
               }
               for (const atId of atUsers) {
                 if (String(atId) !== String(selfId)) {
@@ -359,7 +355,7 @@ export async function sendMessage(
         const sendableText = markdownContent ?? cleanText;
         const segments: any[] = [];
         if (pendingReply !== undefined) {
-          segments.push(ctx.segment.reply(String(pendingReply)));
+          segments.push(ctx.segment.reply(pendingReply));
           pendingReply = undefined;
         }
         if (markdownContent) {
@@ -378,7 +374,7 @@ export async function sendMessage(
           }
 
           if (segments.length > 0 && groupId) {
-            await bot.sendMessage({ type: "group", group_id: String(groupId) }, segments);
+            await bot.sendMessage({ type: "group", group_id: groupId}, segments);
             lastDelayBasisText =
               sendableText || fallbackText || audioText || line;
           }
@@ -391,7 +387,7 @@ export async function sendMessage(
         // 有 @ 用户时，构建消息保持原始位置
         // 先将原始行按 @ 标记分割，然后重新构建
         let remaining = line;
-        const atPattern = /\[at:(\d+)\]/g;
+        const atPattern = /\[at: \d+\]/g;
 
         let lastIndex = 0;
         let match;
@@ -439,7 +435,7 @@ export async function sendMessage(
         // 发送消息
         if (segments.length > 0) {
           if (groupId) {
-            await bot.sendMessage({ type: "group", group_id: String(groupId) }, segments);
+            await bot.sendMessage({ type: "group", group_id: groupId}, segments);
             lastDelayBasisText =
               sendableText || fallbackText || audioText || line;
           }
@@ -455,7 +451,7 @@ export async function sendMessage(
         ) {
           const sendSegments: any[] = [];
           if (pendingReply !== undefined) {
-            sendSegments.push(ctx.segment.reply(String(pendingReply)));
+            sendSegments.push(ctx.segment.reply(pendingReply));
             pendingReply = undefined;
           }
           if (sendableText) {
@@ -565,12 +561,12 @@ async function sendByTarget(
   segments: readonly any[],
 ): Promise<void> {
   if (groupId) {
-    await bot.sendMessage({ type: "group", group_id: String(groupId) }, segments);
+    await bot.sendMessage({ type: "group", group_id: groupId}, segments);
     return;
   }
 
   if (userId) {
-    await bot.sendMessage({ type: "private", user_id: String(userId) }, segments);
+    await bot.sendMessage({ type: "private", user_id: userId}, segments);
     return;
   }
 
@@ -691,7 +687,7 @@ export async function getGroupInfoData(
   let memberCount: number | undefined;
 
   try {
-    const bot = ctx.pickBot(String(selfId));
+    const bot = ctx.pickBot(selfId);
     if (!bot) {
       groupName = fallbackGroupName;
       return { groupName, memberCount };
@@ -845,10 +841,10 @@ export function saveBotMessages(
   config: ChatConfig,
   db: ChatDatabase,
   ctx: MiokuContext,
-  selfId: number,
+  bot: Bot | undefined,
 ): void {
-  const bot = ctx.pickBot(String(selfId));
   const botNickname = config.nicknames[0] || (bot?.nickname ?? "Miku");
+  const selfId = bot ? Number(bot.bot_id) : 0;
 
   if (!bot) {
     ctx.logger.warn(`[saveBotMessages] bot ${selfId} not available`);
@@ -874,20 +870,19 @@ export async function sendEmoji(
   ctx: MiokuContext,
   groupId: number,
   emojiPath: string | null | undefined,
-  selfId: number,
+  bot: Bot | undefined,
 ): Promise<void> {
   if (!emojiPath) return;
-  const bot = ctx.pickBot(String(selfId));
   if (!bot) {
     ctx.logger.error(
-      `[sendEmoji] bot ${String(selfId)} not found, skip sending emoji`,
+      `[sendEmoji] bot not available, skip sending emoji`,
     );
     return;
   }
 
   try {
     const emojiSegment = ctx.segment.image(`file://${emojiPath}`);
-    await bot.sendMessage({ type: "group", group_id: String(groupId) }, [emojiSegment]);
+    await bot.sendMessage({ type: "group", group_id: groupId}, [emojiSegment]);
   } catch (err) {
     try {
       const fsPromises = await import("fs/promises");
@@ -922,7 +917,7 @@ export async function sendEmoji(
 
       const base64DataUrl = `data:${mimeType};base64,${base64}`;
       const base64Segment = ctx.segment.image(base64DataUrl);
-      await bot.sendMessage({ type: "group", group_id: String(groupId) }, [base64Segment]);
+      await bot.sendMessage({ type: "group", group_id: groupId}, [base64Segment]);
       ctx.logger.info(`[Emoji] Sent via base64: ${path.basename(emojiPath)}`);
     } catch (base64Err) {
       ctx.logger.error(`[Emoji] Base64 also failed: ${base64Err}`);

@@ -1,6 +1,6 @@
-import { logger, type MiokuContext } from "mioku";
+import { HistoryMessage, logger, type MiokuContext } from "mioku";
 import type { AIInstance, Bot } from "mioku";
-import { memberGetInfo, messageGet } from "mioku";
+
 import type {
   ChatConfig,
   ChatMessage,
@@ -200,12 +200,9 @@ export async function getBotRole(
   selfId: number,
 ): Promise<"owner" | "admin" | "member"> {
   try {
-    const bot = ctx.pickBot(String(selfId));
+    const bot = ctx.pickBot(selfId);
     if (!bot) return "member";
-    const memberInfo = await bot.invoke(memberGetInfo, {
-      group_id: String(groupId),
-      user_id: String(selfId),
-    });
+    const memberInfo = await bot.getMemberInfo(groupId, selfId);
     return (memberInfo?.role as "owner" | "admin" | "member") || "member";
   } catch {
     return "member";
@@ -247,11 +244,11 @@ async function resolveMemberName(
   ctx.memberNameCache.set(key, key);
   try {
     const bot = ctx.historyMediaOptions.bot as Bot | undefined;
-    if (!bot || typeof bot.invoke !== "function") return key;
-    const info = await bot.invoke(memberGetInfo, {
-      group_id: String(ctx.historyMediaOptions.groupId),
-      user_id: String(userId),
-    });
+    if (!bot) return key;
+    const info = await bot.getMemberInfo(
+      ctx.historyMediaOptions.groupId!,
+      userId,
+    );
     const name = info?.card || info?.nickname || key;
     ctx.memberNameCache.set(key, name);
     return name;
@@ -287,7 +284,10 @@ function extractQuotedText(messageSegs: any): string {
   return parts.join(" ").trim();
 }
 
-function buildReplyAnnotation(source: any, ctx: HistoryFormatContext): string | null {
+function buildReplyAnnotation(
+  source: any,
+  ctx: HistoryFormatContext,
+): string | null {
   if (!source || typeof source !== "object") return null;
   const sourceId = source.id ?? source.message_id ?? source.message_seq;
   const sourceUserId = source.user_id;
@@ -300,7 +300,8 @@ function buildReplyAnnotation(source: any, ctx: HistoryFormatContext): string | 
   const idStr = sourceId != null ? String(sourceId) : "?";
   let displayName: string | undefined;
   if (sourceUserId != null) {
-    displayName = ctx.memberNameCache.get(String(sourceUserId)) || String(sourceUserId);
+    displayName =
+      ctx.memberNameCache.get(String(sourceUserId)) || String(sourceUserId);
   }
   if (!displayName) displayName = sourceNickname || "unknown";
 
@@ -343,7 +344,7 @@ async function getImageTagWithHashCache(
 }
 
 async function formatHistoryMessage(
-  msg: any,
+  msg: HistoryMessage,
   ctx: HistoryFormatContext,
 ): Promise<FormattedHistoryMessage | null> {
   if (String(msg.user_id) === String(ctx.botUin)) return null;
@@ -359,12 +360,12 @@ async function formatHistoryMessage(
   if (!content.trim()) return null;
 
   return {
-    userId: msg.user_id,
-    userName: msg.sender?.card || msg.sender?.nickname || String(msg.user_id),
-    userRole: msg.sender?.role || "member",
+    userId: Number(msg.user_id || 0),
+    userName: msg.nickname || String(msg.user_id || "unknown"),
+    userRole: "member",
     content,
-    messageId: msg.message_id,
-    timestamp: msg.time ? msg.time * 1000 : Date.now(),
+    messageId: Number(msg.message_id) || 0,
+    timestamp: msg.time ?? Date.now(),
     role: "user",
   };
 }
@@ -436,17 +437,24 @@ async function buildMessageContent(
   )) {
     const videoSources = getSegmentSourceCandidates(videoSeg);
     if (videoSources.length > 0) {
-      parts.push(await getCachedHistoryVideoTag(videoSources, historyMediaOptions));
+      parts.push(
+        await getCachedHistoryVideoTag(videoSources, historyMediaOptions),
+      );
     } else {
       parts.push("[video]");
     }
   }
 
-  for (const forwardSeg of msg.message.filter((seg: any) => seg.type === "forward")) {
+  for (const forwardSeg of msg.message.filter(
+    (seg: any) => seg.type === "forward",
+  )) {
     const forwardId = forwardSeg.id || forwardSeg.data?.id;
     if (forwardId) {
       parts.push(
-        await getCachedHistoryForwardTag(String(forwardId), historyMediaOptions),
+        await getCachedHistoryForwardTag(
+          String(forwardId),
+          historyMediaOptions,
+        ),
       );
     } else {
       parts.push("[forward]");
@@ -457,7 +465,11 @@ async function buildMessageContent(
     ["xml", "json", "lightapp", "ark"].includes(seg.type),
   )) {
     const cardData =
-      cardSeg.data?.data || cardSeg.data?.xml || cardSeg.data || cardSeg.xml || "";
+      cardSeg.data?.data ||
+      cardSeg.data?.xml ||
+      cardSeg.data ||
+      cardSeg.xml ||
+      "";
     if (cardData) {
       parts.push(
         getCachedHistoryCardTag(
@@ -473,7 +485,9 @@ async function buildMessageContent(
   if (parts.length > 0) return parts.join(" ");
 
   const segTypes = msg.message.map((seg: any) => seg.type);
-  const nonTextTypes = segTypes.filter((t: string) => t !== "text" && t !== "at");
+  const nonTextTypes = segTypes.filter(
+    (t: string) => t !== "text" && t !== "at",
+  );
   return nonTextTypes.length > 0 ? `[${nonTextTypes.join(", ")}]` : "";
 }
 
@@ -556,13 +570,9 @@ export async function getGroupHistory(
   }
 
   try {
-    const bot = ctx.pickBot(String(selfId));
+    const bot = ctx.pickBot(selfId);
     const historyMediaOptions: HistoryMediaProcessingOptions = {
-      bot: bot
-        ? {
-            sendApi: (action, params) => bot.sendApi(action, params),
-          }
-        : undefined,
+      bot,
       ai: mediaOptions?.ai,
       workingModel: mediaOptions?.workingModel,
       multimodalWorkingModel: mediaOptions?.multimodalWorkingModel,
@@ -577,34 +587,21 @@ export async function getGroupHistory(
           : undefined,
       groupId,
     };
-    const result = bot
-      ? await bot.sendApi<{ messages?: unknown[]; data?: { messages?: unknown[] } }>(
-          "get_group_msg_history",
-          {
-            group_id: String(groupId),
-            message_seq: "0",
-            count: Math.min(count, 200),
-            reverse_order: false,
-            disable_get_url: false,
-            parse_mult_msg: true,
-            quick_reply: false,
-          },
+    const messages = bot
+      ? await bot.getHistory(
+          { type: "group", group_id: groupId },
+          undefined,
+          Math.min(count, 200),
         )
-      : undefined;
-    const messages = result?.messages || result?.data?.messages || [];
-    if (!Array.isArray(messages)) {
-      logger.warn("[getGroupHistory] API 返回格式异常:", result);
-      return botMessages;
-    }
+      : [];
 
     const botUin = selfId;
     const memberNameCache = new Map<string, string>();
     const hashLookupCache = new Map<string, string | null>();
 
     for (const m of messages) {
-      const member = m as { user_id?: unknown; sender?: { card?: unknown; nickname?: unknown } };
-      const uid = member?.user_id;
-      const senderName = member?.sender?.card || member?.sender?.nickname;
+      const uid = m.user_id;
+      const senderName = m.nickname;
       if (uid != null && senderName && !memberNameCache.has(String(uid))) {
         memberNameCache.set(String(uid), String(senderName));
       }
@@ -676,15 +673,17 @@ export function normalizeIdList(input: unknown): number[] {
   );
 }
 
-
 async function fetchQuotedMessage(
   e: any,
   ctx: MiokuContext,
-): Promise<{ message: any[]; sender?: { user_id?: string; nickname?: string } } | null> {
-  const bot = e?.bot ?? ctx.pickBot(String(e?.self_id ?? ""));
+): Promise<{
+  message: any[];
+  sender?: { user_id?: string; nickname?: string };
+} | null> {
+  const bot = e?.bot ?? ctx.pickBot(e?.self_id ?? "");
   if (!bot || !e?.quote_id) return null;
   try {
-    const result = await bot.invoke(messageGet, { message_id: String(e.quote_id) });
+    const result = await bot.getMessage(e.quote_id);
     return result ?? null;
   } catch {
     return null;

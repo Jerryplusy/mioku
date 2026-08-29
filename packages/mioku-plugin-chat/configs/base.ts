@@ -1,5 +1,5 @@
 export const BASE_CONFIG = {
-  maxContextTokens: 128,
+  maxContextTokens: 256,
   temperature: 0.8,
   historyCount: 100,
   maxIterations: 20,

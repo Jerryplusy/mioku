@@ -15,7 +15,7 @@ function stripStopword(input: string): string {
   return String(input || "")
     .trim()
     .replace(/^[#/\s]+/, "")
-    .replace(/[。.!！?？,，:：；;]+$/g, "");
+    .replace(/[。.!！?？,，:：；);]+$/g, "");
 }
 
 function normalize(value: string): string {
