@@ -1,3 +1,4 @@
+import type { BotBase } from "../../../adapter/bot";
 import type { MiokuContext } from "../../../runtime/mioku-context";
 import type { CorePluginConfig } from "../config";
 
@@ -57,6 +58,15 @@ export function registerLikeCommand(
         } catch (error) {
           ctx.logger.warn(`core set_msg_emoji_like 失败: ${error}`);
         }
+      }
+    } else if (bot.adapter === "icqq") {
+      const icqqBot = bot as BotBase & {
+        sendLike(userId: string | number, times?: number): Promise<boolean>;
+      };
+      try {
+        await icqqBot.sendLike(userId, likeTimes);
+      } catch (error) {
+        ctx.logger.warn(`core sendLike 失败: ${error}`);
       }
     }
   });

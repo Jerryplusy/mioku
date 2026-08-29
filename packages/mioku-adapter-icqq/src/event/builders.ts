@@ -1,4 +1,4 @@
-import { atOf, buildRoutes, createFriendRef, createGroupRef, messageRecall } from 'mioku'
+import { atOf, buildRoutes, createFriendRef, createGroupRef } from 'mioku'
 import type { Bot, ConversationRef, EventIdentity, MessageEvent, NoticeEvent, RequestEvent, SenderInfo } from 'mioku'
 import type {
   DiscussMessageEvent,
@@ -45,6 +45,7 @@ export const buildMessageEvent = (bot: Bot, event: IcqqMessageEvent): MessageEve
     time: event.time * 1000,
     raw: event,
     message_type: event.message_type,
+    sub_type: 'sub_type' in event ? String(event.sub_type) : undefined,
     user_id: userId,
     group_id: groupId,
     group_name: isGroup ? (event as GroupMessageEvent).group_name : undefined,
@@ -66,26 +67,32 @@ export const buildMessageEvent = (bot: Bot, event: IcqqMessageEvent): MessageEve
       return bot.sendMessage(target, input)
     },
     recall: async () => {
-      await bot.invoke(messageRecall, { message_id: event.message_id })
+      await bot.recallMessage(event.message_id)
     },
   }
 }
 
-export const buildNoticeEvent = (bot: Bot, event: Record<string, unknown>): NoticeEvent => ({
-  kind: 'notice',
-  type: 'notice',
-  routes: buildRoutes(bot.adapter, 'notice', String(event.notice_type ?? 'unknown'), id(event.sub_type as string | undefined)),
-  identity: identity(bot, `notice.${String(event.notice_type ?? 'unknown')}`, undefined, Number(event.time)),
-  self_id: bot.bot_id,
-  bot,
-  time: Number(event.time) * 1000,
-  raw: event,
-  notice_type: String(event.notice_type ?? ''),
-  sub_type: id(event.sub_type as string | undefined),
-  user_id: id(event.user_id as number | undefined),
-  group_id: id(event.group_id as number | undefined),
-  operator_id: id(event.operator_id as number | undefined),
-})
+export const buildNoticeEvent = (bot: Bot, event: Record<string, unknown>): NoticeEvent => {
+  // 部分通知事件（poke/ban/admin/increase/decrease/reaction/sign/transfer 等）没有 time 字段
+  const seconds = Number(event.time)
+  const hasTime = Number.isFinite(seconds) && seconds > 0
+  const noticeType = String(event.notice_type ?? 'unknown')
+  return {
+    kind: 'notice',
+    type: 'notice',
+    routes: buildRoutes(bot.adapter, 'notice', noticeType, id(event.sub_type as string | undefined)),
+    identity: identity(bot, `notice.${noticeType}`, undefined, hasTime ? seconds : undefined),
+    self_id: bot.bot_id,
+    bot,
+    time: hasTime ? seconds * 1000 : undefined,
+    raw: event,
+    notice_type: noticeType,
+    sub_type: id(event.sub_type as string | undefined),
+    user_id: id(event.user_id as number | undefined),
+    group_id: id(event.group_id as number | undefined),
+    operator_id: id(event.operator_id as number | undefined),
+  }
+}
 
 export const buildRequestEvent = (
   bot: Bot,

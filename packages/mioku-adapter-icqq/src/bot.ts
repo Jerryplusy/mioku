@@ -4,16 +4,15 @@ import {
 } from "mioku-adapter-icqq/vendor/icqq";
 import type {
   Client,
-  Domain,
   FriendInfo,
   GroupInfo,
   MemberInfo,
   MessageElem,
   Quotable,
-  Sendable,
 } from "mioku-adapter-icqq/vendor/icqq";
 import type {
-  Bot as MiokuBot,
+  AdapterBotBase,
+  BotBase,
   ForwardNode,
   FriendInfo as CoreFriendInfo,
   GroupInfo as CoreGroupInfo,
@@ -33,12 +32,12 @@ import {
 
 export interface IcqqData {
   bot_id: string;
-  adapter: string;
+  adapter: "icqq";
   nickname: string;
   online: boolean;
   connected_at?: number;
 }
-const num = (value: string): number => Number(value);
+const num = (value: string | number): number => Number(value);
 const member = (value: MemberInfo): CoreMemberInfo => ({
   ...value,
   user_id: String(value.user_id),
@@ -57,12 +56,15 @@ const friend = (value: FriendInfo): CoreFriendInfo => ({
   remark: value.remark,
 });
 
-export type IcqqBot = MiokuBot & {
+export type IcqqBot = BotBase & {
+  readonly adapter: "icqq";
   readonly client: Client;
-  sendApi<T>(
-    action: string,
-    params?: Record<string, unknown> | unknown[],
-  ): Promise<T>;
+  /**
+   * 调用 icqq Client 的原生方法。
+   * action 即 icqq 的方法名（如 sendGroupPoke、setEssenceMessage、getStrangerInfo），
+   * 参数按位置展开：bot.sendApi("sendGroupPoke", 123456, 654321)。
+   */
+  sendApi<T>(action: string, ...args: unknown[]): Promise<T>;
   pickGroup(groupId: string): ReturnType<Client["pickGroup"]>;
   pickFriend(userId: string): ReturnType<Client["pickFriend"]>;
   getFriendList(): Promise<CoreFriendInfo[]>;
@@ -94,98 +96,27 @@ export type IcqqBot = MiokuBot & {
   setGroupName(groupId: string, name: string): Promise<void>;
   setGroupPortrait(groupId: string, file: string | Buffer): Promise<void>;
   deleteFriend(userId: string): Promise<void>;
+  setReaction(
+    message_id: string | number,
+    emoji_id: string | number,
+    set?: boolean,
+    type?: number,
+  ): Promise<void>;
+  /**
+   * 给好友点赞（icqq 原生 API：Client.sendLike）。
+   * times 为点赞次数，默认 1。
+   */
+  sendLike(userId: string | number, times?: number): Promise<boolean>;
 };
 
-/** 尚未绑定能力分发的 IcqqBot，supports/invoke 由 bindCapabilities 提供 */
-export type IcqqBotBase = Omit<IcqqBot, "supports" | "invoke">;
+/** 尚未绑定能力分发的 IcqqBot，Bot 的能力方法由 bindCapabilities 按需填充 */
+export type IcqqBotBase = AdapterBotBase<IcqqBot>;
 
 declare module "mioku" {
   interface AdapterBotMap {
     icqq: IcqqBot;
   }
 }
-
-const toNum = (value: unknown): number => Number(value);
-const toStr = (value: unknown): string => String(value);
-const toBool = (
-  value: unknown,
-  fallback: boolean | undefined,
-): boolean | undefined => (value == null ? fallback : Boolean(value));
-
-/** OneBot 风格 action → icqq client 调用。参数与 OneBot v11 一致，便于跨适配器迁移。 */
-const STANDARD_API: Record<
-  string,
-  (client: Client, p: Record<string, unknown>) => Promise<unknown>
-> = {
-  get_login_info: async (client) => ({
-    user_id: client.uin,
-    nickname: client.nickname,
-  }),
-  get_friend_list: async (client) => client.getFriendList(),
-  get_group_list: async (client) => client.getGroupList(),
-  get_stranger_info: async (client, p) =>
-    client.getStrangerInfo(toNum(p.user_id)),
-  get_group_info: async (client, p) => client.getGroupInfo(toNum(p.group_id)),
-  get_group_member_list: async (client, p) =>
-    client.getGroupMemberList(toNum(p.group_id)),
-  get_group_member_info: async (client, p) =>
-    client.getGroupMemberInfo(toNum(p.group_id), toNum(p.user_id)),
-  get_msg: async (client, p) => client.getMsg(toStr(p.message_id)),
-  get_forward_msg: async (client, p) =>
-    client.getForwardMsg(toStr(p.message_id)),
-  get_cookies: async (client, p) =>
-    client.getCookies(p.domain as Domain | undefined),
-  image_ocr: async (client, p) => client.imageOcr(p.file as string),
-  send_private_msg: async (client, p) =>
-    client.sendPrivateMsg(toNum(p.user_id), p.message as Sendable),
-  send_group_msg: async (client, p) =>
-    client.sendGroupMsg(toNum(p.group_id), p.message as Sendable),
-  send_temp_msg: async (client, p) =>
-    client.sendTempMsg(
-      toNum(p.group_id),
-      toNum(p.user_id),
-      p.message as Sendable,
-    ),
-  send_group_sign: async (client, p) => client.sendGroupSign(toNum(p.group_id)),
-  send_group_poke: async (client, p) =>
-    client.sendGroupPoke(toNum(p.group_id), toNum(p.user_id)),
-  send_group_notice: async (client, p) =>
-    client.sendGroupNotice(toNum(p.group_id), toStr(p.content)),
-  delete_msg: async (client, p) => client.deleteMsg(toStr(p.message_id)),
-  delete_friend: async (client, p) =>
-    client.deleteFriend(toNum(p.user_id), toBool(p.block, false)),
-  set_group_ban: async (client, p) =>
-    client.setGroupBan(toNum(p.group_id), toNum(p.user_id), toNum(p.duration)),
-  set_group_kick: async (client, p) =>
-    client.setGroupKick(
-      toNum(p.group_id),
-      toNum(p.user_id),
-      toBool(p.reject_add_request, false),
-    ),
-  set_group_whole_ban: async (client, p) =>
-    client.setGroupWholeBan(toNum(p.group_id), toBool(p.enable, undefined)),
-  set_group_card: async (client, p) =>
-    client.setGroupCard(toNum(p.group_id), toNum(p.user_id), toStr(p.card)),
-  set_group_admin: async (client, p) =>
-    client.setGroupAdmin(
-      toNum(p.group_id),
-      toNum(p.user_id),
-      toBool(p.enable, undefined),
-    ),
-  set_group_leave: async (client, p) => client.setGroupLeave(toNum(p.group_id)),
-  set_group_name: async (client, p) =>
-    client.setGroupName(toNum(p.group_id), toStr(p.group_name)),
-  set_group_special_title: async (client, p) =>
-    client.setGroupSpecialTitle(
-      toNum(p.group_id),
-      toNum(p.user_id),
-      toStr(p.special_title),
-    ),
-  set_essence_message: async (client, p) =>
-    client.setEssenceMessage(toStr(p.message_id)),
-  remove_essence_message: async (client, p) =>
-    client.removeEssenceMessage(toStr(p.message_id)),
-};
 
 export const createIcqqBot = (client: Client, data: IcqqData): IcqqBotBase => {
   const bot = {
@@ -229,25 +160,11 @@ export const createIcqqBot = (client: Client, data: IcqqData): IcqqBotBase => {
       if (!sent) throw new Error(`Unsupported target type: ${target.type}`);
       return buildSentMessage(sent);
     },
-    async sendApi<T>(
-      action: string,
-      params: Record<string, unknown> | unknown[] = {},
-    ): Promise<T> {
-      const standard = STANDARD_API[action];
-      if (standard)
-        return (await standard(
-          client,
-          params as Record<string, unknown>,
-        )) as Promise<T>;
+    async sendApi<T>(action: string, ...args: unknown[]): Promise<T> {
       const fn = (client as unknown as Record<string, unknown>)[action];
-      if (typeof fn === "function") {
-        const args = Array.isArray(params) ? params : [params];
-        return (fn as (...args: unknown[]) => Promise<unknown>).apply(
-          client,
-          args,
-        ) as Promise<T>;
-      }
-      throw new Error(`Unsupported icqq api: ${action}`);
+      if (typeof fn !== "function")
+        throw new Error(`Unsupported icqq api: ${action}`);
+      return (fn as (...a: unknown[]) => Promise<T>).apply(client, args);
     },
     pickGroup: (groupId: string) => client.pickGroup(num(groupId)),
     pickFriend: (userId: string) => client.pickFriend(num(userId)),
@@ -309,6 +226,11 @@ export const createIcqqBot = (client: Client, data: IcqqData): IcqqBotBase => {
       return list.map((item) => ({
         message_id: item.message_id,
         time: item.time * 1000,
+        user_id: item.user_id != null ? String(item.user_id) : undefined,
+        nickname:
+          (item as { nickname?: unknown }).nickname != null
+            ? String((item as { nickname?: unknown }).nickname)
+            : undefined,
         message: fromIcqqMessage(item.message, item.raw_message),
       }));
     },
@@ -371,6 +293,24 @@ export const createIcqqBot = (client: Client, data: IcqqData): IcqqBotBase => {
     },
     deleteFriend: async (userId: string) => {
       await client.deleteFriend(num(userId));
+    },
+    setReaction: async (
+      message_id: string | number,
+      emoji_id: string | number,
+      set = true,
+      type = 1,
+    ) => {
+      const { group_id, seq } = parseGroupMessageId(String(message_id));
+      const group = client.pickGroup(group_id);
+      const id = String(emoji_id);
+      if (set === false) {
+        await group.delReaction(seq, id, type);
+      } else {
+        await group.setReaction(seq, id, type);
+      }
+    },
+    sendLike: async (userId: string | number, times = 1) => {
+      return client.sendLike(num(userId), times);
     },
     as<T extends object = Record<string, unknown>>() {
       return this as unknown as T;

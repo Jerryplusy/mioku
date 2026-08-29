@@ -2,7 +2,7 @@ import { defineConfig, type UserConfig } from 'tsdown'
 
 const config: UserConfig = defineConfig({
   target: 'node24',
-  entry: { index: 'src/index.ts' },
+  entry: { index: 'src/index.ts', cli: 'src/cli.ts' },
   tsconfig: './tsconfig.json',
   format: ['cjs', 'esm'],
   dts: true,
