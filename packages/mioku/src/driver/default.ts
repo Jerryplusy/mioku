@@ -270,11 +270,15 @@ interface DriverState {
   connectTimeout: number
 }
 
+/** 创建默认驱动的选项 */
 export interface CreateDriverOptions {
+  /** HTTP 请求的默认超时（毫秒） */
   readonly requestTimeout?: number
+  /** WebSocket 连接的默认超时（毫秒） */
   readonly connectTimeout?: number
 }
 
+/** 创建内置默认驱动：基于全局 fetch 与 WebSocket 实现 */
 export const createDefaultDriver = (options: CreateDriverOptions = {}): Driver => {
   const state: DriverState = {
     shutdownStarted: false,

@@ -8,6 +8,7 @@ import type {
   SentMessage,
 } from './message'
 
+/** 事件的全局标识：来自哪个适配器、哪个 bot、哪类事件 */
 export interface EventIdentity {
   readonly adapter: string
   readonly bot_id?: string
@@ -19,9 +20,13 @@ export interface EventIdentity {
   readonly fingerprint?: string
 }
 
+/** 所有事件的公共基础结构 */
 export interface EventBase {
+  /** 事件大类：message / notice / request / meta_event / adapter */
   readonly kind: string
+  /** 事件类型，如 `message`、`notice.group.poke` */
   readonly type: string
+  /** 该事件可匹配的路由列表，由 `buildRoutes` 生成 */
   readonly routes: readonly string[]
   readonly identity: EventIdentity
   readonly self_id?: string
@@ -30,6 +35,7 @@ export interface EventBase {
   readonly raw?: unknown
 }
 
+/** 与具体 bot 绑定的事件（含 message / notice / request / meta_event） */
 export interface BotEventBase extends EventBase {
   readonly self_id: string
   readonly bot: import('./bot').Bot
@@ -42,6 +48,7 @@ export interface SenderInfo {
   readonly role?: 'owner' | 'admin' | 'member' | (string & {})
 }
 
+/** 消息事件：私聊与群聊消息 */
 export interface MessageEvent extends BotEventBase {
   readonly kind: 'message'
   readonly message_type: 'private' | 'group' | 'channel' | 'thread' | 'direct' | (string & {})
@@ -59,10 +66,12 @@ export interface MessageEvent extends BotEventBase {
   readonly message: Message
   readonly is_to_me?: boolean
   readonly at?: string
+  /** 回复这条消息 */
   reply(message: MessageInput, options?: boolean | ReplyOptions): Promise<SentMessage>
   recall(): Promise<void>
 }
 
+/** 通知事件：群成员变动、戳一戳等 */
 export interface NoticeEvent extends BotEventBase {
   readonly kind: 'notice'
   readonly notice_type?: string
@@ -72,6 +81,7 @@ export interface NoticeEvent extends BotEventBase {
   readonly operator_id?: string
 }
 
+/** 请求事件：加群/好友申请，可 approve 或 reject */
 export interface RequestEvent extends BotEventBase {
   readonly kind: 'request'
   readonly request_type?: string
@@ -84,12 +94,14 @@ export interface RequestEvent extends BotEventBase {
   reject(reason?: string): Promise<void>
 }
 
+/** 生命周期元事件 */
 export interface MetaEvent extends BotEventBase {
   readonly kind: 'meta_event'
   readonly meta_event_type?: string
   readonly sub_type?: string
 }
 
+/** 适配器自定义事件：不归属以上四类时使用 */
 export interface AdapterEvent extends EventBase {
   readonly kind: 'adapter'
   readonly payload: unknown
@@ -116,6 +128,12 @@ export interface EventFactoryOptions<T extends MessageEvent | NoticeEvent | Requ
   readonly raw?: unknown
 }
 
+/**
+ * 根据平台信息生成层级路由列表。
+ * 例如 `buildRoutes("onebotv11", "message", "group")` 会生成
+ * `onebotv11:message.group`、`onebotv11:message`、`onebotv11`、`message.group`、`message` 等，
+ * 监听任意一层都能收到该事件。
+ */
 export const buildRoutes = (adapter: string, ...parts: (string | undefined | null)[]): string[] => {
   const cleaned = parts.filter((p): p is string => typeof p === 'string' && p.length > 0)
   const routes: string[] = []

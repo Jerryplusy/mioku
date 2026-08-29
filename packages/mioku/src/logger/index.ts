@@ -8,6 +8,7 @@ import { BOT_CWD, readMiokuConfig, updateMiokuConfig } from '../config'
 import type { Logger, LogLevel } from './types'
 import type { ConsolaInstance } from 'consola/core'
 
+/** consola 数字级别对应的名称与颜色 */
 const LEVEL_MAP: Readonly<Record<number, { name: string; color: 'red' | 'yellow' | 'white' | 'green' | 'blue' | 'gray' }>> = {
   0: { name: 'ERROR', color: 'red' },
   1: { name: 'WARN', color: 'yellow' },
@@ -20,6 +21,7 @@ const LEVEL_MAP: Readonly<Record<number, { name: string; color: 'red' | 'yellow'
 let cachedRoot: ConsolaInstance | null = null
 let cachedRootLevel: LogLevel = 'info'
 
+/** 惰性创建根 logger，日志级别取自 mioku 配置 */
 const resolveRoot = (): ConsolaInstance => {
   if (cachedRoot) return cachedRoot
   let level: LogLevel = 'info'
@@ -37,6 +39,7 @@ const resolveRoot = (): ConsolaInstance => {
   return cachedRoot
 }
 
+/** 本次运行的日志文件路径：logs/ 下按启动时间命名 */
 const getLogFile = (): string => {
   const cwd = BOT_CWD.value
   const dir = path.join(cwd, 'logs')
@@ -57,6 +60,7 @@ const renderMessage = (args: unknown[]): string =>
     .map((arg) => (typeof arg === 'string' ? arg : util.inspect(arg, { colors: false, depth: 4 })))
     .join(' ')
 
+/** 渲染控制台输出的彩色日志行 */
 const renderColored = (level: number, tag: string | undefined, args: unknown[]): string => {
   const time = colors.gray(`[${new Date().toLocaleTimeString('zh-CN')}]`)
   const meta = LEVEL_MAP[level] ?? LEVEL_MAP[3]
@@ -66,6 +70,7 @@ const renderColored = (level: number, tag: string | undefined, args: unknown[]):
   return `${time} ${levelText} ${tagText} ${message}`
 }
 
+/** 把日志行追加写入文件，失败时静默忽略 */
 const writeFile = (level: number, tag: string | undefined, args: unknown[], file: string): void => {
   try {
     ensureFile(file)
@@ -78,6 +83,7 @@ const writeFile = (level: number, tag: string | undefined, args: unknown[], file
   }
 }
 
+/** 写入文件并按级别输出到对应的标准流 */
 const dispatch = (
   level: number,
   tag: string | undefined,
@@ -93,6 +99,7 @@ const dispatch = (
   else console.debug(line)
 }
 
+/** 带标签与作用域的 logger 实现 */
 class ScopedLogger implements Logger {
   readonly #parent: ConsolaInstance | null
   readonly #tag: string | undefined
@@ -180,6 +187,7 @@ class ScopedLogger implements Logger {
   }
 }
 
+/** 创建挂在根 logger 下的日志器，输出统一落盘到本次运行的日志文件 */
 export const createMiokuLogger = (options: { tag?: string; level?: LogLevel; scope?: Record<string, unknown> } = {}): Logger => {
   const root = resolveRoot()
   const file = getLogFile()
@@ -193,8 +201,10 @@ export const createMiokuLogger = (options: { tag?: string; level?: LogLevel; sco
   })
 }
 
+/** 全局根 logger */
 export const rootLogger: Logger = createMiokuLogger()
 
+/** 运行时调整日志级别，并写回 mioku 配置 */
 export const applyLogLevel = (level: LogLevel): void => {
   cachedRootLevel = level
   if (cachedRoot) {

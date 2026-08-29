@@ -7,9 +7,11 @@ export interface CapabilityHandler<I, O> {
   readonly handler: (input: I) => Promise<O>
 }
 
+/** 能力注册表：按目标（适配器/bot/资源）登记能力的实现，供调用方查找 */
 export class CapabilityRegistry {
   #handlers: CapabilityHandler<unknown, unknown>[] = []
 
+  /** 注册一个能力的实现，返回取消注册函数 */
   register<I, O>(
     capability: Capability<I, O>,
     target: CapabilityTarget,
@@ -42,6 +44,7 @@ export class CapabilityRegistry {
     }
   }
 
+  /** 目标是否支持该能力 */
   supports<I, O>(target: CapabilityTarget, capability: Capability<I, O>): boolean {
     return this.#handlers.some(
       (h) =>
@@ -53,6 +56,7 @@ export class CapabilityRegistry {
     )
   }
 
+  /** 在目标上调用能力，未注册时抛 `UnsupportedCapabilityError` */
   async invoke<I, O>(target: CapabilityTarget, capability: Capability<I, O>, input: I): Promise<O> {
     const handler = this.#handlers.find(
       (h) =>

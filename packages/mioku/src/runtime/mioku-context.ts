@@ -33,6 +33,7 @@ import type { CapabilityRegistry } from '../adapter'
 import type { BotRegistry } from './bots'
 import type { Message, MessageInput } from '../adapter'
 
+/** 插件管理器：插件列表查询与运行时启停 */
 export interface PluginManager {
   list(): Array<{ name: string; type: 'builtin' | 'external'; version?: string }>
   localPlugins(): string[]
@@ -58,6 +59,7 @@ export interface ContextOptions {
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+/** 从事件对象中提取发送者 id（支持裸 id / user_id / sender.user_id） */
 export const toUserId = (value: unknown): string | undefined => {
   if (typeof value === 'number' || typeof value === 'string' || typeof value === 'bigint') {
     return String(value)
@@ -158,6 +160,11 @@ const CTX_UTILS = {
 
 type CtxUtils = typeof CTX_UTILS
 
+/**
+ * 插件上下文：插件 `setup(ctx)` 收到的对象。
+ * 事件监听、定时任务、配置、日志、Bot 操作与工具函数都挂在上面，
+ * 同时混入了 `utils` 中的常用工具（dayjs、fs、path、randomInt 等）。
+ */
 export class MiokuContext {
   readonly #options: ContextOptions
   readonly #cleanup: Set<PluginCleanup> = new Set()
@@ -175,10 +182,12 @@ export class MiokuContext {
     return this.#options.pluginName
   }
 
+  /** 第一个已连接的 bot（多数单 bot 场景直接用这个） */
   get bot(): Bot | undefined {
     return this.#options.bots.all()[0]
   }
 
+  /** 所有已连接的 bot */
   get bots(): readonly Bot[] {
     return this.#options.bots.all()
   }
@@ -187,6 +196,7 @@ export class MiokuContext {
     return this.bot?.bot_id
   }
 
+  /** 按 bot_id 取指定 bot */
   pickBot<T extends Bot = Bot>(bot_id: string | number): T | undefined {
     return this.#options.bots.pick<T>(bot_id)
   }
@@ -209,10 +219,15 @@ export class MiokuContext {
     }
   }
 
+  /** 按名称取适配器实例 */
   getAdapter<T extends Adapter = Adapter>(name: string): T | undefined {
     return this.#options.getAdapter<T>(name)
   }
 
+  /**
+   * 注册事件监听。route 支持层级路由，如 `message`、`message.group`、
+   * `onebotv11:message`；返回取消监听函数。
+   */
   handle<R extends string | readonly string[]>(
     route: R,
     handler: (event: RouteEvent<R>) => void | Promise<void>,
@@ -238,6 +253,7 @@ export class MiokuContext {
     return dispose
   }
 
+  /** 注册 cron 定时任务，插件卸载时自动停止 */
   cron(expression: string, handler: CronHandler): ScheduledTask {
     const task = nodeCron.schedule(expression, async (taskContext: TaskContext) => {
       try {
@@ -257,6 +273,7 @@ export class MiokuContext {
     return task
   }
 
+  /** 监听 bot 连接 / 断开 */
   onBot<K extends 'connected' | 'disconnected'>(
     type: K,
     handler: (event: K extends 'connected' ? { bot: Bot } : BotLifecycleEvent) => void | Promise<void>,
@@ -269,10 +286,12 @@ export class MiokuContext {
     return this.#options.driver
   }
 
+  /** 当前框架配置（只读） */
   get config(): Readonly<MiokuConfig> {
     return this.#options.config
   }
 
+  /** 修改框架配置（owners、admins、plugins 等） */
   updateConfig(updater: (config: MiokuConfig) => void | Promise<void>): Promise<void> {
     return this.#options.onUpdateConfig(updater)
   }
@@ -289,6 +308,7 @@ export class MiokuContext {
     return servicesRegistry as import('../services').MiokuServices
   }
 
+  /** 注册一个运行时服务供其他插件取用，返回注销函数 */
   addService<T = unknown>(name: string, value: T, cover?: boolean): () => void {
     const remove = registerService<T>(name, value, cover)
     this.#addCleanup(remove)
@@ -307,6 +327,7 @@ export class MiokuContext {
     return segment
   }
 
+  /** 按模式匹配消息文本（支持正则/字符串/关键词数组） */
   match<T extends HasMessage>(
     event: T,
     pattern: Parameters<typeof matchMessage>[1],
@@ -315,10 +336,12 @@ export class MiokuContext {
     return matchMessage(event, pattern, quote)
   }
 
+  /** 解析命令行字符串为 命令 + 参数 + 选项 */
   createCmd(cmdStr: string, options: CreateCmdOptions = {}): ReturnType<typeof createCmdUtil> {
     return createCmdUtil(cmdStr, options)
   }
 
+  /** 在插件目录下创建一个 JSON 数据存储 */
   createStore<T extends object = object>(
     defaultData: T,
     options: { __dirname?: string; importMeta?: ImportMeta; compress?: boolean; filename?: string } = {},
@@ -326,6 +349,7 @@ export class MiokuContext {
     return createStoreUtil<T>(defaultData, options)
   }
 
+  /** 在指定路径创建一个 lowdb 数据库文件 */
   createDB<T extends object = object>(
     filename: string,
     options: { defaultData?: T; compress?: boolean } = {},
@@ -333,22 +357,27 @@ export class MiokuContext {
     return createDBUtil<T>(filename, options)
   }
 
+  /** 提取事件消息的纯文本 */
   text(source: HasMessage | Message, options?: { trim?: boolean | 'whole' | 'each' }): string {
     return extractText(source, options)
   }
 
+  /** 向多个群发送消息 */
   noticeGroups(groupIds: readonly string[], message: MessageInput, options?: import('../actions').NoticeOptions): Promise<void> {
     return noticeGroupsAction(this.#options.bots.all(), groupIds, message, options)
   }
 
+  /** 向多个好友发送消息 */
   noticeFriends(userIds: readonly string[], message: MessageInput, options?: import('../actions').NoticeOptions): Promise<void> {
     return noticeFriendsAction(this.#options.bots.all(), userIds, message, options)
   }
 
+  /** 向所有主人发送消息 */
   noticeOwners(message: MessageInput, options?: import('../actions').NoticeOptions): Promise<void> {
     return noticeOwnersAction(this.#options.bots.all(), this.#options.config.owners, message, options)
   }
 
+  /** 向所有管理员发送消息 */
   noticeAdmins(message: MessageInput, options?: import('../actions').NoticeOptions): Promise<void> {
     return noticeAdminsAction(this.#options.bots.all(), this.#options.config.admins, message, options)
   }
@@ -363,10 +392,12 @@ export class MiokuContext {
       (event as { message_type?: unknown }).message_type === 'private'
   }
 
+  /** 事件发送者是否为主人 */
   isOwner(event: unknown): boolean {
     return isEventOwner(event)
   }
 
+  /** 事件发送者是否为管理员 */
   isAdmin(event: unknown): boolean {
     return isEventAdmin(event)
   }

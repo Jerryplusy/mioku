@@ -13,12 +13,14 @@ import { colors } from "consola/utils";
 import type { MiokuPlugin } from "./plugin";
 import type { Logger } from "./logger";
 
+/** startRuntime 的启动选项 */
 export interface StartOptions {
   cwd?: string;
   logger?: Logger;
   builtinPlugins?: readonly MiokuPlugin[];
 }
 
+/** 启动 mioku 运行时：加载服务、拉起适配器与插件，返回用于优雅停机的 stop */
 export const startRuntime = async (
   options: StartOptions = {},
 ): Promise<{ stop: (reason?: string) => Promise<void> }> => {

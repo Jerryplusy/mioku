@@ -47,6 +47,11 @@ import {
   BotStatusResult,
 } from "../capabilities";
 
+/**
+ * Bot 接口：所有平台 bot 的统一操作面。
+ * 除 `bot_id` / `adapter` / `sendMessage` / `sendApi` / `as` 外，
+ * 其余方法由框架按能力自动绑定（见 `bindCapabilities`）。
+ */
 export interface BotBase {
   readonly bot_id: string;
   readonly adapter: string;
@@ -90,6 +95,7 @@ export interface BotBase {
     user_id: PlatformId,
     duration: number,
   ): Promise<void>;
+  /** reject_add_request 为 true 时同时拒绝该成员后续的加群申请 */
   kickMember(
     group_id: PlatformId,
     user_id: PlatformId,
@@ -114,6 +120,7 @@ export interface BotBase {
   setGroupName(group_id: PlatformId, group_name: string): Promise<void>;
   setGroupWholeBan(group_id: PlatformId, enable: boolean): Promise<void>;
   setGroupPortrait(group_id: PlatformId, file: string): Promise<void>;
+  /** is_dismiss 为 true 时解散群（仅群主可用） */
   leaveGroup(group_id: PlatformId, is_dismiss?: boolean): Promise<void>;
 
   // —— 好友 ——
@@ -123,7 +130,9 @@ export interface BotBase {
 
   // —— 资料 / 会话 / 状态 ——
   setProfile(profile: ProfileSetRequest): Promise<void>;
+  /** file 为本地路径或 URL */
   setAvatar(file: string): Promise<void>;
+  /** 拉取会话历史，`before` 为上一页的消息 id */
   getHistory(
     target: MessageTarget,
     before?: string,
@@ -131,10 +140,12 @@ export interface BotBase {
     extra?: Record<string, unknown>,
   ): Promise<HistoryMessage[]>;
   getStatus(): Promise<BotStatusResult>;
+  /** 直接调用平台原生 API（action 为平台动作名） */
   sendApi<T = unknown>(
     action: string,
     params?: Record<string, unknown>,
   ): Promise<T>;
+  /** 按目标类型断言 bot，用于访问平台特有方法 */
   as<T extends object = Record<string, unknown>>(): T;
 }
 
@@ -179,6 +190,11 @@ const bindDefault = <B extends object>(
   }
 };
 
+/**
+ * 把能力注册表中的实现绑定为 bot 的方法。
+ * 适配器在 `start()` 里对自己创建的 bot 调用一次，
+ * 插件拿到的 bot 就带上了完整操作面。
+ */
 export const bindCapabilities = <B extends object>(
   bot: B,
   registry: CapabilityRegistry,

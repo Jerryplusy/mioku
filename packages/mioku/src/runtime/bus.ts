@@ -28,6 +28,10 @@ const isWildcardMatch = (pattern: string, route: string): boolean => {
   return route === prefix.slice(0, -1) || route.startsWith(prefix)
 }
 
+/**
+ * 事件总线：按路由把事件分发给所有匹配的监听器。
+ * 支持 `*` 通配符，同一优先级按注册顺序执行，不同优先级按数值升序。
+ */
 export class EventBus {
   #registrations: Registration[] = []
   #nextId = 1
@@ -39,6 +43,7 @@ export class EventBus {
     this.#logger = logger
   }
 
+  /** 注册事件监听，返回取消注册函数 */
   register<E extends Event = Event>(
     route: string,
     handler: EventHandler<E>,
@@ -96,6 +101,7 @@ export class EventBus {
     return matched
   }
 
+  /** 派发一个事件给所有匹配的监听器，单个监听器出错不影响其他监听器 */
   async dispatch(event: Event): Promise<void> {
     const matched = this.#matching(event)
     if (matched.length === 0) return

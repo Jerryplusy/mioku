@@ -1,3 +1,4 @@
+/** 消息段的附件：图片/文件/音视频的资源引用 */
 export interface Attachment {
   readonly id?: string;
   readonly url?: string;
@@ -8,6 +9,7 @@ export interface Attachment {
   readonly name?: string;
 }
 
+/** 消息段：一段消息的最小单元，如文本、@、图片 */
 export interface MessageSegment {
   readonly type: string;
   readonly data: Readonly<Record<string, unknown>>;
@@ -22,6 +24,7 @@ export interface SerializedMessageSegment {
   readonly attachment?: Attachment;
 }
 
+/** 消息：消息段的只读数组，带文本提取与按类型过滤的便捷方法 */
 export interface Message extends ReadonlyArray<MessageSegment> {
   readonly raw_message?: string;
   toString(): string;
@@ -30,6 +33,7 @@ export interface Message extends ReadonlyArray<MessageSegment> {
   toJSON(): SerializedMessageSegment[];
 }
 
+/** 发送消息的入参：字符串、单段或段的数组都可以 */
 export type MessageInput =
   | string
   | Message
@@ -40,6 +44,7 @@ export type PlatformId = string | number;
 
 export const toId = (value: PlatformId): string => String(value);
 
+/** 消息发送目标：群或私聊等会话的定位信息 */
 export interface MessageTarget {
   readonly type: string;
   readonly id?: PlatformId;
@@ -59,6 +64,7 @@ export interface ReplyOptions {
 
 export type ReplyArg = boolean | ReplyOptions;
 
+/** 会话引用：用于定位一段会话（含父会话） */
 export interface ConversationRef {
   readonly type: string;
   readonly id: string;
@@ -147,6 +153,7 @@ const fileData = (
   return { file };
 };
 
+/** 消息段构造器：按类型快速生成消息段 */
 export const segment = {
   text(text: string): MessageSegment {
     return new MessageSegmentImpl("text", { text });
@@ -154,6 +161,7 @@ export const segment = {
   at(target: PlatformId): MessageSegment {
     return new MessageSegmentImpl("at", { target: toId(target) });
   },
+  /** `file` 为 URL 或本地路径；传 Buffer 会转成 base64 发送 */
   image(
     file: string | Buffer,
     options: { local?: boolean } & Attachment = {},
@@ -224,6 +232,7 @@ export const segment = {
 export const isMessage = (value: unknown): value is Message =>
   value instanceof MessageImpl;
 
+/** 取消息中的第一个 @ 目标 */
 export const atOf = (message: Message): string | undefined => {
   const at = message.filterByType("at")[0];
   if (!at) return undefined;
@@ -237,6 +246,7 @@ export const isSegment = (value: unknown): value is MessageSegment =>
   !Array.isArray(value) &&
   typeof (value as { type?: unknown }).type === "string";
 
+/** 把任意 `MessageInput` 规范化为 `Message` */
 export const asMessage = (input: MessageInput): Message => {
   if (isMessage(input)) return input;
   if (typeof input === "string")

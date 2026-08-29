@@ -1,3 +1,5 @@
+// 常用工具函数集，均从 `mioku` 顶层导出，插件可直接 import 使用。
+
 import crypto from 'node:crypto'
 import mriLib from 'mri'
 import { Low } from 'lowdb'
@@ -36,6 +38,7 @@ export interface CreateCmdOptions {
   onPrefix?(): void
 }
 
+/** 解析命令行字符串：返回命令、位置参数与 `--xxx` 选项 */
 export const createCmd = (
   cmdStr: string,
   options: CreateCmdOptions = {},
@@ -52,6 +55,7 @@ export const createCmd = (
   return { cmd, params, options: cmdOptions }
 }
 
+/** 在指定路径创建并读取一个 lowdb JSON 数据库 */
 export const createDB = async <T extends object = object>(
   filename: string,
   options: { defaultData?: T; compress?: boolean } = {},
@@ -68,6 +72,7 @@ export const createDB = async <T extends object = object>(
   return database
 }
 
+/** 在插件目录下创建并读取一个 JSON 数据存储（默认 `data.json`） */
 export const createStore = async <T extends object = object>(
   defaultData: T,
   options: {
@@ -261,6 +266,10 @@ export type MatchHandler<T extends HasMessage> = (matches: RegExpMatchArray, eve
 
 export type MatchValue = string | number | boolean | Message | MessageSegment | readonly (string | MessageSegment)[]
 
+/**
+ * 关键词匹配路由：pattern 的键支持正则（`/.../`）、通配符（`*`）与纯文本，
+ * 命中后执行对应的处理函数或直接回复静态内容。
+ */
 export const match = async <T extends HasMessage>(
   event: T,
   pattern: Record<string, MatchHandler<T> | MatchValue>,

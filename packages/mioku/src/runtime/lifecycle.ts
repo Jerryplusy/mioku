@@ -1,5 +1,6 @@
 import type { Bot } from '../adapter'
 
+/** 框架生命周期事件表：bot 连接、适配器启停、运行时就绪/关闭 */
 export interface LifecycleEventMap {
   'bot:connected': { bot: Bot }
   'bot:disconnected': { bot: Bot; reason?: string }

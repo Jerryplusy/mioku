@@ -20,6 +20,7 @@ import { servicesRegistry } from "./registry";
 
 const SERVICE_PREFIX = "mioku-service-";
 
+/** 服务管理器：扫描、加载本地与 npm 服务，并把服务 API 暴露到注册表 */
 export class ServiceManager {
   private serviceMetadata = new Map<string, ServiceMetadata>();
   private loaded = new Map<string, MiokuService>();
@@ -28,6 +29,7 @@ export class ServiceManager {
     return getOrCreate("service-manager", () => new ServiceManager());
   }
 
+  /** 扫描本地 services/ 目录与 node_modules 下的 mioku-service-* 包，返回全部服务元数据 */
   async discoverServices(miokuConfig: MiokuRuntimeConfig = {}): Promise<ServiceMetadata[]> {
     const servicesDir = miokuConfig.services_dir
       ? path.resolve(process.cwd(), miokuConfig.services_dir)
@@ -87,6 +89,7 @@ export class ServiceManager {
     return [...this.serviceMetadata.values()];
   }
 
+  /** 依次加载所有已发现的服务，成功的会注册进服务注册表 */
   async loadAllServices(ctx?: MiokuContext): Promise<void> {
     const all = [...this.serviceMetadata.values()];
     logger.info(`O.o 准备加载 ${all.length} 个服务...`);
@@ -128,6 +131,7 @@ export class ServiceManager {
     }
   }
 
+  /** 按加载的相反顺序卸载全部服务，并从注册表移除 */
   async disposeAll(): Promise<void> {
     const entries = Array.from(this.loaded.entries()).reverse();
     this.loaded.clear();

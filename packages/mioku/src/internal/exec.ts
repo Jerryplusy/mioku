@@ -47,6 +47,7 @@ function isExecutableFile(candidate: string): boolean {
   }
 }
 
+/** 在 PATH 及常见安装目录中解析命令的完整路径，结果带缓存 */
 export function resolveCommand(command: string): string | null {
   if (resolveCache.has(command)) return resolveCache.get(command) ?? null;
 
@@ -112,6 +113,7 @@ export interface SpawnPlan {
 // Windows can't CreateProcess a .cmd/.bat shim directly (npm installs bun as
 // bun.cmd), so those get routed through cmd.exe with hand-quoted arguments
 // rather than shell: true, which would leave the args unquoted.
+/** 生成跨平台的 spawn 参数，Windows 下 .cmd/.bat 会改经 cmd.exe 执行 */
 export function buildSpawnPlan(command: string, args: string[]): SpawnPlan {
   const resolved = resolveCommand(command);
 
@@ -138,6 +140,7 @@ export interface RunCommandResult {
   code: number;
 }
 
+/** 执行命令并收集 stdout/stderr 与退出码，失败不抛异常 */
 export function runCommand(
   command: string,
   args: string[],
@@ -176,6 +179,7 @@ export function runCommand(
   });
 }
 
+/** 同步执行命令并继承当前终端的输入输出，非零退出码时抛错 */
 export function runCommandInherit(
   command: string,
   args: string[],
@@ -194,6 +198,7 @@ export function runCommandInherit(
   }
 }
 
+/** 判断命令是否可用 */
 export function commandExists(command: string): boolean {
   return resolveCommand(command) !== null;
 }

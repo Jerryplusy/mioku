@@ -5,6 +5,7 @@ import { rootLogger as logger } from "../logger";
 
 const SERVICE_CONFIG_ROOT = "service";
 
+/** 服务配置目录：`config/service/<serviceName>/` */
 function resolveConfigDir(serviceName: string): string {
   return path.join(process.cwd(), "config", SERVICE_CONFIG_ROOT, serviceName);
 }
@@ -18,6 +19,7 @@ function ensureDir(serviceName: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
+/** 注册服务配置：文件不存在时把 defaults 写入磁盘 */
 export async function registerServiceConfig(
   serviceName: string,
   configName: string,
@@ -30,6 +32,7 @@ export async function registerServiceConfig(
   }
 }
 
+/** 读取服务配置，文件不存在或解析失败时返回空对象 */
 export async function getServiceConfig(
   serviceName: string,
   configName: string,
@@ -44,6 +47,7 @@ export async function getServiceConfig(
   }
 }
 
+/** 覆盖写入服务配置 */
 export async function updateServiceConfig(
   serviceName: string,
   configName: string,
@@ -57,6 +61,7 @@ export async function updateServiceConfig(
   );
 }
 
+/** 读取服务的全部配置文件，按配置名索引 */
 export async function getServiceConfigs(
   serviceName: string,
 ): Promise<Record<string, Record<string, unknown>>> {
@@ -77,6 +82,7 @@ export async function getServiceConfigs(
   return result;
 }
 
+/** 删除服务配置，文件不存在时返回 false */
 export async function deleteServiceConfig(
   serviceName: string,
   configName: string,

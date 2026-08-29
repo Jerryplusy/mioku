@@ -5,6 +5,7 @@ const store = getOrCreate<Record<string, unknown>>(
   () => ({}),
 );
 
+/** 插件运行时状态引用：跨重载安全的读写句柄 */
 export interface PluginStateRef<T> {
   readonly name: string;
   get(): T;
@@ -12,6 +13,7 @@ export interface PluginStateRef<T> {
   reset(): void;
 }
 
+/** 定义一个具名状态引用，插件重载后仍能读回旧值 */
 export function defineState<T>(name: string, initial: T): PluginStateRef<T> {
   return {
     name,
@@ -32,6 +34,7 @@ export function hasPluginState(name: string): boolean {
   return store[name] !== undefined;
 }
 
+/** 取插件的运行时状态对象，不存在时自动创建空对象 */
 export function getPluginRuntimeState<T = Record<string, any>>(
   name: string,
 ): T {
@@ -39,6 +42,7 @@ export function getPluginRuntimeState<T = Record<string, any>>(
   return store[name] as T;
 }
 
+/** 合并写入插件运行时状态 */
 export function setPluginRuntimeState<T>(name: string, state: T): void {
   store[name] = state;
 }
