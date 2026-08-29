@@ -1,7 +1,7 @@
-import { defineCapability } from '../adapter'
-import { messageSend } from './message'
+import { defineCapability } from '../adapter/capability'
+import { toId } from '../adapter'
 
-import type { Bot, Capability, MessageInput, SentMessage } from '../adapter'
+import type { Bot, MessageInput, PlatformId, SentMessage } from '../adapter'
 
 export interface FriendInfo {
   readonly user_id: string
@@ -11,11 +11,11 @@ export interface FriendInfo {
 }
 
 export interface FriendGetInfoRequest {
-  readonly user_id: string
+  readonly user_id: PlatformId
 }
 
 export interface FriendDeleteRequest {
-  readonly user_id: string
+  readonly user_id: PlatformId
 }
 
 export interface FriendGetListRequest {}
@@ -33,19 +33,14 @@ export interface Friend {
   delete(): Promise<void>
 }
 
-export const createFriendRef = (bot: Bot, user_id: string, nickname?: string): Friend => {
-  const invoke = async <I, O>(capability: Capability<I, O>, input: I): Promise<O> => {
-    if (!bot.supports(capability)) throw new Error(`Bot does not support ${capability.name}`)
-    return await bot.invoke(capability, input)
-  }
+export const createFriendRef = (bot: Bot, user_id: PlatformId, nickname?: string): Friend => {
+  const uid = toId(user_id)
   return {
-    user_id,
+    user_id: uid,
     nickname,
-    sendMsg: (message) => invoke(messageSend, { target: { type: 'private', user_id }, message }),
-    getInfo: async () => await invoke(friendGetInfo, { user_id }),
-    getList: async () => await invoke(friendGetList, {}),
-    delete: async () => {
-      await invoke(friendDelete, { user_id })
-    },
+    sendMsg: (message) => bot.sendPrivateMsg(uid, message),
+    getInfo: () => bot.getFriendInfo(uid),
+    getList: () => bot.getFriendList(),
+    delete: () => bot.deleteFriend(uid),
   }
 }

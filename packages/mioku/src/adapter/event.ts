@@ -45,6 +45,7 @@ export interface SenderInfo {
 export interface MessageEvent extends BotEventBase {
   readonly kind: 'message'
   readonly message_type: 'private' | 'group' | 'channel' | 'thread' | 'direct' | (string & {})
+  readonly sub_type?: string
   readonly user_id?: string
   readonly group_id?: string
   readonly group_name?: string

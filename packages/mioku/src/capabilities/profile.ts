@@ -1,4 +1,4 @@
-import { defineCapability } from '../adapter'
+import { defineCapability } from '../adapter/capability'
 
 export interface ProfileSetRequest {
   readonly nickname?: string

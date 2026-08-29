@@ -52,6 +52,45 @@ function escapeRegExp(value: string): string {
   return value.replace(/[-_.^$?[\]{}()|\\]/g, '\\$&')
 }
 
+const CORE_HELP_ENTRIES: ReadonlyArray<readonly [cmd: string, desc: string]> = [
+  ['help', '显示帮助信息'],
+  ['status', '显示框架状态'],
+  ['plugin', '插件管理'],
+  ['settings', '框架设置管理'],
+  ['update', '检查并选择插件/服务更新'],
+  ['install', '从 npm 安装插件/服务'],
+  ['uninstall', '卸载插件/服务'],
+  ['plugin-market', '查看插件市场'],
+  ['service-market', '查看服务市场'],
+  ['restart', '重启机器人进程'],
+  ['log', '查看最近100条日志'],
+  ['exit', '退出框架进程'],
+]
+
+function displayWidth(value: string): number {
+  let width = 0
+  for (const ch of value) {
+    width += /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(ch) ? 2 : 1
+  }
+  return width
+}
+
+function padColumn(value: string, width: number): string {
+  const gap = width - displayWidth(value)
+  if (gap <= 0) return value
+  // 只用全角空格（固定 2 格宽）；半角空格在 QQ 字体里几乎不占宽，会导致错位
+  return value + '　'.repeat(Math.ceil(gap / 2))
+}
+
+function buildCoreHelpText(displayPrefix: string): string {
+  const cmds = CORE_HELP_ENTRIES.map(([cmd]) => `${displayPrefix}${cmd}`)
+  const cmdWidth = Math.max(...cmds.map(displayWidth))
+  const lines = CORE_HELP_ENTRIES.map(
+    ([cmd, desc], i) => `${padColumn(cmds[i], cmdWidth)}　${desc}`,
+  )
+  return ['〓 💡 Mioku 帮助 〓', ...lines].join('\n')
+}
+
 function buildCoreMetadata(
   ctx: MiokuContext,
   displayPrefix: string,
@@ -67,20 +106,7 @@ function buildCoreMetadata(
   const help: PluginHelp = {
     title: '系统',
     description: 'Mioku 内置核心插件：系统命令与管理功能',
-    commands: [
-      ownerHelp('help', '显示帮助信息'),
-      ownerHelp('status', '显示框架状态'),
-      ownerHelp('plugin', '插件管理'),
-      ownerHelp('settings', '框架设置管理'),
-      ownerHelp('update', '检查并选择插件/服务更新'),
-      ownerHelp('install', '从 npm 安装插件/服务'),
-      ownerHelp('uninstall', '卸载插件/服务'),
-      ownerHelp('plugin-market', '查看插件市场'),
-      ownerHelp('service-market', '查看服务市场'),
-      ownerHelp('restart', '重启机器人进程'),
-      ownerHelp('log', '查看最近100条日志'),
-      ownerHelp('exit', '退出框架进程'),
-    ],
+    commands: CORE_HELP_ENTRIES.map(([cmd, desc]) => ownerHelp(cmd, desc)),
   }
 
   const accessHooks: AccessHook[] = [
@@ -249,23 +275,7 @@ const core: MiokuPlugin = definePlugin({
         switch (subCmd) {
           case 'help':
           case '帮助': {
-            await ev.reply(
-              dedent(`
-                〓 💡 Mioku 帮助 〓
-                ${displayPrefix}help             显示帮助信息
-                ${displayPrefix}status           显示框架状态
-                ${displayPrefix}plugin           插件管理
-                ${displayPrefix}settings         框架设置管理
-                ${displayPrefix}update           检查并选择插件/服务更新
-                ${displayPrefix}install          从 npm 安装插件/服务
-                ${displayPrefix}uninstall        卸载插件/服务
-                ${displayPrefix}plugin-market    查看插件市场
-                ${displayPrefix}service-market   查看服务市场
-                ${displayPrefix}restart          重启机器人进程
-                ${displayPrefix}log              查看最近100条日志
-                ${displayPrefix}exit             退出框架进程
-              `).trim(),
-            )
+            await ev.reply(buildCoreHelpText(displayPrefix))
             break
           }
 

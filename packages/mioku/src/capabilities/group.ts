@@ -1,8 +1,7 @@
-import { defineCapability } from '../adapter'
-import { memberBan, memberGetInfo, memberKick, memberSetAdmin, memberSetCard } from './member'
-import { messageRecall, messageSend } from './message'
+import { defineCapability } from '../adapter/capability'
+import { toId } from '../adapter'
 
-import type { Bot, Capability, MessageInput, SentMessage } from '../adapter'
+import type { PlatformId, Bot, MessageInput, SentMessage } from '../adapter'
 import type { MemberInfo } from './member'
 
 export interface GroupInfo {
@@ -14,31 +13,31 @@ export interface GroupInfo {
 }
 
 export interface GroupGetInfoRequest {
-  readonly group_id: string
+  readonly group_id: PlatformId
 }
 
 export interface GroupGetMembersRequest {
-  readonly group_id: string
+  readonly group_id: PlatformId
 }
 
 export interface GroupLeaveRequest {
-  readonly group_id: string
+  readonly group_id: PlatformId
   /** 是否解散群 */
   readonly is_dismiss?: boolean
 }
 
 export interface GroupSetNameRequest {
-  readonly group_id: string
+  readonly group_id: PlatformId
   readonly group_name: string
 }
 
 export interface GroupSetPortraitRequest {
-  readonly group_id: string
+  readonly group_id: PlatformId
   readonly file: string
 }
 
 export interface GroupSetWholeBanRequest {
-  readonly group_id: string
+  readonly group_id: PlatformId
   readonly enable: boolean
 }
 
@@ -59,53 +58,34 @@ export interface Group {
   getInfo(): Promise<GroupInfo | null>
   getList(): Promise<GroupInfo[]>
   getMemberList(): Promise<MemberInfo[]>
-  getMemberInfo(userId: string): Promise<MemberInfo | null>
-  ban(userId: string, duration: number): Promise<void>
-  kick(userId: string, rejectAddRequest?: boolean): Promise<void>
-  setCard(userId: string, card: string): Promise<void>
-  setAdmin(userId: string, enable: boolean): Promise<void>
-  recall(messageId: string): Promise<void>
+  getMemberInfo(userId: PlatformId): Promise<MemberInfo | null>
+  ban(userId: PlatformId, duration: number): Promise<void>
+  kick(userId: PlatformId, rejectAddRequest?: boolean): Promise<void>
+  setCard(userId: PlatformId, card: string): Promise<void>
+  setAdmin(userId: PlatformId, enable: boolean): Promise<void>
+  recall(messageId: PlatformId): Promise<void>
   leave(isDismiss?: boolean): Promise<void>
   setName(groupName: string): Promise<void>
   setPortrait(file: string): Promise<void>
 }
 
-export const createGroupRef = (bot: Bot, group_id: string, group_name?: string): Group => {
-  const invoke = async <I, O>(capability: Capability<I, O>, input: I): Promise<O> => {
-    if (!bot.supports(capability)) throw new Error(`Bot does not support ${capability.name}`)
-    return await bot.invoke(capability, input)
-  }
+export const createGroupRef = (bot: Bot, group_id: PlatformId, group_name?: string): Group => {
+  const gid = toId(group_id)
   return {
-    group_id,
+    group_id: gid,
     group_name,
-    sendMsg: (message) => invoke(messageSend, { target: { type: 'group', group_id }, message }),
-    getInfo: async () => await invoke(groupGetInfo, { group_id }),
-    getList: async () => await invoke(groupGetList, {}),
-    getMemberList: async () => await invoke(groupGetMembers, { group_id }),
-    getMemberInfo: async (userId) => await invoke(memberGetInfo, { group_id, user_id: userId }),
-    ban: async (userId, duration) => {
-      await invoke(memberBan, { group_id, user_id: userId, duration })
-    },
-    kick: async (userId, rejectAddRequest) => {
-      await invoke(memberKick, { group_id, user_id: userId, reject_add_request: rejectAddRequest })
-    },
-    setCard: async (userId, card) => {
-      await invoke(memberSetCard, { group_id, user_id: userId, card })
-    },
-    setAdmin: async (userId, enable) => {
-      await invoke(memberSetAdmin, { group_id, user_id: userId, enable })
-    },
-    recall: async (messageId) => {
-      await invoke(messageRecall, { message_id: messageId })
-    },
-    leave: async (isDismiss) => {
-      await invoke(groupLeave, { group_id, is_dismiss: isDismiss })
-    },
-    setName: async (groupName) => {
-      await invoke(groupSetName, { group_id, group_name: groupName })
-    },
-    setPortrait: async (file) => {
-      await invoke(groupSetPortrait, { group_id, file })
-    },
+    sendMsg: (message) => bot.sendGroupMsg(gid, message),
+    getInfo: () => bot.getGroupInfo(gid),
+    getList: () => bot.getGroupList(),
+    getMemberList: () => bot.getGroupMembers(gid),
+    getMemberInfo: (userId) => bot.getMemberInfo(gid, userId),
+    ban: (userId, duration) => bot.banMember(gid, userId, duration),
+    kick: (userId, rejectAddRequest) => bot.kickMember(gid, userId, rejectAddRequest),
+    setCard: (userId, card) => bot.setMemberCard(gid, userId, card),
+    setAdmin: (userId, enable) => bot.setMemberAdmin(gid, userId, enable),
+    recall: (messageId) => bot.recallMessage(messageId),
+    leave: (isDismiss) => bot.leaveGroup(gid, isDismiss),
+    setName: (groupName) => bot.setGroupName(gid, groupName),
+    setPortrait: (file) => bot.setGroupPortrait(gid, file),
   }
 }

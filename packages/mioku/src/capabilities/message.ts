@@ -1,5 +1,5 @@
-import { defineCapability } from '../adapter'
-import type { Message, MessageInput, MessageTarget, SentMessage } from '../adapter'
+import { defineCapability } from '../adapter/capability'
+import type { Message, MessageInput, MessageTarget, PlatformId, SentMessage } from '../adapter'
 
 export interface MessageSendRequest {
   readonly target: MessageTarget
@@ -7,11 +7,11 @@ export interface MessageSendRequest {
 }
 
 export interface MessageRecallRequest {
-  readonly message_id: string
+  readonly message_id: PlatformId
 }
 
 export interface MessageGetRequest {
-  readonly message_id: string
+  readonly message_id: PlatformId
 }
 
 export interface MessageGetResult {
@@ -31,32 +31,28 @@ export interface ForwardNode {
 }
 
 export interface MessageGetForwardRequest {
-  readonly message_id: string
-}
-
-export interface ReactionSetRequest {
-  readonly message_id: string | number
-  readonly emoji_id: string | number
-  readonly set?: boolean
+  readonly message_id: PlatformId
 }
 
 export interface ForwardSendNode {
-  readonly user_id: string
+  readonly user_id: PlatformId
   readonly nickname: string
   readonly content: MessageInput
 }
 
-export interface ForwardSendRequest {
-  readonly target: MessageTarget
-  readonly nodes: readonly ForwardSendNode[]
+export interface ForwardSendOptions {
   readonly source?: string
   readonly news?: ReadonlyArray<{ text: string }>
   readonly summary?: string
+}
+
+export interface ForwardSendRequest extends ForwardSendOptions {
+  readonly target: MessageTarget
+  readonly nodes: readonly ForwardSendNode[]
 }
 
 export const messageSend = defineCapability<MessageSendRequest, SentMessage>('message.send', 1)
 export const messageRecall = defineCapability<MessageRecallRequest, void>('message.recall', 1)
 export const messageGet = defineCapability<MessageGetRequest, MessageGetResult>('message.get', 1)
 export const messageGetForward = defineCapability<MessageGetForwardRequest, ForwardNode[]>('message.getforward', 1)
-export const reactionSet = defineCapability<ReactionSetRequest, void>('message.reactionset', 1)
 export const forwardSend = defineCapability<ForwardSendRequest, SentMessage>('message.forwardsend', 1)

@@ -30,36 +30,27 @@ export async function sendTextOrForward(options: {
   }
 
   const selfId = String(event?.self_id || "");
-  const bot = ctx.pickBot(selfId);
+  const bot = event.bot;
   if (!bot) {
     await replyText(event, text);
     return;
   }
 
-  const messages = chunk(lines, LINES_PER_NODE).map((chunkLines, idx) => ({
-    type: "node",
-    data: {
-      user_id: selfId,
-      nickname: `第${idx + 1}条`,
-      content: [ctx.segment.text(chunkLines.join("\n"))],
-    },
+  const nodes = chunk(lines, LINES_PER_NODE).map((chunkLines, idx) => ({
+    user_id: selfId,
+    nickname: `第${idx + 1}条`,
+    content: [ctx.segment.text(chunkLines.join("\n"))],
   }));
 
   try {
-    if (event?.message_type === "group" && event?.group_id) {
-      await bot.sendApi("send_group_forward_msg", {
-        group_id: event.group_id,
-        messages,
-        source,
-        summary,
-      });
-    } else if (event?.user_id) {
-      await bot.sendApi("send_private_forward_msg", {
-        user_id: event.user_id,
-        messages,
-        source,
-        summary,
-      });
+    const target =
+      event?.message_type === "group" && event?.group_id
+        ? { type: "group" as const, group_id: event.group_id }
+        : event?.user_id
+          ? { type: "private" as const, user_id: event.user_id }
+          : undefined;
+    if (target) {
+      await bot.sendForward(target, nodes, { source, summary });
     }
   } catch (error) {
     ctx.logger.error(`[core] 发送转发消息失败: ${error}`);

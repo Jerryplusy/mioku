@@ -131,7 +131,7 @@ export class MiokuRuntime {
     return state?.instance as T | undefined;
   }
 
-  pickBot<T extends Bot = Bot>(bot_id: string): T | undefined {
+  pickBot<T extends Bot = Bot>(bot_id: string | number): T | undefined {
     return this.#bots.pick<T>(bot_id);
   }
 

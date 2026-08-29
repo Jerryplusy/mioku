@@ -140,7 +140,7 @@ export function registerUpdateCommands(ctx: MiokuContext): () => void {
 
     const arg = text.slice(prefix.length + "update".length).trim();
     const selfId = String(event?.self_id || "");
-    const bot = ctx.pickBot(selfId);
+    const bot = event.bot;
     if (!bot) return;
 
     if (arg === "all") {

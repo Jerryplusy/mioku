@@ -9,18 +9,105 @@ import {
   runCommandInherit,
 } from "../internal/exec";
 
-export const DEFAULT_PACKAGES = [
-  "mioku",
-  "mioku-plugin-help",
-  "mioku-plugin-chat",
-  "mioku-service-config",
-  "mioku-service-ai",
-  "mioku-service-screenshot",
-  "mioku-service-help",
-];
-
 export const PLUGIN_PREFIX = "mioku-plugin-";
 export const SERVICE_PREFIX = "mioku-service-";
+export const ADAPTER_PREFIX = "mioku-adapter-";
+
+export const NPM_REGISTRY = "https://registry.npmjs.org";
+
+export interface NpmPackageHit {
+  name: string;
+  description: string;
+  version: string;
+  keywords: string[];
+}
+
+async function searchNpm(query: string, size = 250): Promise<NpmPackageHit[]> {
+  try {
+    const url = `${NPM_REGISTRY}/-/v1/search?text=${encodeURIComponent(query)}&size=${size}`;
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", "User-Agent": "mioku-cli" },
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      objects?: Array<{
+        package?: {
+          name?: string;
+          description?: string;
+          version?: string;
+          keywords?: string[];
+        };
+      }>;
+    };
+    const hits: NpmPackageHit[] = [];
+    for (const obj of data.objects ?? []) {
+      const pkg = obj.package ?? {};
+      const name = String(pkg.name ?? "").trim();
+      if (!name) continue;
+      hits.push({
+        name,
+        description: String(pkg.description ?? "").trim(),
+        version: String(pkg.version ?? "").trim(),
+        keywords: Array.isArray(pkg.keywords) ? pkg.keywords.map(String) : [],
+      });
+    }
+    return hits;
+  } catch {
+    return [];
+  }
+}
+
+export async function searchMiokuPackages(
+  prefix: string,
+): Promise<NpmPackageHit[]> {
+  const [broad, targeted] = await Promise.all([
+    searchNpm("mioku"),
+    searchNpm(prefix.replace(/-$/, "")),
+  ]);
+  const seen = new Set<string>();
+  const hits: NpmPackageHit[] = [];
+  for (const hit of [...broad, ...targeted]) {
+    if (!hit.name.startsWith(prefix)) continue;
+    if (!hit.keywords.includes("mioku")) continue;
+    if (seen.has(hit.name)) continue;
+    seen.add(hit.name);
+    hits.push(hit);
+  }
+  return hits.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function multiSelect(
+  message: string,
+  items: Array<{ label: string; value: string }>,
+  initial: string[] = [],
+): Promise<string[]> {
+  if (items.length === 0) return [];
+  const result = await consola.prompt(message, {
+    type: "multiselect",
+    options: items,
+    initial,
+    cancel: "reject",
+  });
+  return (result as Array<string | { value: string }>).map((item) =>
+    typeof item === "string" ? item : item.value,
+  );
+}
+
+export function runAdapterCli(name: string, cwd: string): void {
+  const binPath = path.join(cwd, "node_modules", ".bin", `mioku-adapter-${name}`);
+  if (fs.existsSync(binPath)) {
+    run(binPath, [], { cwd });
+    return;
+  }
+  run("bunx", [`mioku-adapter-${name}`], { cwd });
+}
+
+export function shortNameOfPackage(pkgName: string): string {
+  for (const prefix of [PLUGIN_PREFIX, SERVICE_PREFIX, ADAPTER_PREFIX]) {
+    if (pkgName.startsWith(prefix)) return pkgName.slice(prefix.length);
+  }
+  return pkgName;
+}
 
 export function run(
   cmd: string,
@@ -138,8 +225,6 @@ export async function getInstalledPackages(cwd: string): Promise<string[]> {
 export function withRoot(p: string): string {
   return path.resolve(process.cwd(), p);
 }
-
-const NPM_REGISTRY = "https://registry.npmjs.org";
 
 export async function fetchNpmKeywords(
   packageName: string,

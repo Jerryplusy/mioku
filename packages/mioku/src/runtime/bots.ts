@@ -36,9 +36,10 @@ export class BotRegistry {
     return removed
   }
 
-  pick<T extends Bot = Bot>(bot_id: string): T | undefined {
+  pick<T extends Bot = Bot>(bot_id: string | number): T | undefined {
+    const key = String(bot_id)
     for (const entry of this.#bots.values()) {
-      if (entry.bot_id === bot_id) return entry.bot as T
+      if (entry.bot_id === key) return entry.bot as T
     }
     return undefined
   }

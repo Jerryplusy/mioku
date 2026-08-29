@@ -1,4 +1,5 @@
-import { defineCapability } from '../adapter'
+import { defineCapability } from '../adapter/capability'
+import type { PlatformId } from '../adapter'
 
 export interface MemberInfo {
   readonly user_id: string
@@ -11,44 +12,44 @@ export interface MemberInfo {
 }
 
 export interface MemberBanRequest {
-  readonly group_id: string
-  readonly user_id: string
+  readonly group_id: PlatformId
+  readonly user_id: PlatformId
   /** 禁言时长（秒），0 = 解除禁言 */
   readonly duration: number
 }
 
 export interface MemberKickRequest {
-  readonly group_id: string
-  readonly user_id: string
+  readonly group_id: PlatformId
+  readonly user_id: PlatformId
   /** 是否拒绝该成员后续的加群申请 */
   readonly reject_add_request?: boolean
 }
 
 export interface MemberSetCardRequest {
-  readonly group_id: string
-  readonly user_id: string
+  readonly group_id: PlatformId
+  readonly user_id: PlatformId
   readonly card: string
 }
 
 export interface MemberSetAdminRequest {
-  readonly group_id: string
-  readonly user_id: string
+  readonly group_id: PlatformId
+  readonly user_id: PlatformId
   readonly enable: boolean
 }
 
 export interface MemberGetInfoRequest {
-  readonly group_id: string
-  readonly user_id: string
+  readonly group_id: PlatformId
+  readonly user_id: PlatformId
 }
 
 export interface MemberPokeRequest {
-  readonly group_id: string
-  readonly user_id: string
+  readonly group_id: PlatformId
+  readonly user_id: PlatformId
 }
 
 export interface MemberSetTitleRequest {
-  readonly group_id: string
-  readonly user_id: string
+  readonly group_id: PlatformId
+  readonly user_id: PlatformId
   readonly title: string
 }
 

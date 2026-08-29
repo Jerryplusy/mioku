@@ -77,6 +77,7 @@ export type {
   AIService,
   AIProtocol,
   AIModelCapability,
+  AIThinkingLevel,
   AIModelRole,
   AIProviderConfig,
   AIModelDescriptor,
@@ -112,6 +113,9 @@ export type {
 export {
   TOOL_RESULT_FOLLOWUP_KEY,
   normalizeSkillPermissionRole,
+  AI_THINKING_LEVELS,
+  AI_GEMINI_THINKING_LEVELS,
+  normalizeAIThinkingLevel,
 } from "./types";
 
 export {

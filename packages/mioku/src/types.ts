@@ -240,6 +240,44 @@ export type AIProtocol =
 
 export type AIModelCapability = "text" | "vision" | "tool-use" | "reasoning";
 
+export type AIThinkingLevel =
+  | "off"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+export const AI_THINKING_LEVELS: AIThinkingLevel[] = [
+  "off",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
+export const AI_GEMINI_THINKING_LEVELS: AIThinkingLevel[] = [
+  "off",
+  "low",
+  "medium",
+  "high",
+];
+
+export function normalizeAIThinkingLevel(
+  value: unknown,
+  protocol?: AIProtocol,
+): AIThinkingLevel | undefined {
+  const raw = String(value ?? "")
+    .trim()
+    .toLowerCase() as AIThinkingLevel;
+  if (!raw) return undefined;
+  if (protocol === "gemini") {
+    return AI_GEMINI_THINKING_LEVELS.includes(raw) ? raw : undefined;
+  }
+  return AI_THINKING_LEVELS.includes(raw) ? raw : undefined;
+}
+
 export type AIModelRole = "main" | "working" | "vision";
 
 export interface AIProviderConfig {
@@ -261,6 +299,7 @@ export interface AIModelDescriptor {
   contextWindow?: number;
   maxOutputTokens?: number;
   isCustom?: boolean;
+  thinkingLevel?: AIThinkingLevel;
 }
 
 export interface AIInstanceInfo {
@@ -346,6 +385,11 @@ export interface AIService {
     capabilities?: AIModelCapability[];
   }): AIModelDescriptor;
   removeCustomModel?(modelFullId: string): boolean;
+  removeModel?(modelFullId: string): boolean;
+  setModelThinkingLevel?(
+    modelFullId: string,
+    level: AIThinkingLevel | undefined,
+  ): boolean;
   getRoleBindings?(): Record<AIModelRole, string | undefined>;
   setRoleBinding?(role: AIModelRole, modelFullId: string | undefined): boolean;
   getInstanceByRole?(role: AIModelRole): AIInstance | undefined;

@@ -19,7 +19,7 @@ import {
 } from '../actions'
 import { addService as registerService, servicesRegistry } from '../services'
 
-import type { Adapter } from '../adapter'
+import type { Adapter, AdapterBotMap } from '../adapter'
 import type { Bot } from '../adapter'
 import type { Driver } from '../driver'
 import type { Event, MessageEvent, MetaEvent, NoticeEvent, RequestEvent } from '../adapter'
@@ -86,9 +86,6 @@ export const isEventAdmin = (event: unknown): boolean => {
 
 export const isEventOwnerOrAdmin = (event: unknown): boolean => isEventOwner(event) || isEventAdmin(event)
 export const hasEventRight = (event: unknown): boolean => isEventOwnerOrAdmin(event)
-
-/** Adapter packages augment this map with their platform-specific Bot type. */
-export interface AdapterBotMap {}
 
 type SemanticRoute<R extends string> = R extends `${string}:${infer Rest}` ? Rest : R
 
@@ -190,8 +187,26 @@ export class MiokuContext {
     return this.bot?.bot_id
   }
 
-  pickBot<T extends Bot = Bot>(bot_id: string): T | undefined {
+  pickBot<T extends Bot = Bot>(bot_id: string | number): T | undefined {
     return this.#options.bots.pick<T>(bot_id)
+  }
+
+  /**
+   * 获取事件引用回复的消息内容。
+   * 返回 null 表示没有引用、拿不到对应 bot 或消息已失效。
+   */
+  async getQuoteMsg(
+    event: { quote_id?: string | null; bot?: Bot; self_id?: string },
+  ): Promise<import('../capabilities/message').MessageGetResult | null> {
+    const quoteId = event?.quote_id
+    if (quoteId == null || quoteId === '') return null
+    const bot = event.bot ?? (event.self_id != null ? this.pickBot(event.self_id) : undefined)
+    if (!bot) return null
+    try {
+      return (await bot.getMessage(quoteId)) ?? null
+    } catch {
+      return null
+    }
   }
 
   getAdapter<T extends Adapter = Adapter>(name: string): T | undefined {

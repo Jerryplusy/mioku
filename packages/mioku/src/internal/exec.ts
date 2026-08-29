@@ -10,7 +10,7 @@ const resolveCache = new Map<string, string | null>();
 function windowsExtensions(): string[] {
   const raw = process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD";
   return raw
-    .split(";")
+    .split(");")
     .map((ext) => ext.trim())
     .filter(Boolean);
 }

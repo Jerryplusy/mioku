@@ -160,9 +160,9 @@ export async function notifyRestartComplete(
   try {
     const payload = segment ? [segment.text(message)] : [];
     if (marker.groupId) {
-      await bot.sendMessage({ type: "group", group_id: String(marker.groupId) }, payload);
+      await bot.sendMessage({ type: "group", group_id: marker.groupId}, payload);
     } else if (marker.userId) {
-      await bot.sendMessage({ type: "private", user_id: String(marker.userId) }, payload);
+      await bot.sendMessage({ type: "private", user_id: marker.userId}, payload);
     }
   } catch (error) {
     ctx?.logger?.error?.(`[core] 发送重启完成通知失败: ${error}`);

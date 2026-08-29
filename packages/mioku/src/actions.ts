@@ -41,7 +41,7 @@ const notifyAll = async (
 
 export const noticeGroups = async (
   bots: readonly Bot[],
-  groupIds: readonly string[],
+  groupIds: readonly (string | number)[],
   message: MessageInput,
   options: NoticeOptions = {},
 ): Promise<void> => {
@@ -55,7 +55,7 @@ export const noticeGroups = async (
 
 export const noticeFriends = async (
   bots: readonly Bot[],
-  userIds: readonly string[],
+  userIds: readonly (string | number)[],
   message: MessageInput,
   options: NoticeOptions = {},
 ): Promise<void> => {

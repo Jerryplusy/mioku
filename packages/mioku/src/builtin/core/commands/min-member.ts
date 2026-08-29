@@ -27,7 +27,7 @@ export function registerMinMemberCheck(
     const minMemberCount = Math.max(0, Number(cfg.group.minMemberCount) || 0);
     if (minMemberCount <= 0) return;
 
-    const bot = ctx.pickBot(selfId);
+    const bot = event.bot;
     if (!bot) return;
 
     try {
