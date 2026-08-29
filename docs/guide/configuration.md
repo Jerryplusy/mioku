@@ -1,107 +1,96 @@
-# 配置文件规范
+# 配置文件
 
-> Mioku的配置文件位于根目录`config`下，插件的数据存在`data`下，备份时注意这两个目录即可
+Mioku 的配置分两部分：**框架配置**写在项目根目录的 `package.json` 的 `mioku` 字段里，**插件/服务配置**放在 `config/` 目录下。备份机器人时注意 `config/` 和 `data/` 两个目录即可。
 
-## 入口配置
+## 框架配置（package.json）
 
-`package.json`
-
-一个示例的配置如下
+项目创建时生成的 `package.json` 大概长这样：
 
 ```json
 {
-  "mioki": {
-    "prefix": "/",
-    "owners": [123456789],
+  "name": "my-bot",
+  "type": "module",
+  "dependencies": {
+    "mioku": "latest",
+    "mioku-adapter-stdin": "latest"
+  },
+  "mioku": {
+    "prefix": ".",
+    "owners": ["123456789", "stdin"],
     "admins": [],
-    "plugins": ["boot", "help", "chat"],
+    "plugins": ["demo", "help", "chat"],
+    "plugins_dir": "plugins",
     "log_level": "info",
     "online_push": false,
-    "error_push": true,
-    "napcat": [
-      {
-        "protocol": "ws",
-        "host": "127.0.0.1",
-        "port": 3000,
-        "token": "your-token"
-      }
-    ]
+    "error_push": false,
+    "status_permission": "all",
+    "adapters": {
+      "stdin": {}
+    }
   }
 }
 ```
 
-## 字段
+各字段说明：
 
-### `owners`
+| 字段                  | 类型       | 默认值         | 说明                                                           |
+|---------------------|----------|-------------|--------------------------------------------------------------|
+| `prefix`            | string   | `"."`       | 系统指令前缀，比如 `.status`                                          |
+| `owners`            | string[] | `[]`        | 主人 QQ 列表，最高权限，必填                                             |
+| `admins`            | string[] | `[]`        | 管理员 QQ 列表                                                    |
+| `plugins`           | string[] | `[]`        | 启用的插件名列表                                                     |
+| `plugins_dir`       | string   | `"plugins"` | 本地插件目录（插件会先在这里找）                                             |
+| `log_level`         | string   | `"info"`    | 日志级别：`trace` / `debug` / `info` / `warn` / `error` / `fatal` |
+| `online_push`       | boolean  | `false`     | 启动完成后是否给第一个主人推送上线通知                                          |
+| `error_push`        | boolean  | `false`     | 发生错误时是否推送                                                    |
+| `status_permission` | string   | `"all"`     | 谁可以看 `.status` / `.adapter`：`all` 或 `admin-only`             |
+| `adapters`          | object   | `{}`        | 适配器配置，见[适配器](/guide/adapters)                                |
 
-主人 QQ 列表。
+> 修改 `package.json` 后需要重启才生效；`.settings` 系列指令（如 `.settings add-owner`）会直接改写这里的字段。
 
-```json
-{
-  "owners": [123456789]
-}
-```
+## 插件配置（config/）
 
-### `admins`
-
-管理员 QQ 列表。
-
-```json
-{
-  "admins": [111111111, 222222222]
-}
-```
-
-### `plugins`
-
-启用的插件列表。
-
-```json
-{
-  "plugins": ["boot", "help", "chat", "hello"]
-}
-```
-
-### `napcat`
-
-OneBot 实现端连接配置，支持多个 NapCat 实例，以数组形式填入。
-
-```json
-{
-  "napcat": [
-    {
-      "protocol": "ws",
-      "host": "127.0.0.1",
-      "port": 3000,
-      "token": "your-token"
-    }
-  ]
-}
-```
-
-## 插件配置
-
-插件配置统一放在：
+插件的配置统一放在 `config/<插件名>/` 下，每个配置文件是一个 JSON：
 
 ```text
-config/<plugin-name>/*.json
+config/
+├── core/
+│   ├── base.json            # core 插件基础配置
+│   └── access-control.json  # 访问控制
+├── chat/
+│   ├── base.json
+│   ├── settings.json
+│   └── personalization.json
+└── help/
+    ├── demo.json
+    └── status.json
 ```
 
-例如 `chat` 插件：
+配置文件由插件自己通过配置服务注册和读取（`registerConfig` / `getConfig`），修改文件保存后插件会收到热重载通知。给某个插件改配置，直接编辑对应 JSON 文件即可，不需要碰代码。
+
+## 服务配置（config/service/）
+
+服务的配置单独放在 `config/service/<服务名>/` 下：
 
 ```text
-config/chat/base.json
-config/chat/settings.json
-config/chat/personalization.json
+config/service/
+└── ai/
+    ├── providers.json
+    └── models.json
 ```
 
-## WebUI 配置
+服务配置的读写由框架提供（`registerServiceConfig` / `getServiceConfig`），WebUI 的配置页面也基于这套接口。
 
-WebUI 相关配置位于：
+## 数据目录（data/）
+
+插件产生的数据（数据库、缓存、下载的文件）放在 `data/<插件名>/` 下。插件里用 `createStore` 创建的 JSON 存储默认就在这个位置：
 
 ```text
-config/webui/settings.json
-config/webui/auth.json
+data/
+├── chat/
+│   └── sessions.json
+└── 60s/
+    └── data.json
 ```
 
-> 了解[如何在插件中管理插件配置](/developer/plugin-advanced)
+> 升级框架或换机器时，`config/` 和 `data/` 直接拷贝就能带走，插件本身靠 npm 重新安装。

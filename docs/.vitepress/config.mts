@@ -1,9 +1,10 @@
 import { defineConfig } from "vitepress";
+import typedocSidebar from "../reference/api/typedoc-sidebar.json";
 
 export default defineConfig({
   lang: "zh-CN",
   title: "Mioku",
-  description: "基于 mioki 的 AI 优先机器人框架",
+  description: "AI 优先的插件式机器人框架",
   cleanUrls: true,
   lastUpdated: true,
   appearance: true,
@@ -40,16 +41,17 @@ export default defineConfig({
     ["link", { rel: "manifest", href: "/site.webmanifest" }],
   ],
   themeConfig: {
-    logo: "/images/home/miku-logo.png",
+    logo: "/images/home/cong.png",
     siteTitle: "Mioku",
     search: {
       provider: "local",
     },
     nav: [
-      { text: "快速入门", link: "/guide/introduction" },
+      { text: "使用指南", link: "/guide/introduction" },
       { text: "开发者", link: "/developer/overview" },
-      { text: "类型文档", link: "/reference/ctx" },
-      { text: "插件市场", link: "/guide/plugin-market" },
+      { text: "深入", link: "/advanced/event-bus" },
+      { text: "类型参考", link: "/reference/" },
+      { text: "插件市场", link: "/guide/market" },
       { text: "关于", link: "/about" },
     ],
     sidebar: {
@@ -57,57 +59,67 @@ export default defineConfig({
         {
           text: "使用指南",
           items: [
-            { text: "Mioku 简介", link: "/guide/introduction" },
+            { text: "认识 Mioku", link: "/guide/introduction" },
             { text: "快速开始", link: "/guide/quick-start" },
+            { text: "适配器", link: "/guide/adapters" },
+            { text: "配置文件", link: "/guide/configuration" },
+            { text: "插件市场", link: "/guide/market" },
             { text: "WebUI", link: "/guide/webui" },
             { text: "部署方式", link: "/guide/deployment" },
-            { text: "配置文件", link: "/guide/configuration" },
-            { text: "插件市场", link: "/guide/plugin-market" },
           ],
         },
       ],
       "/developer/": [
         {
-          text: "开始开发",
-          items: [{ text: "开发约定", link: "/developer/overview" }],
+          text: "开发文档",
+          items: [{ text: "架构总览", link: "/developer/overview" }],
         },
         {
           text: "插件开发",
           items: [
-            { text: "插件入门", link: "/developer/plugin-start" },
-            { text: "插件进阶", link: "/developer/plugin-advanced" },
-            { text: "在插件中使用AI", link: "/developer/plugin-ai" },
-            { text: "插件发布", link: "/developer/plugin-publish" },
+            { text: "第一个插件", link: "/developer/first-plugin" },
+            { text: "事件处理", link: "/developer/events" },
+            { text: "消息与消息段", link: "/developer/message" },
+            { text: "操作 Bot", link: "/developer/bot" },
+            { text: "定时任务与生命周期", link: "/developer/cron-lifecycle" },
+            { text: "配置与数据存储", link: "/developer/config-data" },
+            { text: "权限与访问控制", link: "/developer/permissions" },
+            { text: "插件间通信", link: "/developer/communicate" },
+            { text: "使用 AI 服务", link: "/developer/ai" },
+            { text: "发布插件", link: "/developer/publish" },
           ],
         },
         {
           text: "服务开发",
-          items: [{ text: "开发服务入门", link: "/developer/service-start" }],
+          items: [{ text: "开发服务", link: "/developer/service-dev" }],
         },
         {
-          text: "AI 协作",
-          items: [{ text: "借助 AI 开发", link: "/developer/ai-copilot" }],
+          text: "适配器开发",
+          items: [
+            { text: "开发适配器", link: "/developer/adapter-dev" },
+            { text: "能力系统", link: "/developer/capability-dev" },
+          ],
+        },
+      ],
+      "/advanced/": [
+        {
+          text: "深入机制",
+          items: [
+            { text: "事件总线", link: "/advanced/event-bus" },
+            { text: "包发现与加载", link: "/advanced/loader" },
+            { text: "驱动器", link: "/advanced/driver" },
+            { text: "运行时生命周期", link: "/advanced/runtime" },
+          ],
         },
       ],
       "/reference/": [
         {
-          text: "参考",
-          items: [
-            { text: "ctx", link: "/reference/ctx" },
-            { text: "event", link: "/reference/event" },
-            { text: "napcat-sdk", link: "/reference/napcat-sdk" },
-            { text: "mioki-api", link: "/reference/mioki-api" },
-            { text: "config.md", link: "/reference/config-page" },
-            { text: "mioku-service", link: "/reference/mioku-services" },
-            { text: "config", link: "/reference/config-files" },
-            { text: "config-service", link: "/reference/config-service" },
-            { text: "ai-service", link: "/reference/ai-service" },
-            { text: "help-service", link: "/reference/help-service" },
-            {
-              text: "screenshot-service",
-              link: "/reference/screenshot-service",
-            },
-          ],
+          text: "API 参考",
+          items: [{ text: "类型文档导读", link: "/reference/" }],
+        },
+        {
+          text: "auto generated",
+          items: typedocSidebar,
         },
       ],
     },

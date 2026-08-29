@@ -4,9 +4,9 @@ layout: home
 hero:
   name: Mioku
   text: AI 优先的机器人框架
-  tagline: Agent 时代的机器人框架
+  tagline: 插件式 · 跨平台 · 轻量，为 Agent 时代设计
   image:
-    src: /images/home/miku-logo.png
+    src: /images/home/cong.png
     alt: Mioku
   actions:
     - theme: brand
@@ -14,18 +14,18 @@ hero:
       link: /guide/quick-start
     - theme: alt
       text: 开发指南
-      link: /developer/plugin-start
+      link: /developer/overview
     - theme: alt
-      text: API 参考
-      link: /reference/ctx
+      text: 类型参考
+      link: /reference/
 
 features:
   - title: 开箱即用
-    details: 安装方便、配置便捷、功能不简单。
+    details: 一条命令创建项目，自带终端调试与 WebUI 管理面板。
   - title: 轻量·高性能
-    details: 使用现代TypeScript语言开发，空载占用不过100M。
+    details: 现代 TypeScript 编写，空载占用不过 100M，bun 一把梭。
   - title: Agent 优先
-    details: 围绕AI进行设计，机器人可以自然的使用QQ，完成各种任务，甚至使用自己的插件。
+    details: 围绕 AI 设计，机器人能自然地用 QQ 完成任务，甚至使用自己的插件。
 ---
 
 <div class="mioku-home">
@@ -34,15 +34,15 @@ features:
     <div class="mioku-home__grid">
       <a class="mioku-home__entry" href="/guide/introduction">
         <h3>认识 Mioku</h3>
-        <p>了解我们的设计理念。</p>
+        <p>了解设计理念与插件、服务、适配器的关系</p>
       </a>
       <a class="mioku-home__entry" href="/guide/quick-start">
         <h3>快速上手</h3>
-        <p>支持win/mac/linux及任何可以模拟linux环境的设备。</p>
+        <p>一条命令创建项目，快速体验框架</p>
       </a>
-      <a class="mioku-home__entry" href="/developer/plugin-start">
+      <a class="mioku-home__entry" href="/developer/first-plugin">
         <h3>插件入门</h3>
-        <p>从构建最小的插件开始，逐步向更深层的插件构建技巧迈进。</p>
+        <p>从最小的插件开始，一步步深入开发技巧</p>
       </a>
     </div>
   </section>

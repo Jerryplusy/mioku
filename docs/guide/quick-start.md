@@ -1,80 +1,105 @@
 # 快速开始
 
-> 本教程适用全系统，包括但不限于 Mac/Win/Linux，只需要打开系统的终端按照教程操作即可 ;]
+> 本教程适用全系统，包括但不限于 Mac / Win / Linux，只需要打开系统的终端按照教程操作即可 ;]
 
 ## 环境要求
 
-- 一台服务器，不需要公网，运行内存大于 100M 即可
-- [bun](https://bun.sh/) JavaScript 运行时和包管理工具
+- 一台能跑 Node 的设备，内存大于 100M 即可，不需要公网
+- [bun](https://bun.sh/) —— JavaScript 运行时兼包管理器
 
-> 一键安装 bun 命令: `npm install -g bun`
+> 一键安装 bun：`npm install -g bun`
 
-- [git](https://git-scm.com/) 用于版本管理和插件安装
-- chromium 内核的浏览器，用于系统截图服务，缺失将无法使用大部分插件功能
+- chromium 内核的浏览器（Chrome / Edge / chromium），截图服务要用，缺失会导致大部分插件功能不可用
+- [ffmpeg](https://ffmpeg.org/)，音频与视频处理，部分插件可能用到
 
-> 常见支持的浏览器有 Chrome(推荐) / Edge / chromium(Chrome的开源版本)
+如果只是先体验框架，上面两项可以先不管，装上 bun 即可
 
-- [ffmpeg](https://ffmpeg.org/) 用于音频与视频处理，部分插件可能用到
-- 一个可连接的 [NapCat](https://doc.napneko.icu/) / [OneBot v11](https://onebot.dev/) 实现端
+## 创建项目
 
-## 安装
-
-使用 `npx mioku` 一键创建项目：
+使用 `npx mioku` 一键创建：
 
 ```bash
 npx mioku
 ```
 
-命令会引导你填写：
+命令会交互式引导你填写：
 
-- 项目名称
-- NapCat 地址 (正向 WebSocket 连接，即 Mioku 作为客户端)
-- NapCat 端口
-- NapCat token
-- 主人 QQ
-- 是否安装 WebUI
+- **项目名称** —— 比如 `my-bot`
+- **主人 QQ** —— 机器人管理员的 QQ 号，必填
+- **适配器** —— 选择要接入的平台
+- **插件** —— 从 npm 市场挑选要装的插件
+- **WebUI** —— 是否安装管理面板（建议安装）
 
-> 示例配置：
-> NapCat 地址: localhost
-> Napcat 端口: 7000
-> NapCat token: 114514
-> ...
+> 如果选择了 `onebotv11` 等适配器，项目创建后会自动运行适配器的连接向导
+> （填 NapCat 地址、端口、token 之类），见[适配器](/guide/adapters)。
 
-## 启动
+## 使用标准输入
+
+创建好的项目默认启用了 `mioku-adapter-stdin`，不接任何平台也能跑。进入项目目录启动：
 
 ```bash
-cd <项目名称>
+cd my-bot
 bun run start
 ```
 
-## 系统指令(需主人权限)
+启动完成后，直接就在终端里输入：
 
-- `状态` 查看bot的运行状态
-- `#日志` 查看最近100条运行日志
-- `#退出` 结束bot的进程
-- `#重启` 重启bot 进入后台运行
-- `#插件市场` 查看可以安装的插件
-- `#服务市场` 查看可以安装的服务
-- `#install plugin/service xxx` 安装xxx插件/服务
-- `#uninstall plugin/service xxx` 卸载xxx插件/服务
-- `#update` 查看可选插件/服务更新并选择性更新
-- `#update all/self` 更新全部/更新框架自身
+```text
+mioku> .status        # 查看运行状态
+mioku> .adapter       # 查看适配器与连接实例
+mioku> hello          # 和插件交互
+mioku> .help          # 查看系统指令
+```
 
-> 如果不想用命令，也可以在项目根目录直接使用bun管理软件包
-> 
-> 例如 `bun add mioku-plugin-60s` 或 `bunx mioku update`
+## 接入平台
+
+终端只能用来调试，真正上聊天平台需要装一个适配器并配置连接。两种方式：
+
+1. **项目创建时**选了适配器（比如 `onebotv11`），向导已经帮你配好了
+2. 项目创建后想修改适配器设置，可以更改配置：
+
+```json
+{
+  "mioku": {
+    "adapters": {
+      "onebotv11": {
+        "instances": [
+          { "protocol": "ws", "host": "localhost", "port": 3001, "token": "" }
+        ]
+      }
+    }
+  }
+}
+```
+
+然后 `bun run start`，看到「成功连接 x 个实例」就说明上线了。详细的适配器安装与配置见[适配器](/guide/adapters)。
+
+## 系统指令
+
+以下指令由内置 core 插件提供，默认需要主人权限（前缀 `.` 可在配置里改）：
+
+| 指令                                         | 作用           |
+|--------------------------------------------|--------------|
+| `.help`                                    | 查看帮助         |
+| `.status`                                  | 查看运行状态       |
+| `.adapter`                                 | 查看适配器与连接实例   |
+| `.log`                                     | 查看最近 100 条日志 |
+| `.plugin list / enable / disable / reload` | 插件管理         |
+| `.settings detail / add-owner / add-admin` | 框架设置管理       |
+| `.install plugin/service <名称>`             | 安装插件 / 服务    |
+| `.uninstall plugin/service <名称>`           | 卸载插件 / 服务    |
+| `.plugin-market` / `.service-market`       | 查看插件 / 服务市场  |
+| `.update [all/self/包名]`                    | 更新           |
+| `.restart`                                 | 重启进程         |
+| `.exit`                                    | 退出进程         |
+
+> 不想用指令的话，也可以在项目根目录直接用 bun 管理软件包，比如 `bun add mioku-plugin-60s`，
+> 装完在 `package.json` 的 `mioku.plugins` 里加上 `60s` 再重启即可。
+> 完整市场列表见[插件市场](/guide/market)。
 
 ## 下一步
 
-- [WebUI 的安装与使用](/guide/webui)
-- [了解配置文件规范](/guide/configuration)
-- [查看插件市场](/guide/plugin-market)
-
-## 开发命令
-
-```bash
-bun run dev      # 开发模式
-bun run build    # 构建包，通常用于检测是否有问题
-bun run docs:dev # 文档开发模式
-bun run docs:build # 文档构建
-```
+- [认识 Mioku](/guide/introduction) —— 理解插件、服务、适配器各是什么
+- [适配器](/guide/adapters) —— 接入 QQ / 多账号
+- [配置文件](/guide/configuration) —— `mioku` 字段全解
+- [开发你的第一个插件](/developer/first-plugin)
