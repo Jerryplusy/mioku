@@ -6,6 +6,7 @@ import type {
   AIModelRole,
   AIProviderConfig,
   AISkill,
+  AIThinkingLevel,
   AITool,
   ChatRuntime,
 } from "mioku";
@@ -44,6 +45,13 @@ export class AIServiceImpl implements AIService {
     this.resolveMainFallbackChain();
   }
 
+  private thinkingLevelProvider(
+    providerId: string,
+    modelId: string,
+  ): () => AIThinkingLevel | undefined {
+    return () => this.registry.getModel(`${providerId}/${modelId}`)?.thinkingLevel;
+  }
+
   private bootstrapRoleInstances(): void {
     const roles = this.registry.getRoleBindings();
     for (const role of ["main", "working", "vision"] as AIModelRole[]) {
@@ -63,6 +71,10 @@ export class AIServiceImpl implements AIService {
           globalSkills: this.globalSkills,
           usageStore: this.usageStore,
           role,
+          thinkingLevelProvider: this.thinkingLevelProvider(
+            parsed.providerId,
+            parsed.modelId,
+          ),
         });
         this.instances.set(role, instance);
         this.roleInstances.set(role, role);
@@ -113,6 +125,10 @@ export class AIServiceImpl implements AIService {
           globalSkills: this.globalSkills,
           usageStore: this.usageStore,
           role: "working",
+          thinkingLevelProvider: this.thinkingLevelProvider(
+            parsed.providerId,
+            parsed.modelId,
+          ),
         });
         this.instances.set(fb.name, fb);
       }
@@ -222,6 +238,10 @@ export class AIServiceImpl implements AIService {
       globalSkills: this.globalSkills,
       usageStore: this.usageStore,
       role: options.role,
+      thinkingLevelProvider: this.thinkingLevelProvider(
+        options.providerId,
+        modelId,
+      ),
     });
     this.instances.set(options.name, instance);
     if (options.role) {
@@ -376,12 +396,32 @@ export class AIServiceImpl implements AIService {
     modelId: string;
     name?: string;
     capabilities?: AIModelCapability[];
+    thinkingLevel?: AIThinkingLevel;
   }): AIModelDescriptor {
     return this.registry.registerCustomModel(input);
   }
 
   removeCustomModel(modelFullId: string): boolean {
     return this.registry.removeCustomModel(modelFullId);
+  }
+
+  removeModel(modelFullId: string): boolean {
+    const removed = this.registry.removeModel(modelFullId);
+    if (!removed) return false;
+    // 清理因模型删除而失去绑定的角色实例，并刷新错误转移链
+    const bindings = this.registry.getRoleBindings();
+    for (const [role, instanceName] of this.roleInstances) {
+      if (!bindings[role]) this.remove(instanceName);
+    }
+    this.resolveMainFallbackChain();
+    return true;
+  }
+
+  setModelThinkingLevel(
+    modelFullId: string,
+    level: AIThinkingLevel | undefined,
+  ): boolean {
+    return this.registry.setModelThinkingLevel(modelFullId, level);
   }
 
   getRoleBindings(): Record<AIModelRole, string | undefined> {
@@ -430,6 +470,10 @@ export class AIServiceImpl implements AIService {
       globalSkills: this.globalSkills,
       usageStore: this.usageStore,
       role,
+      thinkingLevelProvider: this.thinkingLevelProvider(
+        parsed.providerId,
+        parsed.modelId,
+      ),
     });
     this.instances.set(role, created);
     this.roleInstances.set(role, role);

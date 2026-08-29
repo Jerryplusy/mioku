@@ -14,6 +14,7 @@ import {
   extractSystemText,
   markStablePrefixCacheable,
   preferCache,
+  toAnthropicThinkingBudget,
   toModelDescriptor,
 } from "./base";
 
@@ -55,12 +56,26 @@ export class AnthropicProvider extends BaseProviderClient {
     const systemText = [options.systemPrompt, system].filter(Boolean).join("\n\n");
     const messages = toAnthropicMessages(rest);
     const tools = toAnthropicTools(prepared.tools, preferCache(options));
+    const thinkingBudget = toAnthropicThinkingBudget(options.thinkingLevel);
 
     const body: Anthropic.MessageCreateParams = {
       model: options.model,
       messages,
-      max_tokens: options.maxTokens ?? 4096,
-      temperature: options.temperature,
+      // Anthropic 要求 max_tokens 必须大于 thinking.budget_tokens
+      max_tokens:
+        thinkingBudget != null
+          ? Math.max(options.maxTokens ?? 4096, thinkingBudget + 1024)
+          : (options.maxTokens ?? 4096),
+      // Anthropic 要求开启 thinking 时 temperature 必须为 1
+      temperature: thinkingBudget != null ? 1 : options.temperature,
+      ...(thinkingBudget != null
+        ? {
+            thinking: {
+              type: "enabled" as const,
+              budget_tokens: thinkingBudget,
+            },
+          }
+        : {}),
       ...(systemText
         ? {
             system: preferCache(options)

@@ -18,6 +18,7 @@ import {
   markStablePrefixCacheable,
   preferCache,
   toModelDescriptor,
+  toOpenAIReasoningEffort,
 } from "./base";
 
 export class OpenAIChatProvider extends BaseProviderClient {
@@ -56,9 +57,10 @@ export class OpenAIChatProvider extends BaseProviderClient {
 
     const messages = toOpenAIMessages(prepared.messages, options.systemPrompt);
     const tools = toOpenAITools(prepared.tools);
+    const reasoningEffort = toOpenAIReasoningEffort(options.thinkingLevel);
 
     if (options.stream) {
-      return this.completeStream(options, messages, tools);
+      return this.completeStream(options, messages, tools, reasoningEffort);
     }
 
     const response = await this.client.chat.completions.create({
@@ -67,7 +69,11 @@ export class OpenAIChatProvider extends BaseProviderClient {
       tools: tools.length > 0 ? tools : undefined,
       temperature: options.temperature,
       ...(options.maxTokens != null && { max_tokens: options.maxTokens }),
-    });
+      // xhigh 仅部分新模型支持，SDK 类型未收录，这里透传给服务端
+      ...(reasoningEffort
+        ? { reasoning_effort: reasoningEffort as unknown as string }
+        : {}),
+    } as any);
 
     const message = response.choices[0]?.message;
     const content = extractTextContent(message?.content);
@@ -97,15 +103,19 @@ export class OpenAIChatProvider extends BaseProviderClient {
     options: ProviderCompleteOptions,
     messages: ChatCompletionMessageParam[],
     tools: ChatCompletionTool[],
+    reasoningEffort?: ReturnType<typeof toOpenAIReasoningEffort>,
   ): Promise<ProviderCompleteResponse> {
-    const stream = await this.client.chat.completions.create({
+    const stream = await (this.client.chat.completions.create({
       model: options.model,
       messages,
       tools: tools.length > 0 ? tools : undefined,
       temperature: options.temperature,
       stream: true,
       ...(options.maxTokens != null && { max_tokens: options.maxTokens }),
-    });
+      ...(reasoningEffort
+        ? { reasoning_effort: reasoningEffort as unknown as string }
+        : {}),
+    } as any) as any);
 
     let content = "";
     let reasoning = "";

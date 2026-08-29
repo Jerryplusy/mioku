@@ -3,14 +3,12 @@ import type {
   AIInstance,
   AIModelRole,
   AISkill,
+  AIThinkingLevel,
   MultimodalMessage,
   TextMessage,
   ToolCallRecord,
 } from "mioku";
-import type {
-  AIUsageContext,
-  AIUsageStore,
-} from "../usage/types";
+import type { AIUsageContext, AIUsageStore } from "../usage/types";
 import { UsageTracker } from "../usage/tracker";
 import { runToolLoop } from "../core/tool-loop";
 import type {
@@ -29,7 +27,9 @@ const RATE_LIMIT_RETRY_DELAYS_MS = [5_000, 10_000, 30_000, 60_000];
 function isRateLimitError(err: unknown): boolean {
   if (err === null || err === undefined) return false;
   const s = String(err).toLowerCase();
-  return s.includes("429") || s.includes("rate limit") || s.includes("rate_limit");
+  return (
+    s.includes("429") || s.includes("rate limit") || s.includes("rate_limit")
+  );
 }
 
 async function retryOn429<T>(
@@ -64,6 +64,7 @@ export interface AIInstanceOptions {
   usageStore: AIUsageStore;
   role?: AIModelRole;
   fallbackChain?: AIInstanceImpl[];
+  thinkingLevelProvider?: () => AIThinkingLevel | undefined;
 }
 
 export class AIInstanceImpl implements LocalAIInstance {
@@ -77,6 +78,7 @@ export class AIInstanceImpl implements LocalAIInstance {
   private readonly prompts = new Map<string, string>();
   private usageContext: AIUsageContext | undefined;
   private fallbackChain: AIInstanceImpl[];
+  private readonly thinkingLevelProvider?: () => AIThinkingLevel | undefined;
 
   constructor(options: AIInstanceOptions) {
     this.name = options.name;
@@ -87,6 +89,7 @@ export class AIInstanceImpl implements LocalAIInstance {
     this.globalSkills = options.globalSkills;
     this.usageStore = options.usageStore;
     this.fallbackChain = options.fallbackChain ?? [];
+    this.thinkingLevelProvider = options.thinkingLevelProvider;
   }
 
   setFallbackChain(chain: AIInstanceImpl[]): void {
@@ -250,7 +253,11 @@ export class AIInstanceImpl implements LocalAIInstance {
       const result = await mainCall();
       return {
         ...result,
-        servedBy: { providerId: this.providerId, modelId: this.modelId, isFallback: false },
+        servedBy: {
+          providerId: this.providerId,
+          modelId: this.modelId,
+          isFallback: false,
+        },
       };
     } catch (mainErr) {
       if (this.role === "main" && this.fallbackChain.length > 0) {
@@ -268,7 +275,11 @@ export class AIInstanceImpl implements LocalAIInstance {
             );
             return {
               ...result,
-              servedBy: { providerId: fb.providerId, modelId: fb.modelId, isFallback: true },
+              servedBy: {
+                providerId: fb.providerId,
+                modelId: fb.modelId,
+                isFallback: true,
+              },
             };
           } catch (fbErr) {
             miokiLogger.warn(
@@ -287,7 +298,11 @@ export class AIInstanceImpl implements LocalAIInstance {
       );
       return {
         ...result,
-        servedBy: { providerId: this.providerId, modelId: this.modelId, isFallback: false },
+        servedBy: {
+          providerId: this.providerId,
+          modelId: this.modelId,
+          isFallback: false,
+        },
       };
     }
   }
@@ -313,6 +328,7 @@ export class AIInstanceImpl implements LocalAIInstance {
       stream: args.stream,
       onTextDelta: args.onTextDelta,
       cachePreference: args.cachePreference ?? "prefer",
+      thinkingLevel: this.thinkingLevelProvider?.(),
     });
 
     return {
@@ -526,10 +542,11 @@ function toUnifiedTools(tools?: any[]): UnifiedToolDefinition[] | undefined {
         return {
           name: String(tool.name || ""),
           description: String(tool.description || ""),
-          parameters: tool.parameters || tool.input_schema || {
-            type: "object",
-            properties: {},
-          },
+          parameters: tool.parameters ||
+            tool.input_schema || {
+              type: "object",
+              properties: {},
+            },
         };
       }
       return null;
@@ -538,7 +555,12 @@ function toUnifiedTools(tools?: any[]): UnifiedToolDefinition[] | undefined {
 }
 
 function normalizeRole(role: unknown): UnifiedMessage["role"] {
-  if (role === "system" || role === "user" || role === "assistant" || role === "tool") {
+  if (
+    role === "system" ||
+    role === "user" ||
+    role === "assistant" ||
+    role === "tool"
+  ) {
     return role;
   }
   if (role === "model") return "assistant";

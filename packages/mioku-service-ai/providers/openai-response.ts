@@ -15,6 +15,7 @@ import {
   markStablePrefixCacheable,
   preferCache,
   toModelDescriptor,
+  toOpenAIReasoningEffort,
 } from "./base";
 
 export class OpenAIResponseProvider extends BaseProviderClient {
@@ -56,6 +57,7 @@ export class OpenAIResponseProvider extends BaseProviderClient {
       options.systemPrompt,
     );
     const tools = toResponseTools(prepared.tools);
+    const reasoningEffort = toOpenAIReasoningEffort(options.thinkingLevel);
     const body: Record<string, unknown> = {
       model: options.model,
       input,
@@ -65,6 +67,7 @@ export class OpenAIResponseProvider extends BaseProviderClient {
       ...(options.maxTokens != null
         ? { max_output_tokens: options.maxTokens }
         : {}),
+      ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
     };
 
     if (options.stream) {
