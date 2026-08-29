@@ -28,7 +28,6 @@ import {
   messageRecall,
   messageSend,
   profileSet,
-  reactionSet,
   registerStatusProvider,
 } from 'mioku'
 import { DEFAULT_INSTANCE, normalizeInstances } from './config'
@@ -149,7 +148,7 @@ const buildNoticeFromOneBot = (
 
 const buildAdapter = (
   instance: OneBotInstanceConfig,
-  adapterName: string,
+  adapterName: 'onebotv11',
   logger: Logger,
   gatewayName: string,
   botLabel: string,
@@ -311,7 +310,12 @@ const buildAdapter = (
         })),
       ),
       ctx.registerCapability(conversationGetHistory, { adapter: adapterName, bot_id: currentBot.bot_id }, async (req) =>
-        currentBot.getHistory(req.target, req.before, req.limit, req.extra),
+        currentBot.getHistory(
+          req.target,
+          req.before == null ? undefined : String(req.before),
+          req.limit,
+          req.extra,
+        ),
       ),
       ctx.registerCapability(memberPoke, { adapter: adapterName, bot_id: currentBot.bot_id }, async (req) => {
         await currentBot.sendApi('group_poke', { group_id: req.group_id, user_id: req.user_id })
@@ -325,13 +329,6 @@ const buildAdapter = (
       }),
       ctx.registerCapability(groupSetWholeBan, { adapter: adapterName, bot_id: currentBot.bot_id }, async (req) => {
         await currentBot.sendApi('set_group_whole_ban', { group_id: req.group_id, enable: req.enable })
-      }),
-      ctx.registerCapability(reactionSet, { adapter: adapterName, bot_id: currentBot.bot_id }, async (req) => {
-        await currentBot.sendApi('set_msg_emoji_like', {
-          message_id: String(req.message_id),
-          emoji_id: Number(req.emoji_id),
-          set: req.set ?? true,
-        })
       }),
       ctx.registerCapability(forwardSend, { adapter: adapterName, bot_id: currentBot.bot_id }, async (req) => {
         const payload = req.nodes.map((node) => ({
@@ -511,7 +508,7 @@ const buildAdapter = (
   }
 }
 
-const ADAPTER_NAME = 'onebotv11' as string
+const ADAPTER_NAME = 'onebotv11'
 
 export const oneBotAdapterDefinition = defineAdapter<OneBotAdapterConfig>({
   name: ADAPTER_NAME,

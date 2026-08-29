@@ -3,9 +3,10 @@ import { buildSegments } from './event'
 
 import type { ApiCaller } from './gateway'
 import type {
+  AdapterBotBase,
   ForwardNode,
   FriendInfo,
-  Bot as MiokuBot,
+  BotBase,
   HistoryMessage,
   MemberInfo,
   GroupInfo,
@@ -41,13 +42,14 @@ export interface OneBotCookie {
 
 export interface OneBotData {
   bot_id: string
-  readonly adapter: string
+  readonly adapter: 'onebotv11'
   nickname: string
   online: boolean
   connected_at?: number
 }
 
-export type OneBot = MiokuBot & {
+export type OneBot = BotBase & {
+  readonly adapter: 'onebotv11'
   sendApi<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T>
   pickGroup(groupId: string): Promise<OneBotGroupInfo | null>
   pickFriend(userId: string): Promise<OneBotFriendInfo | null>
@@ -55,8 +57,6 @@ export type OneBot = MiokuBot & {
   getPskey(domain: string): Promise<string>
   getVersionInfo(): Promise<{ app_name: string; app_version: string; protocol_version: string }>
   getLoginInfo(): Promise<{ user_id: number; nickname: string }>
-  getFriendList(): Promise<OneBotFriendInfo[]>
-  getGroupList(): Promise<OneBotGroupInfo[]>
   recallMessage(messageId: string): Promise<void>
   getMessage(messageId: string): Promise<MessageGetResult | null>
   getForwardMessage(messageId: string): Promise<ForwardNode[]>
@@ -77,7 +77,7 @@ export type OneBot = MiokuBot & {
   as<T extends object = Record<string, unknown>>(): T
 }
 
-export type OneBotBase = Omit<OneBot, 'supports' | 'invoke'>
+export type OneBotBase = AdapterBotBase<OneBot>
 
 declare module 'mioku' {
   interface AdapterBotMap {
@@ -208,10 +208,12 @@ export const createOneBot = (params: {
       return (await api('get_login_info')) as { user_id: number; nickname: string }
     },
     async getFriendList() {
-      return (await api('get_friend_list')) as OneBotFriendInfo[]
+      const list = (await api('get_friend_list')) as OneBotFriendInfo[]
+      return list.map((f) => ({ ...f, user_id: String(f.user_id) }))
     },
     async getGroupList() {
-      return (await api('get_group_list')) as OneBotGroupInfo[]
+      const list = (await api('get_group_list')) as OneBotGroupInfo[]
+      return list.map((g) => ({ ...g, group_id: String(g.group_id) }))
     },
     async recallMessage(messageId: string) {
       await api('delete_msg', { message_id: messageId })
@@ -304,6 +306,11 @@ export const createOneBot = (params: {
       return (list as Record<string, unknown>[]).map((entry) => ({
         message_id: String(entry.message_id ?? '') as string,
         time: typeof entry.time === 'number' ? (entry.time as number) * 1000 : undefined,
+        user_id: entry.user_id != null ? String(entry.user_id) : undefined,
+        nickname:
+          (entry.sender as { nickname?: unknown } | undefined)?.nickname != null
+            ? String((entry.sender as { nickname?: unknown }).nickname)
+            : undefined,
         message: buildSegments(Array.isArray(entry.message) ? (entry.message as unknown[]) : []),
       }))
     },

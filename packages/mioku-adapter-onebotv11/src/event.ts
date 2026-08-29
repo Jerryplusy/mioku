@@ -6,7 +6,6 @@ import {
   createGroupRef,
   createMessage,
   MessageSegmentImpl,
-  messageRecall,
 } from 'mioku'
 import { segment } from './message'
 
@@ -142,6 +141,7 @@ export const buildMessageEvent = (params: {
     time: data.time ? data.time * 1000 : undefined,
     raw: data,
     message_type: data.message_type,
+    sub_type: typeof data.sub_type === 'string' ? data.sub_type : undefined,
     user_id: userId,
     group_id: groupId,
     group_name: typeof data.group_name === 'string' ? data.group_name : undefined,
@@ -171,10 +171,7 @@ export const buildMessageEvent = (params: {
       return sent
     },
     recall: async () => {
-      if (!bot.supports(messageRecall)) {
-        throw new Error('message.recall is not supported on this bot')
-      }
-      await bot.invoke(messageRecall, { message_id: messageId })
+      await bot.recallMessage(messageId)
     },
   }
 }

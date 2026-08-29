@@ -153,19 +153,8 @@ export type BotAutoFilled = Exclude<keyof BotBase, BotProvidedKeys>;
 export type AdapterBotBase<B extends BotBase> = Omit<B, BotAutoFilled> &
   Partial<Pick<B, BotAutoFilled>>;
 
-/**
- * 适配器 bot 类型注册表：各适配器包通过
- * `declare module 'mioku' { interface AdapterBotMap { <name>: <BotType> } }`
- * 把自己的 bot 类型注册进来。core 不感知具体适配器，新增适配器无需改动 core。
- */
 export interface AdapterBotMap {}
 
-/**
- * 归一化 Bot 类型 = 所有已注册适配器 bot 类型的联合。
- * 各适配器的 adapter 字段为字面量类型（如 'onebotv11'），因此
- * `if (bot.adapter === "onebotv11")` 可以把 bot 收窄为对应适配器类型，
- * 从而直接调用适配器专属 API。未注册任何适配器时回退为公共接口 BotBase。
- */
 export type Bot = AdapterBotMap[keyof AdapterBotMap] extends never
   ? BotBase
   : AdapterBotMap[keyof AdapterBotMap];
