@@ -134,10 +134,13 @@ function renderHero(
         .map((bot) => {
           const statusText = bot.online ? "在线" : "离线";
           const statusColor = bot.online ? "#10b981" : "#ef4444";
+          // stdin 等本地适配器没有 OneBot 版本信息，统一显示为 `<适配器>@<包版本>`
           const frameworkText =
-            bot.appVersion && bot.appVersion !== "unknown"
-              ? `${bot.framework} ${bot.appVersion} · 协议 ${bot.protocolVersion}`
-              : bot.framework;
+            bot.adapter === "stdin"
+              ? `${bot.adapter}@${bot.appVersion}`
+              : bot.appVersion && bot.appVersion !== "unknown"
+                ? `${bot.framework} ${bot.appVersion} · 协议 ${bot.protocolVersion}`
+                : bot.framework;
           // Nickname is rendered as a bold large heading above the avatar
           // row (not as a chip). Chips below only carry the metadata.
           const tags = [

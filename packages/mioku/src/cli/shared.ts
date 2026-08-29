@@ -14,6 +14,8 @@ export const SERVICE_PREFIX = "mioku-service-";
 export const ADAPTER_PREFIX = "mioku-adapter-";
 
 export const NPM_REGISTRY = "https://registry.npmjs.org";
+export const OFFICIAL_REGISTRY_URL =
+  "https://raw.githubusercontent.com/mioku-lab/mioku/main/official-registry.json";
 
 export interface NpmPackageHit {
   name: string;
@@ -76,6 +78,114 @@ export async function searchMiokuPackages(
   return hits.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export interface OfficialRegistryEntry {
+  npm?: string;
+  builtin?: boolean;
+}
+
+export interface OfficialRegistry {
+  plugins?: Record<string, OfficialRegistryEntry>;
+  services?: Record<string, OfficialRegistryEntry>;
+  adapters?: Record<string, OfficialRegistryEntry>;
+}
+
+export async function fetchOfficialRegistry(): Promise<OfficialRegistry | null> {
+  try {
+    const res = await fetch(OFFICIAL_REGISTRY_URL, {
+      headers: { Accept: "application/json", "User-Agent": "mioku-cli" },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as OfficialRegistry;
+  } catch {
+    return null;
+  }
+}
+
+export interface NpmPackageMeta {
+  version: string;
+  description: string;
+  keywords: string[];
+  mioku?: unknown;
+}
+
+export async function fetchNpmPackageMeta(
+  packageName: string,
+): Promise<NpmPackageMeta | null> {
+  try {
+    const res = await fetch(
+      `${NPM_REGISTRY}/${encodeURIComponent(packageName)}`,
+      {
+        headers: { Accept: "application/json", "User-Agent": "mioku-cli" },
+      },
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as any;
+    const latest = String(data?.["dist-tags"]?.latest || "").trim();
+    const version = latest ? (data?.versions?.[latest] ?? {}) : {};
+    return {
+      version: latest,
+      description: String(version?.description || "").trim(),
+      keywords: Array.isArray(version?.keywords)
+        ? version.keywords.map(String)
+        : [],
+      mioku: version?.mioku,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function declaredServicesOf(meta: NpmPackageMeta | null): string[] {
+  const mioku = meta?.mioku;
+  if (Array.isArray(mioku)) {
+    return mioku.filter(
+      (s): s is string => typeof s === "string" && s.length > 0,
+    );
+  }
+  if (mioku && typeof mioku === "object") {
+    const services = (mioku as { services?: unknown }).services;
+    if (Array.isArray(services)) {
+      return services.filter(
+        (s): s is string => typeof s === "string" && s.length > 0,
+      );
+    }
+  }
+  return [];
+}
+
+export async function resolveRequiredServices(
+  pluginNames: readonly string[],
+): Promise<string[]> {
+  const registry = await fetchOfficialRegistry();
+  const serviceMap = new Map<string, string>();
+  if (registry) {
+    for (const [short, entry] of Object.entries(registry.services ?? {})) {
+      if (entry?.npm) serviceMap.set(short, entry.npm);
+    }
+  }
+
+  const required = new Set<string>();
+  for (const pluginName of pluginNames) {
+    const meta = await fetchNpmPackageMeta(pluginName);
+    for (const short of declaredServicesOf(meta)) {
+      const npm = serviceMap.get(short) ?? `${SERVICE_PREFIX}${short}`;
+      if (serviceMap.has(short)) {
+        required.add(npm);
+        continue;
+      }
+      const check = await fetchNpmPackageMeta(npm);
+      if (check && check.keywords.includes("mioku")) {
+        required.add(npm);
+      } else {
+        consola.warn(
+          `${pluginName} 声明了服务 "${short}"，但未找到对应的 mioku 服务包，已跳过`,
+        );
+      }
+    }
+  }
+  return Array.from(required);
+}
+
 export async function multiSelect(
   message: string,
   items: Array<{ label: string; value: string }>,
@@ -94,7 +204,12 @@ export async function multiSelect(
 }
 
 export function runAdapterCli(name: string, cwd: string): void {
-  const binPath = path.join(cwd, "node_modules", ".bin", `mioku-adapter-${name}`);
+  const binPath = path.join(
+    cwd,
+    "node_modules",
+    ".bin",
+    `mioku-adapter-${name}`,
+  );
   if (fs.existsSync(binPath)) {
     run(binPath, [], { cwd });
     return;
@@ -214,7 +329,9 @@ export function appendToMiokuPlugins(cwd: string, pkgName: string): boolean {
 
 export async function getInstalledPackages(cwd: string): Promise<string[]> {
   try {
-    const pkg = JSON.parse(readFileSync(path.join(cwd, "package.json"), "utf-8"));
+    const pkg = JSON.parse(
+      readFileSync(path.join(cwd, "package.json"), "utf-8"),
+    );
     const deps = { ...pkg.dependencies, ...pkg.devDependencies };
     return Object.keys(deps).filter((k) => k.startsWith("mioku-"));
   } catch {
@@ -230,9 +347,12 @@ export async function fetchNpmKeywords(
   packageName: string,
 ): Promise<string[] | null> {
   try {
-    const res = await fetch(`${NPM_REGISTRY}/${encodeURIComponent(packageName)}`, {
-      headers: { Accept: "application/json", "User-Agent": "mioku-cli" },
-    });
+    const res = await fetch(
+      `${NPM_REGISTRY}/${encodeURIComponent(packageName)}`,
+      {
+        headers: { Accept: "application/json", "User-Agent": "mioku-cli" },
+      },
+    );
     if (!res.ok) return null;
     const data = (await res.json()) as any;
     const latestVersion = String(data?.["dist-tags"]?.latest || "").trim();

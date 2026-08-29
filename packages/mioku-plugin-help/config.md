@@ -8,6 +8,12 @@ fields:
     description: 最基础的单行文本输入。
     placeholder: 输入任意文本
 
+  - key: status.stdinAvatar
+    label: stdin 头像
+    type: text
+    description: stdin 适配器在状态图中使用的头像，支持 http(s):// 或 file:// URL，也支持本地绝对路径（自动转 file://）。默认使用 uapis.cn 随机表情接口。
+    placeholder: https://uapis.cn/api/v1/random/image?category=bq&type=eciyuan
+
   - key: demo.secretValue
     label: secret 密文输入
     type: secret
@@ -191,5 +197,17 @@ config: demo
 ```
 
 用法：`mioku-file` 会直接把某个配置文件完整显示为 JSON 编辑器，适合调试或保底兜底。
+
+## 7. `status` 状态图配置
+
+```mioku-field
+key: status.stdinAvatar
+```
+
+`status` 配置文件（`config/help/status.json`）目前支持：
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `stdinAvatar` | string | `https://uapis.cn/api/v1/random/image?category=bq&type=eciyuan` | stdin 适配器在状态图中的头像，支持 http(s):// / file:// URL 或本地绝对路径（自动转 file://） |
 
 ---

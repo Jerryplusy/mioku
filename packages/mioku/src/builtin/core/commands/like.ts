@@ -38,7 +38,9 @@ export function registerLikeCommand(
     );
     const messageId = event?.message_id;
 
-    if (bot.adapter === "onebotv11") {
+    const adapter = bot.adapter as string;
+
+    if (adapter === "onebotv11") {
       try {
         await bot.sendApi<boolean>("send_like", {
           user_id: userId,
@@ -59,7 +61,7 @@ export function registerLikeCommand(
           ctx.logger.warn(`core set_msg_emoji_like 失败: ${error}`);
         }
       }
-    } else if (bot.adapter === "icqq") {
+    } else if (adapter === "icqq") {
       const icqqBot = bot as BotBase & {
         sendLike(userId: string | number, times?: number): Promise<boolean>;
       };
