@@ -168,6 +168,7 @@ const buildAdapter = (
   let unregisterBot: (() => void) | null = null
   let unregisterCapabilities: Array<() => void> = []
   let unregisterStatus: (() => void) | null = null
+  let statusBotId: string | null = null
   let sendCount = 0
   let receiveCount = 0
 
@@ -406,6 +407,15 @@ const buildAdapter = (
       )
       registerBotCapabilities(adapterContext, bot)
     }
+    if (statusBotId !== botData.bot_id) {
+      unregisterStatus?.()
+      statusBotId = botData.bot_id
+      const statusProvider = createOneBotStatusProvider(() => ({ send: sendCount, receive: receiveCount }))
+      unregisterStatus = registerStatusProvider(
+        { adapter: adapterName, bot_id: statusBotId },
+        ({ bot: currentBot }: { bot: Bot }) => statusProvider({ bot: currentBot as OneBot }),
+      )
+    }
     if (!botData.online) {
       botData.online = true
       logger.info(
@@ -477,10 +487,6 @@ const buildAdapter = (
         },
         handlers,
       )
-      const statusProvider = createOneBotStatusProvider(() => ({ send: sendCount, receive: receiveCount }))
-      unregisterStatus = registerStatusProvider(adapterName, ({ bot: currentBot }: { bot: Bot }) =>
-        statusProvider({ bot: currentBot as OneBot }),
-      )
       context.registerGateway(gateway)
     },
     async stop(reason?: string): Promise<void> {
@@ -498,6 +504,7 @@ const buildAdapter = (
       }
       unregisterStatus?.()
       unregisterStatus = null
+      statusBotId = null
       for (const dispose of unregisterCapabilities) dispose()
       unregisterCapabilities = []
       unregisterBot?.()

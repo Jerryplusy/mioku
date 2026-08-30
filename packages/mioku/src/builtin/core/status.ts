@@ -3,12 +3,9 @@ import cp from 'node:child_process'
 import { version } from '../../../package.json' with { type: 'json' }
 
 import { filesize, localNum, prettyMs } from '../../utils'
-import { getOrCreate } from '../../internal/registry'
 
 import type { Bot } from '../../adapter'
-import type { AdapterStatus } from '../../runtime/types'
-
-export type { AdapterStatus } from '../../runtime/types'
+import type { AdapterReport, AdapterStatusStats } from './adapters'
 
 export const SystemMap: Record<string, string> = {
   Linux: 'Linux',
@@ -36,7 +33,6 @@ export interface BotStatus {
 
 export interface MiokuStatus {
   bots: readonly BotStatus[]
-  adapters: readonly AdapterStatus[]
   plugins: {
     enabled: number
     total: number
@@ -75,25 +71,10 @@ export interface MiokuStatus {
   }
 }
 
-export interface StatusProviderContext {
-  readonly bot: Bot
-}
-
-export type StatusProvider = (context: StatusProviderContext) => Promise<AdapterStatus> | AdapterStatus
-
 export interface MiokuCoreServiceContrib {
   getMiokuStatus(): Promise<MiokuStatus>
   formatMiokuStatus(status: MiokuStatus): Promise<string>
-  registerStatusProvider(adapter: string, provider: StatusProvider): () => void
-}
-
-const statusProviders = getOrCreate<Map<string, StatusProvider>>('status-providers', () => new Map())
-
-export const registerStatusProvider = (adapter: string, provider: StatusProvider): (() => void) => {
-  statusProviders.set(adapter, provider)
-  return () => {
-    statusProviders.delete(adapter)
-  }
+  getAdapterReport(): Promise<AdapterReport>
 }
 
 const getSystemInfo = (): { name: string; version: string; arch: string } => {
@@ -145,7 +126,8 @@ const getDiskUsage = (): Promise<{ total: number; used: number; free: number; pe
 
 export interface BuildStatusOptions {
   readonly bots: readonly Bot[]
-  readonly adapters: readonly { readonly name: string; readonly version?: string }[]
+  /** 各 bot 的计数，由 core 从适配器上报里取好后传入，键为 `adapter:bot_id` */
+  readonly botStats?: ReadonlyMap<string, AdapterStatusStats>
   readonly enabledPlugins: number
   readonly totalPlugins: number
   readonly systemInfoProvider?: () => Promise<{ distro: string; release: string }>
@@ -163,41 +145,20 @@ export const buildMiokuStatus = async (options: BuildStatusOptions): Promise<Mio
   const usedMem = totalMem - os.freemem()
   const rssMem = process.memoryUsage.rss()
   const [disk, cpuPercent] = await Promise.all([getDiskUsage(), measureCpuUsage()])
-  const adapterStatuses: AdapterStatus[] = []
-  for (const adapter of options.adapters) {
-    const provider = statusProviders.get(adapter.name)
-    const adapterBot = options.bots.find((bot) => bot.adapter === adapter.name)
-    if (provider && adapterBot) {
-      try {
-        const result = await provider({ bot: adapterBot })
-        adapterStatuses.push({
-          adapter: adapter.name,
-          version: result.version ?? adapter.version,
-          data: result.data,
-        })
-      } catch {
-        adapterStatuses.push({ adapter: adapter.name, version: adapter.version, data: {} })
-      }
-    } else {
-      adapterStatuses.push({ adapter: adapter.name, version: adapter.version, data: {} })
-    }
-  }
   return {
     bots: options.bots.map((bot) => {
-      const adapterStatus = adapterStatuses.find((a) => a.adapter === bot.adapter)
-      const data = adapterStatus?.data as Record<string, unknown> | undefined
+      const stats = options.botStats?.get(`${bot.adapter}:${bot.bot_id}`)
       return {
         bot_id: bot.bot_id,
         nickname: bot.nickname ?? '',
         online: bot.online,
         adapter: bot.adapter,
-        friends: typeof data?.friends === 'number' ? data.friends : undefined,
-        groups: typeof data?.groups === 'number' ? data.groups : undefined,
-        send: typeof data?.send === 'number' ? data.send : undefined,
-        receive: typeof data?.receive === 'number' ? data.receive : undefined,
+        friends: stats?.friends,
+        groups: stats?.groups,
+        send: stats?.sent,
+        receive: stats?.received,
       }
     }),
-    adapters: adapterStatuses,
     plugins: { enabled: options.enabledPlugins, total: options.totalPlugins },
     stats: { uptime: process.uptime() * 1000 },
     versions: { node: process.versions.node, mioku: version },
@@ -217,7 +178,7 @@ export const buildMiokuStatus = async (options: BuildStatusOptions): Promise<Mio
 }
 
 export const formatMiokuStatus = async (status: MiokuStatus): Promise<string> => {
-  const { bots, plugins, system, disk, cpu, memory, versions, adapters } = status
+  const { bots, plugins, system, disk, cpu, memory, versions } = status
 
   const diskValid = disk.total > 0 && disk.free >= 0
   const diskDesc = diskValid
@@ -238,16 +199,13 @@ export const formatMiokuStatus = async (status: MiokuStatus): Promise<string> =>
   const totalReceive = bots.reduce((sum, bot) => sum + (bot.receive ?? 0), 0)
   const statsLine = bots.length > 1 ? `\n📮 总计: 收 ${localNum(totalReceive)} 条，发 ${localNum(totalSend)} 条` : ''
 
-  const adapter = adapters[0]
-  const adapterLine = adapter ? `${adapter.adapter}/${adapter.version ?? ''}` : `node/${versions.node.split('.')[0]}`
-
   return `
 〓 🟢 mioku 状态 〓
 ${botLines || '(无在线 Bot)'}
 🧩 启用了 ${localNum(plugins.enabled)} 个插件，共 ${localNum(plugins.total)} 个${statsLine}
 🚀 ${filesize(memory.rss.used, { round: 1 })}/${memory.percent}%
 ⏳ 已运行 ${prettyMs(status.stats.uptime, { hideYear: true, secondsDecimalDigits: 0 })}
-🤖 mioku/${versions.mioku}-${adapterLine}
+🤖 mioku/${versions.mioku}-node/${versions.node.split('.')[0]}
 🖥️ ${system.name.split(' ')[0]}/${system.version.split('.')[0]}-${system.name}-node/${versions.node.split('.')[0]}
 📊 ${memory.percent}%-${filesize(memory.used, { base: 2, round: 1 })}/${filesize(memory.total, { base: 2, round: 1 })}
 🧮 ${cpu.percent}%-${cpu.name}-${cpu.count}核

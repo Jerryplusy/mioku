@@ -150,6 +150,13 @@ export class AdapterContextImpl implements AdapterContext {
     await this.#bus.dispatch(event)
   }
 
+  listen(route: string, handler: (event: Event) => void | Promise<void>): () => void {
+    return this.#bus.register(route, handler, {
+      source: `adapter:${this.adapterName}`,
+      priority: 0,
+    })
+  }
+
   emitLifecycle(event: BotLifecycleEvent): Promise<void> {
     return this.#emit(event)
   }

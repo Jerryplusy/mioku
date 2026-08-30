@@ -11,6 +11,7 @@ import {
 } from '../../runtime/plugin-metadata'
 import { getPluginRuntimeState, setPluginRuntimeState } from '../../runtime/plugin-state'
 import { buildMiokuStatus, formatMiokuStatus } from './status'
+import { buildAdapterReport, collectBotStats, formatAdapterReport } from './adapters'
 import {
   CORE_DEFAULT_CONFIG,
   cloneConfig,
@@ -38,11 +39,13 @@ import { startAutoUpdateScheduler } from './system/auto-update'
 import type { MessageSegment } from '../../adapter'
 import type { MessageEvent } from '../../adapter'
 import type { AccessHook, AccessControlConfig, PluginHelp, PluginMetadata } from '../../types'
-import type { MiokuStatus, StatusProvider } from './status'
+import type { MiokuStatus } from './status'
+import type { StatusProvider } from './adapters'
 import type { MiokuPlugin } from '../../plugin'
 import type { MiokuContext } from '../../runtime/mioku-context'
 
-export type { MiokuStatus, StatusProvider } from './status'
+export type { MiokuStatus } from './status'
+export type { StatusProvider } from './adapters'
 
 export const CORE_PLUGINS = ['mioku-core']
 
@@ -55,6 +58,7 @@ function escapeRegExp(value: string): string {
 const CORE_HELP_ENTRIES: ReadonlyArray<readonly [cmd: string, desc: string]> = [
   ['help', '显示帮助信息'],
   ['status', '显示框架状态'],
+  ['adapter', '显示适配器与连接实例'],
   ['plugin', '插件管理'],
   ['settings', '框架设置管理'],
   ['update', '检查并选择插件/服务更新'],
@@ -113,6 +117,7 @@ function buildCoreMetadata(
     { id: 'like', match: likeKeyword, description: '匹配赞我指令关键字' },
     { id: 'help', match: `/^${esc}(help|帮助)$/`, description: '匹配帮助指令' },
     { id: 'status', match: `/^${esc}(status|状态)$/`, description: '匹配状态指令' },
+    { id: 'adapter', match: `/^${esc}(adapter|适配器)$/`, description: '匹配适配器指令' },
     { id: 'plugin', match: `/^${esc}(plugin|插件)/`, description: '匹配插件管理指令' },
     { id: 'settings', match: `/^${esc}(settings|设置)/`, description: '匹配设置管理指令' },
     { id: 'update', match: `/^${esc}(update|更新)/`, description: '匹配更新指令' },
@@ -221,14 +226,18 @@ const core: MiokuPlugin = definePlugin({
     )
 
     const collectBots = (): typeof ctx.bots => ctx.bots
+    /** 已加载的适配器优先，再补上只在 bot 上出现过的适配器名 */
     const collectAdapters = (): { name: string; version?: string }[] => {
-      const seen = new Set<string>()
-      const list: { name: string; version?: string }[] = []
+      const list: { name: string; version?: string }[] = ctx.adapters.map((adapter) => ({
+        name: adapter.name,
+        version: adapter.version,
+      }))
+      const seen = new Set(list.map((adapter) => adapter.name))
       for (const bot of ctx.bots) {
-        if (seen.has(String(bot.adapter))) continue
-        seen.add(String(bot.adapter))
-        const adapter = ctx.getAdapter(bot.adapter)
-        list.push({ name: bot.adapter, version: adapter?.version })
+        const name = String(bot.adapter)
+        if (seen.has(name)) continue
+        seen.add(name)
+        list.push({ name, version: ctx.getAdapter(name)?.version })
       }
       return list
     }
@@ -236,13 +245,20 @@ const core: MiokuPlugin = definePlugin({
     const getStatus = async (): Promise<MiokuStatus> => {
       const enabled = ctx.plugins.list().length
       const total = ctx.plugins.list().length + ctx.plugins.localPlugins().length
+      const bots = collectBots()
+      const botStats = bots.length
+        ? collectBotStats(await buildAdapterReport({ bots, adapters: collectAdapters() }))
+        : undefined
       return await buildMiokuStatus({
-        bots: collectBots(),
-        adapters: collectAdapters(),
+        bots,
+        botStats,
         enabledPlugins: enabled,
         totalPlugins: total,
       })
     }
+
+    const getAdapterText = async (): Promise<string> =>
+      formatAdapterReport(await buildAdapterReport({ bots: collectBots(), adapters: collectAdapters() }))
 
     const atTarget = (event: MessageEvent): string | undefined => {
       const at = event.message.find((seg): seg is MessageSegment & { data: Record<string, unknown> } => seg.type === 'at')
@@ -259,8 +275,15 @@ const core: MiokuPlugin = definePlugin({
 
         if (statusAdminOnly && !isEventOwnerOrAdmin(ev)) return
 
-        if (text.replace(cmdPrefix, '').trim() === '状态' || text.replace(cmdPrefix, '').trim() === 'status') {
+        const bare = text.replace(cmdPrefix, '').trim()
+
+        if (bare === '状态' || bare === 'status') {
           await ev.reply(await formatMiokuStatus(await getStatus()))
+          return
+        }
+
+        if (bare === '适配器' || bare === 'adapter') {
+          await ev.reply(await getAdapterText())
           return
         }
 
@@ -534,4 +557,5 @@ const core: MiokuPlugin = definePlugin({
 })
 
 export default core
-export { buildMiokuStatus, formatMiokuStatus, registerStatusProvider } from './status'
+export { buildMiokuStatus, formatMiokuStatus } from './status'
+export { buildAdapterReport, collectBotStats, formatAdapterReport, registerStatusProvider } from './adapters'

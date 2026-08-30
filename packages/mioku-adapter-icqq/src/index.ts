@@ -3,6 +3,7 @@ export * from './bot'
 export * from './captcha'
 export * from './config'
 export * from './event'
+export * from './interact'
 export * from './message'
 export { icqqAdapterDefinition as default } from './adapter'
 

@@ -138,11 +138,15 @@ const build = (
           (req) => bot!.sendMessage(req.target, req.message),
         ),
       ];
-      unregisterStatus = registerStatusProvider(NAME, async () => ({
-        adapter: NAME,
-        version: "1.0.0",
-        data: { send: counters.send, receive: counters.receive },
-      }));
+      unregisterStatus = registerStatusProvider(
+        { adapter: NAME, bot_id: BOT_ID },
+        async () => ({
+          adapter: NAME,
+          bot_id: BOT_ID,
+          stats: { sent: counters.send, received: counters.receive },
+          data: {},
+        }),
+      );
 
       rl = createInterface({
         input: process.stdin,
@@ -156,14 +160,18 @@ const build = (
       data.online = true;
       data.connected_at = Date.now();
       if (bot) await context.emitLifecycle({ type: "bot:connected", bot });
-      logger.info(`stdin 适配器已就绪，直接在终端输入命令即可（${USER_ID} 拥有主人权限）`);
+      logger.info(`stdin 适配器已就绪，直接在终端输入命令即可`);
       if (process.stdin.isTTY) rl.prompt();
     },
     async stop(reason) {
       if (data.online) {
         data.online = false;
         if (bot && context)
-          await context.emitLifecycle({ type: "bot:disconnected", bot, reason });
+          await context.emitLifecycle({
+            type: "bot:disconnected",
+            bot,
+            reason,
+          });
       }
       try {
         rl?.close();

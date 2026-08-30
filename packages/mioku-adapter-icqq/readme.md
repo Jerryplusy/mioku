@@ -41,9 +41,48 @@ pnpm add mioki-adapter-icqq
 
 ## 登录验证
 
-- 滑块验证：打开日志中的链接完成滑块，将跳转 URL 中的 `ticket` 参数填入本地验证页面提交（若 URL 同时含 `randstr`，则用英文逗号拼接为 `ticket,randstr`）。
-- 设备锁：适配器会自动发送短信验证码，将收到的验证码填入本地验证页面提交。
-- 扫码登录：二维码图片保存在系统临时目录（`/tmp/mioki-icqq-qrcode-*.png`），用 QQ 扫描即可。
+
+通用指令：
+
+```
+.icqq help        显示帮助
+.icqq status      查看待处理的验证请求
+```
+
+验证请求指令（`目标` 为实例序号 `1`、`2`…或 QQ 号，多个实例同时等待时必填）：
+
+- **滑块验证**：打开日志中的链接完成滑块，将跳转 URL 中的 `ticket` 参数提交
+  （若同时含 `randstr`，用英文逗号拼接为 `ticket,randstr`）：
+
+  ```
+  .icqq [目标] slider <ticket[,randstr]>
+  ```
+
+- **设备锁**：适配器自动发送短信验证码，提交收到的验证码：
+
+  ```
+  .icqq [目标] sms <验证码>
+  ```
+
+  短信未收到可重发：`.icqq [目标] sms`；也可以打开日志中的链接在浏览器验证后，
+  输入 `.icqq [目标] login` 重试登录。
+
+- **身份验证**：打开日志中的链接在浏览器完成验证后，重试登录：
+
+  ```
+  .icqq [目标] login
+  ```
+
+- **扫码登录**：二维码图片保存在系统临时目录（`/tmp/mioku-icqq-qrcode-*.png`），
+  终端也会打印 ASCII 二维码，用 QQ 扫描即可，无需指令。
+
+### 指令通道
+
+- **终端直连**：未启用 `mioku-adapter-stdin` 时，icqq 适配器直接监听终端输入，
+  输入 `.icqq ...` 即可。
+- **stdin 适配器**：启用 `mioku-adapter-stdin` 时，直接在终端输入 `.icqq ...` 即可
+  （需要把 `"stdin"` 加入 `mioku.owners`）。
+- **已连接的 Bot**：把 `.icqq ...` 发给任意已登录的 Bot，由该 Bot 代提交。
 
 ## 许可证
 

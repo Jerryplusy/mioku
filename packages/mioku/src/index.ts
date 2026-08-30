@@ -39,6 +39,7 @@ export * from "./config";
 export * from "./start";
 export * from "./builtin";
 export * from "./builtin/core/status";
+export * from "./builtin/core/adapters";
 export * from "./compat";
 
 export { default as serviceManager } from "./services/manager";

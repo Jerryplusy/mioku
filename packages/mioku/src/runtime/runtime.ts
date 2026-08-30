@@ -270,6 +270,7 @@ export class MiokuRuntime {
       priority: plugin.priority ?? 100,
       getAdapter: <T extends Adapter = Adapter>(name: string) =>
         this.getAdapter<T>(name),
+      listAdapters: () => this.adapters,
       onUpdateConfig: async (updater) => {
         await updateMiokuConfig(updater);
       },

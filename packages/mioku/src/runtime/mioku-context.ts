@@ -52,6 +52,7 @@ export interface ContextOptions {
   readonly logger: Logger
   readonly priority: number
   readonly getAdapter: <T extends Adapter = Adapter>(name: string) => T | undefined
+  readonly listAdapters: () => readonly Adapter[]
   readonly onUpdateConfig: (updater: (config: MiokuConfig) => void | Promise<void>) => Promise<void>
   readonly pluginManager: PluginManager
 }
@@ -222,6 +223,11 @@ export class MiokuContext {
   /** 按名称取适配器实例 */
   getAdapter<T extends Adapter = Adapter>(name: string): T | undefined {
     return this.#options.getAdapter<T>(name)
+  }
+
+  /** 所有已加载的适配器实例（含当前没有 bot 连接的） */
+  get adapters(): readonly Adapter[] {
+    return this.#options.listAdapters()
   }
 
   /**

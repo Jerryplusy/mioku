@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   avatarSet,
   bindCapabilities,
+  botConfig,
   botStatus,
   colors,
   conversationGetHistory,
@@ -20,6 +21,7 @@ import {
   groupSetName,
   groupSetPortrait,
   groupSetWholeBan,
+  isOwner,
   memberBan,
   memberGetInfo,
   memberKick,
@@ -33,6 +35,7 @@ import {
   messageSend,
   profileSet,
   registerStatusProvider,
+  text as extractText,
   type AdapterStatus,
 } from "mioku";
 import {
@@ -50,6 +53,13 @@ import {
 import { createIcqqBot, type IcqqBot, type IcqqData } from "./bot";
 import { createCaptchaHandler } from "./captcha";
 import {
+  addNotifier,
+  attachStdinListener,
+  clearPending,
+  detachStdinListener,
+  handleIcqqCommand,
+} from "./interact";
+import {
   buildMessageEvent,
   buildNoticeEvent,
   buildRequestEvent,
@@ -60,6 +70,8 @@ import type {
   AdapterContext,
   AdapterFactoryOptions,
   Bot,
+  Event,
+  MessageEvent,
 } from "mioku";
 
 const NAME = "icqq";
@@ -73,6 +85,8 @@ const build = (
   index: number,
   countersByBot: Map<string, BotCounters>,
 ): Adapter => {
+  const key = `Bot${index + 1}`;
+  const targets = [String(index + 1), String(instance.uin)];
   let client: Client | undefined;
   let bot: IcqqBot | undefined;
   let context: AdapterContext | undefined;
@@ -270,9 +284,23 @@ const build = (
       const captcha = createCaptchaHandler({
         client,
         logger,
-        label: `icqq Bot${index + 1}`,
+        label: `icqq ${key}`,
+        key,
+        targets,
+        retryLogin: () => client!.login(instance.uin, instance.password),
       });
+      disposers.push(
+        addNotifier((prompt) => {
+          if (!client!.isOnline()) return;
+          for (const owner of botConfig.owners) {
+            const uin = Number(owner);
+            if (!Number.isFinite(uin) || uin <= 0) continue;
+            void client!.sendPrivateMsg(uin, prompt).catch(() => undefined);
+          }
+        }),
+      );
       bind("system.online", () => {
+        clearPending(key);
         void startBot();
       });
       // icqq 的 em() 会同时派发完整事件名与各上级前缀，
@@ -310,10 +338,7 @@ const build = (
         void captcha.handleDeviceLock(event as { url: string; phone: string });
       });
       bind("system.login.auth", (event) => {
-        const url = (event as { url?: string }).url;
-        logger.warn(
-          `icqq Bot${index + 1} 需要身份验证，请打开以下链接处理: ${url ?? "未知链接"}`,
-        );
+        void captcha.handleAuth(event as { url: string });
       });
       bind("system.login.error", (event) =>
         logger.error(
@@ -421,6 +446,7 @@ export const icqqAdapterDefinition = defineAdapter<IcqqAdapterConfig>({
         send: 0,
         receive: 0,
       };
+      const traffic = { sent: counters.send, received: counters.receive };
       try {
         const [friendList, groupList] = await Promise.all([
           currentBot.getFriendList(),
@@ -428,29 +454,69 @@ export const icqqAdapterDefinition = defineAdapter<IcqqAdapterConfig>({
         ]);
         return {
           adapter: NAME,
-          version: "1.0.0",
-          data: {
+          bot_id: currentBot.bot_id,
+          stats: {
             friends: friendList.length,
             groups: groupList.length,
-            send: counters.send,
-            receive: counters.receive,
+            ...traffic,
           },
+          data: {},
         };
       } catch {
-        return { adapter: NAME, version: "1.0.0", data: {} };
+        return {
+          adapter: NAME,
+          bot_id: currentBot.bot_id,
+          stats: traffic,
+          data: {},
+        };
       }
     };
     let unregisterStatus: (() => void) | undefined;
+    let unlisten: (() => void) | undefined;
+
+    const setupCommandChannel = (context: AdapterContext): void => {
+      unlisten = context.listen("message", (event: Event) => {
+        if (event.kind !== "message") return;
+        const command = extractText(event).trim();
+        if (!command.startsWith(".icqq")) return;
+        const userId = String(event.user_id ?? "");
+        if (!isOwner(userId)) {
+          options.logger.warn(
+            `[icqq] 非主人尝试使用 .icqq 指令，已忽略（user_id=${userId || "unknown"}）${
+              userId === "stdin"
+                ? '；如通过终端输入，请将 "stdin" 加入 mioku.owners'
+                : ""
+            }`,
+          );
+          return;
+        }
+        void handleIcqqCommand(command, async (output) => {
+          try {
+            await event.reply(output);
+          } catch {
+            options.logger.info(output);
+          }
+        });
+      });
+      if (botConfig.adapters?.["stdin"] == null) {
+        attachStdinListener(options.logger);
+      }
+    };
+
     return {
       name: NAME,
       version: "1.0.0",
       async start(context) {
         unregisterStatus = registerStatusProvider(NAME, statusProvider);
+        setupCommandChannel(context);
         for (const adapter of adapters) await adapter.start(context);
       },
       async stop(reason) {
         unregisterStatus?.();
         unregisterStatus = undefined;
+        unlisten?.();
+        unlisten = undefined;
+        detachStdinListener();
         for (let index = adapters.length - 1; index >= 0; index--)
           await adapters[index].stop(reason);
       },
