@@ -1,16 +1,17 @@
 import * as os from "node:os";
 import * as path from "node:path";
+import systemInfo from "systeminformation";
 import {
   connectedBots,
-  getMiokiStatus,
-  systemInfo,
-  type ExtendedNapCat,
-  type MiokiStatus,
-} from "mioki";
-import type { AIService, MiokiContext } from "mioku";
+  getPluginMetadataList,
+  getService,
+  Services,
+} from "mioku";
+import type { AIService, Bot, MiokuContext } from "mioku";
 import { getRenderVersions } from "../utils";
 import { perfMonitor } from "./performance-monitor";
 import { networkSampler } from "./network-sampler";
+import type { HelpStatusConfig } from "./config";
 import type {
   AIUsageStatsLite,
   AIUsageSummary,
@@ -185,45 +186,47 @@ function formatDuration(ms: number): string {
   return `${minutes}分${String(seconds).padStart(2, "0")}秒`;
 }
 
-async function collectBots(): Promise<BotAccountStatus[]> {
+async function collectBots(
+  ctx: MiokuContext,
+  stdinAvatar?: string,
+): Promise<BotAccountStatus[]> {
   const bots = Array.from(connectedBots.values());
   if (bots.length === 0) {
     return [];
   }
-  return collectBotStatuses(bots);
+  // stdin 适配器恒排第一位（终端是本机主人通道，优先展示）
+  const sorted = [...bots].sort(
+    (a, b) =>
+      Number(b.adapter === "stdin") - Number(a.adapter === "stdin"),
+  );
+  return collectBotStatuses(sorted, ctx, stdinAvatar);
+}
+
+/** 把本地绝对路径 / http(s) / file:// 统一成可被截图服务加载的图片地址 */
+function toImageSrc(value: string): string {
+  if (/^(https?:|file:|data:)/i.test(value)) return value;
+  if (value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value)) {
+    return `file://${value}`;
+  }
+  return value;
 }
 
 async function collectBotStatuses(
-  bots: ExtendedNapCat[],
+  bots: readonly Bot[],
+  ctx: MiokuContext,
+  stdinAvatar?: string,
 ): Promise<BotAccountStatus[]> {
-  let perBotCounts = new Map<number, { send: number; receive: number }>();
-  try {
-    const miokiStatus = await withTimeout(
-      Promise.resolve().then(() => getMiokiStatus(bots)),
-    );
-    if (Array.isArray(miokiStatus?.bots)) {
-      for (const b of miokiStatus.bots) {
-        const u = safeNumber(b?.uin);
-        if (u > 0) {
-          perBotCounts.set(u, {
-            send: safeNumber(b?.send),
-            receive: safeNumber(b?.receive),
-          });
-        }
-      }
-    }
-  } catch {
-    // ignore
-  }
-
   const results: BotAccountStatus[] = [];
   for (const bot of bots) {
-    const uin = safeNumber(bot?.bot_id || bot?.uin || bot?.user_id);
-    const nickname = String(bot?.nickname || "Unknown Bot");
-    const framework = String(bot?.app_name || "unknown");
-    const avatarUrl = `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=160`;
+    const uin = String(bot.bot_id);
+    const adapter = String(bot.adapter);
+    const isStdin = adapter === "stdin";
+    const nickname = String(bot.nickname || "Unknown Bot");
+    let framework = isStdin ? adapter : "unknown";
+    const avatarUrl = isStdin
+      ? toImageSrc(stdinAvatar || "")
+      : `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=160`;
 
-    // 并行拿 OneBot API 的 status / group / friend / version
     let online = true;
     let groupCount = 0;
     let friendCount = 0;
@@ -231,9 +234,9 @@ async function collectBotStatuses(
     let protocolVersion = "unknown";
     const [statusResult, groupsResult, friendsResult, versionResult] =
       await Promise.allSettled([
-        withTimeout(
-          Promise.resolve().then(() => bot.api<OneBotStatusData>("get_status")),
-        ).catch(() => null),
+        withTimeout(Promise.resolve().then(() => bot.sendApi<OneBotStatusData>("get_status"))).catch(
+          () => null,
+        ),
         withTimeout(Promise.resolve().then(() => bot.getGroupList())).catch(
           () => [],
         ),
@@ -241,16 +244,18 @@ async function collectBotStatuses(
           () => [],
         ),
         withTimeout(
-          Promise.resolve().then(() =>
-            bot.api<OneBotVersionInfoData>("get_version_info"),
-          ),
+          Promise.resolve().then(() => bot.sendApi<OneBotVersionInfoData>("get_version_info")),
         ).catch(() => null),
       ]);
     if (statusResult.status === "fulfilled" && statusResult.value) {
-      online = statusResult.value.online;
+      online = Boolean(statusResult.value.online);
     }
-    if (versionResult.status === "fulfilled" && versionResult.value) {
+    if (isStdin) {
+      // 终端适配器没有 OneBot 版本信息，直接用适配器包版本
+      appVersion = String(ctx.getAdapter(adapter)?.version ?? "unknown");
+    } else if (versionResult.status === "fulfilled" && versionResult.value) {
       const v = versionResult.value;
+      framework = String(v.app_name || "").trim() || framework;
       if (v.app_version && v.app_version.trim()) {
         appVersion = v.app_version.trim();
       }
@@ -271,27 +276,26 @@ async function collectBotStatuses(
       friendCount = friendsResult.value.length;
     }
 
-    const counts = perBotCounts.get(uin) || { send: 0, receive: 0 };
-
     results.push({
       uin,
       nickname,
       avatarUrl,
+      adapter,
       framework,
       appVersion,
       protocolVersion,
       online,
       groupCount,
       friendCount,
-      send: counts.send,
-      receive: counts.receive,
+      send: 0,
+      receive: 0,
     });
   }
   return results;
 }
 
 async function collectFramework(
-  rawBots: ExtendedNapCat[],
+  rawBots: readonly Bot[],
   botStatuses: BotAccountStatus[],
 ): Promise<FrameworkStatus> {
   const adapters = new Set<string>();
@@ -301,28 +305,22 @@ async function collectFramework(
     }
   }
 
-  // 从 mioki 内部服务读 plugins / versions
-  let miokiStatus: MiokiStatus | null = null;
-  try {
-    miokiStatus = await withTimeout(
-      Promise.resolve().then(() => getMiokiStatus(rawBots)),
-    );
-  } catch {
-    // ignore
-  }
-
   const runtime = detectRuntime();
   // Read both versions from the same `getRenderVersions` helper that the
-  // help panel uses, so the status footer and the help footer agree even
-  // when `mioki` is only installed under `mioku/node_modules`.
+  // help panel uses.
   const { miokiVersion, miokuVersion } = await getRenderVersions();
+  const pluginCount = getPluginMetadataList().length;
+  // 优先取第一个非 stdin 的 bot 作为平台框架版本（stdin 是本地终端，无 NapCat）
+  const primaryFramework =
+    botStatuses.find((b) => b.adapter !== "stdin")?.framework ??
+    botStatuses[0]?.framework ??
+    "unknown";
   return {
     miokuVersion,
     miokiVersion,
-    napcatVersion:
-      miokiStatus?.versions?.napcat ?? botStatuses[0]?.framework ?? "unknown",
-    pluginCount: safeNumber(miokiStatus?.plugins?.total),
-    pluginEnabled: safeNumber(miokiStatus?.plugins?.enabled),
+    napcatVersion: primaryFramework,
+    pluginCount,
+    pluginEnabled: pluginCount,
     adapterCount: adapters.size,
     onlineBotCount: botStatuses.filter((b) => b.online).length,
     uptimeMs: safeNumber(process.uptime()) * 1000,
@@ -632,7 +630,7 @@ async function collectSystem(): Promise<SystemInfo> {
   };
 }
 
-async function collectAI(ctx: MiokiContext): Promise<AIUsageStatsLite> {
+async function collectAI(ctx: MiokuContext): Promise<AIUsageStatsLite> {
   const ai = ctx?.services?.ai as AIService | undefined;
   if (!ai || typeof ai.getUsageSummary !== "function") {
     return {
@@ -691,16 +689,29 @@ async function collectAI(ctx: MiokiContext): Promise<AIUsageStatsLite> {
 }
 
 export async function collectSnapshot(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   options: { isNightMode: boolean } = { isNightMode: false },
 ): Promise<StatusSnapshot> {
   if (cache && Date.now() - cache.at < TTL_MS) {
     return { ...cache.snapshot, isNightMode: options.isNightMode };
   }
 
+  // 读取 help/status 配置（stdin 头像等），失败时回退到默认值
+  let statusConfig: HelpStatusConfig = {};
+  try {
+    const configService = getService(ctx, Services.Config);
+    statusConfig =
+      ((await configService?.getConfig("help", "status")) as
+        | HelpStatusConfig
+        | null
+        | undefined) ?? {};
+  } catch {
+    statusConfig = {};
+  }
+
   const rawBots = Array.from(connectedBots.values());
   const [bots, disk, system, ai, resources] = await Promise.all([
-    collectBots(),
+    collectBots(ctx, statusConfig.stdinAvatar),
     collectDisk(),
     collectSystem(),
     collectAI(ctx),

@@ -1,6 +1,6 @@
 import * as crypto from "crypto";
 import type { AIInstance } from "mioku";
-import { logger } from "mioki";
+import { logger } from "mioku";
 import type { ChatDatabase } from "../../db";
 import type { ImageRecord } from "../../types";
 import {

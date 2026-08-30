@@ -21,6 +21,7 @@ import {
   extractSystemText,
   markStablePrefixCacheable,
   preferCache,
+  toGeminiThinkingBudget,
   toModelDescriptor,
 } from "./base";
 
@@ -85,16 +86,27 @@ export class GeminiProvider extends BaseProviderClient {
     });
 
     const contents = await toGeminiContents(rest);
+    const thinkingBudget = toGeminiThinkingBudget(options.thinkingLevel);
+    const generationConfig = {
+      temperature: options.temperature,
+      maxOutputTokens: options.maxTokens,
+      // off → thinkingBudget 0 关闭思考；gemini 协议最高只到 high
+      ...(thinkingBudget != null
+        ? {
+            thinkingConfig: {
+              thinkingBudget,
+              includeThoughts: thinkingBudget > 0,
+            },
+          }
+        : {}),
+    };
     if (options.stream) {
-      return this.completeStream(options, model, contents);
+      return this.completeStream(options, model, contents, generationConfig);
     }
 
     const result = await model.generateContent({
       contents,
-      generationConfig: {
-        temperature: options.temperature,
-        maxOutputTokens: options.maxTokens,
-      },
+      generationConfig,
     });
     return parseGeminiResult(result.response, options);
   }
@@ -103,14 +115,12 @@ export class GeminiProvider extends BaseProviderClient {
     options: ProviderCompleteOptions,
     model: GenerativeModel,
     contents: Content[],
+    generationConfig: Record<string, unknown>,
   ): Promise<ProviderCompleteResponse> {
     const stream = await model.generateContentStream({
       contents,
-      generationConfig: {
-        temperature: options.temperature,
-        maxOutputTokens: options.maxTokens,
-      },
-    });
+      generationConfig,
+    } as any);
 
     let content = "";
     let reasoning = "";

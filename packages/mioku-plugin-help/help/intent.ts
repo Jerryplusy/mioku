@@ -24,7 +24,7 @@ function sanitizeKeyword(value: string): string {
   return String(value || "")
     .trim()
     .replace(/^[#/\s]+/, "")
-    .replace(/[。.!！?？,，:：；;]+$/g, "");
+    .replace(/[。.!！?？,，:：；);]+$/g, "");
 }
 
 /** Lowercase + strip everything that isn't a-z, 0-9, or CJK. */

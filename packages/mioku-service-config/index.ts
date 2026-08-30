@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import _ from "lodash";
-import { logger } from "mioki";
+import { logger } from "mioku";
 import type { MiokuService, ConfigService } from "mioku";
 
 /**

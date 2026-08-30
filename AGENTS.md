@@ -1,23 +1,49 @@
 # AGENTS.md
 
-Concise guide for coding agents working in this repo. Read `CLAUDE.md` for the full picture.
+Concise guide for AI coding agents working in this repo. Read the docs in `docs/` for depth; this file is the fast path.
 
 ## What this is
 
-`mioku` is a service-oriented layer over [mioki](https://mioki.viki.moe/) (a QQ bot framework for OneBot v11 / NapCat). It adds plugin/service discovery, an AI Skill system, declarative config, and a CLI/webUI. Distributed as a bun workspace monorepo.
+`mioku` — a plugin-based QQ bot framework (TypeScript, bun). Since v1.0.0 the core is **self-contained** (`packages/mioku`); there is no external `mioki` dependency anymore. Bun workspace monorepo.
 
-## Layout (3 tiers)
+## Package tiers (the only thing you need to know about packages/)
 
-- `packages/mioku/` — the framework. `src/index.ts` (public API + thin `start()`), `src/cli/` (scaffold/install/update), `src/core/` (`bootstrap.ts` orchestrates startup; `registry.ts` jiti-safe singletons; `module-scanner.ts` shared discovery; `plugin-manager`/`service-manager`/`plugin-linker`/`plugin-artifact-registry`). `src/types.ts` is the **single source of truth** for all types (the old `service-types.ts`/`core/types.ts` duplicates were merged here).
-- `packages/mioku-service-ai/` — AI service. `index.ts` (AIInstanceImpl + AIServiceImpl), `core/tool-loop.ts` (extracted tool-execution loop), `usage/tracker.ts` (`UsageTracker` class + token estimation), `usage/store.ts` (SQLite usage store). Types reused from `mioku`.
-- `packages/mioku-plugin-chat/` — chat plugin. `index.ts` is the wiring (config registration, manager construction, handler registration — the full startup logic lives here, not in a separate bootstrap). Extracted modules: `core/chat-turn.ts` (processChat + executeChatRuntimeRequest + shared `finalizeTurn`), `runtime/chat-runtime.ts` (ChatRuntime impl), `handlers/{message,poke,idle-debug}.ts`, `manage/rate-limit-guard.ts` (RateLimitGuard class), `core/media/segment.ts` (media segment/options helpers), `utils/json.ts` (`extractJsonObject`). The 3 managers (`CooldownManager`/`IdleCheckManager`/`QueueProcessor`) take a single `ChatPluginContext` (see `context.ts`).
+- `packages/mioku/` — the framework. Public API in `src/index.ts`.
+- `packages/mioku-adapter-*/` — platform connectors (stdin / onebotv11 / icqq). New package type introduced in v1.
+- `packages/mioku-plugin-*/` — bot features. Most dev happens here.
+- `packages/mioku-service-*/` — reusable capabilities (ai / config / screenshot / help / …).
 
-## Working in this repo
+Ignore most packages in `packages/` when reading code; only these four tiers matter.
 
-- **Verify with**: `bunx tsc --noEmit` (whole monorepo) + `cd packages/mioku && bun run build` + `bun run start` (example bot smoke). There's no test suite — type-check + boot smoke are the guardrails.
-- **Match the house style**: TypeScript ESM, `bun` runtime, **default to no comments** (one-line `//` only where the *why* is non-obvious), split logic across focused files (folder per concern), keep `index.ts` as wiring.
-- **Plugin AI skills** use factory functions in `skills/<name>.ts` + `aiService.registerSkill()` in `setup()` (closures over setup locals, no need for runtime.ts). **Non-AI cross-handler state** goes through `getPluginRuntimeState`/`setPluginRuntimeState` from `mioku`.
-- **Use `ctx.pickBot(e.self_id)`**, not `ctx.bot`. **Storage paths** via `getPluginDataDir`/`getPluginConfigDir`/`ensureDataDir` from `mioku`, never hard-coded `process.cwd() + ...`.
-- **Errors users can act on**: send a QQ message (prefer `chatRuntime.generateNotice` to stay in-voice, fall back to `event.reply`).
-- **Don't** import service types from `mioku-service-*/types.ts` — import them from `"mioku"`.
-- `example/` is the author's running bot, not a clean reference project.
+## Framework core layout (`packages/mioku/src/`)
+
+- `adapter/` — `defineAdapter()` (apiVersion=1), `defineCapability()`, unified `Event`/`Message`/`segment`, `CapabilityRegistry`, `bindCapabilities`.
+- `capabilities/` — built-in capability definitions (message.send, member.ban, group.*, …). Exported from `mioku`.
+- `runtime/` — `MiokuContext` (the `ctx` plugins receive), `EventBus` (route dispatch), `MiokuRuntime`, lifecycle events.
+- `loader/` — package discovery by prefix (`mioku-plugin-`/`mioku-adapter-`), jiti loading, manifest validation.
+- `services/` — `MiokuService` (init/api/dispose), `getService`/`requireService`/`hasService`, built-in `Services` refs.
+- `builtin/core/` — the built-in core plugin: system commands, access control, status.
+- `cli/` — `npx mioku` scaffold + install/update. `src/cli/shared.ts` lists SYSTEM_PLUGINS / SYSTEM_SERVICES / SYSTEM_ADAPTERS.
+- `types.ts` — single source of truth for public types.
+
+## Architecture rules that trip agents up
+
+- **Bot methods are capability-bound, not hard-coded.** `bot.sendMessage`/`banMember` come from `bindCapabilities` + the registry. Adapters register implementations; plugins only call.
+- **Plugins** = `definePlugin({ name, priority, setup(ctx) })`; `name` MUST equal the package short name (`mioku-plugin-foo` → `foo`), else `canonical ID mismatch`.
+- **Event routing**: `ctx.handle("message" | "message.group" | "onebotv11:message", handler)`. Setup runs BEFORE adapters start — `ctx.bot` may be undefined there; wait for `bot:connected`/`runtime:ready`.
+- **Services**: import contract types from `"mioku"`, never from `mioku-service-*/types.ts`. Use `getService(ctx, Services.X)` (may be undefined) or `requireService` (throws).
+- **Config vs data**: user-editable config → `config/<plugin>/*.json` via `ConfigService` (hot-reload). Program data → `data/<plugin>/` via `createStore`/`createDB`/`ensureDataDir`. Never hard-code `process.cwd() + ...`.
+- **Permission checks**: `ctx.isOwner(event)` / `isAdmin` / `isOwnerOrAdmin` — never parse QQ ids manually.
+- **Package.json `mioku` field** accepts exactly `services` / `help` / `accessHooks`; unknown keys warn and are dropped.
+
+## Docs
+
+- `docs/` — current v1.0.0 docs (VitePress). `docs-v0/` is archived old docs — do NOT edit or reference it in the site.
+- API reference is **generated**: `typedoc` reads `packages/mioku/src/index.ts` → `docs/reference/api/` (gitignored). To improve it, edit JSDoc comments in source, not the generated files. `docs:dev`/`docs:build` regenerate automatically.
+
+## Verification & style
+
+- Verify with `bunx tsc --noEmit` (repo root or `cd packages/mioku`) and `bun run docs:build`. No test suite; type-check + boot smoke are the guardrails.
+- TypeScript ESM, bun runtime. **Default to no comments** — one-line JSDoc only where the *why* is non-obvious; keep type-level JSDoc short.
+- `index.ts` = wiring only; split logic into focused files.
+- `example/` is the author's running bot — not a clean reference project.

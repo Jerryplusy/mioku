@@ -1,4 +1,4 @@
-import { logger } from "mioki";
+import { logger } from "mioku";
 import puppeteer from "puppeteer";
 import type { AIInstance } from "mioku";
 import type { WebReaderConfig } from "../../types";
@@ -266,7 +266,7 @@ function pickBestParagraphs(text: string, maxChars: number): string {
 
   const scored = paragraphs.map((paragraph) => {
     const value = paragraph.text;
-    const punctuationCount = (value.match(/[，。！？；：,.!?;:]/g) || [])
+    const punctuationCount = (value.match(/[，。！？；：,.!?);:]/g) || [])
       .length;
     const sentenceCount = (value.match(/[。！？.!?]/g) || []).length;
     const linkLikeCount = (value.match(/https?:\/\/|www\./g) || []).length;

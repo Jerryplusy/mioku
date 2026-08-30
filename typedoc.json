@@ -1,0 +1,16 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["packages/mioku/src/index.ts"],
+  "out": "docs/reference/api",
+  "docsRoot": "docs",
+  "plugin": ["typedoc-plugin-markdown", "typedoc-vitepress-theme"],
+  "tsconfig": "packages/mioku/tsconfig.json",
+  "excludeExternals": true,
+  "skipErrorChecking": true,
+  "cleanOutputDir": true,
+  "hidePageTitle": true,
+  "hideBreadcrumbs": true,
+  "disableSources": true,
+  "includeVersion": true,
+  "readme": "none"
+}

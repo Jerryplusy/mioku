@@ -7,9 +7,12 @@
  */
 
 export interface BotAccountStatus {
-  uin: number;
+  /** 平台账号标识。QQ 机器人是数字字符串，stdin 等本地适配器是 "stdin"。 */
+  uin: string;
   nickname: string;
   avatarUrl: string;
+  /** 适配器名，如 "stdin" / "onebotv11" / "icqq"。 */
+  adapter: string;
   /** Underlying bot framework identifier, e.g. "QQBot" / "NapCat" / "LLOneBot". */
   framework: string;
   /** Adapter app version, e.g. "5.0.6" — from OneBot `get_version_info.app_version`. */
@@ -25,7 +28,7 @@ export interface BotAccountStatus {
 
 /**
  * OneBot v11 `get_version_info` payload (already unwrapped from the
- * `{ status, retcode, data, ... }` envelope by napcat-sdk's `bot.api`).
+ * `{ status, retcode, data, ... }` envelope by the adapter's `bot.sendApi`).
  */
 export interface OneBotVersionInfoData {
   app_name: string;

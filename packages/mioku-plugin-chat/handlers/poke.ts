@@ -1,6 +1,7 @@
 import type { ChatPluginContext, ChatHandlerState } from "../context";
 import type { TargetMessage } from "../types";
-import type { GroupPokeNoticeEvent } from "napcat-sdk";
+import type { Bot, NoticeEvent } from "mioku";
+
 import { getBotRole, isGroupAllowed } from "../utils";
 import { buildStructuredUserInputFromTarget } from "../manage/group-structured-history";
 import { finalizeChatTurn } from "../core/chat-turn";
@@ -13,9 +14,13 @@ export function createPokeHandler(
   const { ctx } = pluginCtx;
   const { getConfig, runtimeState, pokeCooldowns } = state;
 
-  return async (e: GroupPokeNoticeEvent) => {
-    if (e.target_id !== e.self_id) return;
-    const groupId = e.group_id;
+  return async (e: NoticeEvent) => {
+    const selfId = Number(e.self_id || 0);
+    const targetId = Number(
+      (e.raw as { target_id?: string } | undefined)?.target_id ?? 0,
+    );
+    if (targetId !== selfId) return;
+    const groupId = Number(e.group_id || 0);
     const cfg = groupId ? await getConfig(groupId) : await getConfig();
     if (!cfg.model && !cfg.apiKey) return;
     if (!groupId || !isGroupAllowed(groupId, cfg)) return;
@@ -37,19 +42,20 @@ export function createPokeHandler(
             "group",
             groupId,
           );
-          const userId = e.user_id;
-          const botRole = await getBotRole(groupId, ctx, e.self_id);
+          const userId = Number(e.user_id || 0);
+          const botRole = await getBotRole(groupId, ctx, selfId);
           const botNickname =
-            cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
+            cfg.nicknames[0] || e.bot?.nickname || "Bot";
 
           let senderName = String(userId);
           try {
-            const memberInfo = await ctx
-              .pickBot(e.self_id)
-              .getGroupMemberInfo(groupId, userId);
+            const bot: Bot | undefined = e.bot;
+            const memberInfo = bot
+              ? await bot.getMemberInfo(groupId, userId)
+              : undefined;
             senderName =
-              (memberInfo as any).card ||
-              (memberInfo as any).nickname ||
+              memberInfo?.card ||
+              memberInfo?.nickname ||
               String(userId);
           } catch {}
 
@@ -67,11 +73,11 @@ export function createPokeHandler(
             ctx,
             cfg.historyCount,
             pluginCtx.db,
-            e.self_id,
+            selfId,
             pluginCtx.buildHistoryMediaOptions(pluginCtx.aiInstance, cfg),
           );
           const { groupName, memberCount } =
-            await pluginCtx.getGroupInfoData(ctx, groupId, e.self_id);
+            await pluginCtx.getGroupInfoData(ctx, groupId, selfId);
 
           const toolCtx = pluginCtx.buildToolContext({
             ctx,
@@ -85,7 +91,7 @@ export function createPokeHandler(
             botRole,
             humanize: pluginCtx.humanize,
             targetMessage,
-            selfId: e.self_id,
+            selfId,
             audioService: pluginCtx.audioService,
           });
 
@@ -131,7 +137,7 @@ export function createPokeHandler(
             groupId,
             groupSessionId,
             userId,
-            selfId: e.self_id,
+            selfId,
             toolCtx,
             send: true,
             isLive: true,

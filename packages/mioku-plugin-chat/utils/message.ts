@@ -1,5 +1,6 @@
-import { logger, MiokiContext } from "mioki";
-import type { AIInstance } from "mioku";
+import { HistoryMessage, logger, type MiokuContext } from "mioku";
+import type { AIInstance, Bot } from "mioku";
+
 import type {
   ChatConfig,
   ChatMessage,
@@ -22,13 +23,15 @@ export function shouldTrigger(
   e: any,
   text: string,
   cfg: ChatConfig,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
 ): boolean {
   if (e.message_type === "private") return false;
 
-  // Only check if message @s the bot (seg format: {type: "at", qq: "123456"})
   const atSeg = e.message?.find((seg: any) => seg.type === "at");
-  return !!(atSeg && String(atSeg.qq) === String(e.self_id));
+  if (!atSeg) return false;
+  const data = (atSeg.data ?? {}) as { qq?: unknown; target?: unknown };
+  const qq = data.qq ?? data.target;
+  return String(qq ?? "") === String(e.self_id ?? "");
 }
 
 /**
@@ -37,15 +40,15 @@ export function shouldTrigger(
  */
 export async function isQuotingBot(
   e: any,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
 ): Promise<{ quoted: true; messageId: string; content: string } | null> {
   if (e.quote_id) {
     try {
-      const quoteMsg = await ctx.getQuoteMsg(e);
-      if (quoteMsg && String(quoteMsg.sender.user_id) === String(e.self_id)) {
+      const quoteMsg = await fetchQuotedMessage(e, ctx);
+      if (quoteMsg && String(quoteMsg.sender?.user_id) === String(e.self_id)) {
         const quotedText = quoteMsg.message
           ?.filter((s: any) => s.type === "text")
-          .map((s: any) => s.text)
+          .map((s: any) => String(s.data?.text ?? s.text ?? ""))
           .join("");
         if (quotedText) {
           return { quoted: true, messageId: e.quote_id, content: quotedText };
@@ -65,7 +68,7 @@ export async function isQuotingBot(
  */
 export async function getQuotedContent(
   e: any,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
 ): Promise<
   | {
       messageId: string;
@@ -78,13 +81,13 @@ export async function getQuotedContent(
 > {
   if (e.quote_id) {
     try {
-      const quotedMsg = await ctx.getQuoteMsg(e);
+      const quotedMsg = await fetchQuotedMessage(e, ctx);
       if (quotedMsg && quotedMsg.message) {
-        const senderName = quotedMsg.sender.nickname;
+        const senderName = quotedMsg.sender?.nickname || "";
         // 提取文本内容
         const textContent = quotedMsg.message
           .filter((s: any) => s.type === "text")
-          .map((s: any) => s.text || "")
+          .map((s: any) => String(s.data?.text ?? s.text ?? ""))
           .join("");
 
         // 检测是否有图片
@@ -120,7 +123,7 @@ export function isGroupAllowed(groupId: number, cfg: ChatConfig): boolean {
 export function extractContent(
   e: any,
   cfg: ChatConfig,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
 ): { text: string; multimodal: any[] | null } {
   let text = "";
   try {
@@ -129,9 +132,12 @@ export function extractContent(
 
   // If text is empty but user @'d the bot, describe the action
   if (!text.trim() && e.message) {
-    const hasAt = e.message.some(
-      (seg: any) => seg.type === "at" && String(seg.qq) === String(e.self_id),
-    );
+    const hasAt = e.message.some((seg: any) => {
+      if (seg.type !== "at") return false;
+      const data = (seg.data ?? {}) as { qq?: unknown; target?: unknown };
+      const qq = data.qq ?? data.target;
+      return String(qq ?? "") === String(e.self_id ?? "");
+    });
     if (hasAt) {
       text = "[@you with no text]";
     }
@@ -190,14 +196,14 @@ async function mapWithConcurrency<T, R>(
 
 export async function getBotRole(
   groupId: number,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   selfId: number,
 ): Promise<"owner" | "admin" | "member"> {
   try {
-    const memberInfo = await ctx
-      .pickBot(selfId)
-      .getGroupMemberInfo(groupId, selfId);
-    return (memberInfo.role as "owner" | "admin" | "member") || "member";
+    const bot = ctx.pickBot(selfId);
+    if (!bot) return "member";
+    const memberInfo = await bot.getMemberInfo(groupId, selfId);
+    return (memberInfo?.role as "owner" | "admin" | "member") || "member";
   } catch {
     return "member";
   }
@@ -237,11 +243,11 @@ async function resolveMemberName(
   }
   ctx.memberNameCache.set(key, key);
   try {
-    const bot = ctx.historyMediaOptions.bot as any;
-    if (!bot || typeof bot.getGroupMemberInfo !== "function") return key;
-    const info = await bot.getGroupMemberInfo(
-      ctx.historyMediaOptions.groupId,
-      Number(userId),
+    const bot = ctx.historyMediaOptions.bot as Bot | undefined;
+    if (!bot) return key;
+    const info = await bot.getMemberInfo(
+      ctx.historyMediaOptions.groupId!,
+      userId,
     );
     const name = info?.card || info?.nickname || key;
     ctx.memberNameCache.set(key, name);
@@ -278,7 +284,10 @@ function extractQuotedText(messageSegs: any): string {
   return parts.join(" ").trim();
 }
 
-function buildReplyAnnotation(source: any, ctx: HistoryFormatContext): string | null {
+function buildReplyAnnotation(
+  source: any,
+  ctx: HistoryFormatContext,
+): string | null {
   if (!source || typeof source !== "object") return null;
   const sourceId = source.id ?? source.message_id ?? source.message_seq;
   const sourceUserId = source.user_id;
@@ -291,7 +300,8 @@ function buildReplyAnnotation(source: any, ctx: HistoryFormatContext): string | 
   const idStr = sourceId != null ? String(sourceId) : "?";
   let displayName: string | undefined;
   if (sourceUserId != null) {
-    displayName = ctx.memberNameCache.get(String(sourceUserId)) || String(sourceUserId);
+    displayName =
+      ctx.memberNameCache.get(String(sourceUserId)) || String(sourceUserId);
   }
   if (!displayName) displayName = sourceNickname || "unknown";
 
@@ -334,7 +344,7 @@ async function getImageTagWithHashCache(
 }
 
 async function formatHistoryMessage(
-  msg: any,
+  msg: HistoryMessage,
   ctx: HistoryFormatContext,
 ): Promise<FormattedHistoryMessage | null> {
   if (String(msg.user_id) === String(ctx.botUin)) return null;
@@ -350,12 +360,12 @@ async function formatHistoryMessage(
   if (!content.trim()) return null;
 
   return {
-    userId: msg.user_id,
-    userName: msg.sender?.card || msg.sender?.nickname || String(msg.user_id),
-    userRole: msg.sender?.role || "member",
+    userId: Number(msg.user_id || 0),
+    userName: msg.nickname || String(msg.user_id || "unknown"),
+    userRole: "member",
     content,
-    messageId: msg.message_id,
-    timestamp: msg.time ? msg.time * 1000 : Date.now(),
+    messageId: Number(msg.message_id) || 0,
+    timestamp: msg.time ?? Date.now(),
     role: "user",
   };
 }
@@ -427,17 +437,24 @@ async function buildMessageContent(
   )) {
     const videoSources = getSegmentSourceCandidates(videoSeg);
     if (videoSources.length > 0) {
-      parts.push(await getCachedHistoryVideoTag(videoSources, historyMediaOptions));
+      parts.push(
+        await getCachedHistoryVideoTag(videoSources, historyMediaOptions),
+      );
     } else {
       parts.push("[video]");
     }
   }
 
-  for (const forwardSeg of msg.message.filter((seg: any) => seg.type === "forward")) {
+  for (const forwardSeg of msg.message.filter(
+    (seg: any) => seg.type === "forward",
+  )) {
     const forwardId = forwardSeg.id || forwardSeg.data?.id;
     if (forwardId) {
       parts.push(
-        await getCachedHistoryForwardTag(String(forwardId), historyMediaOptions),
+        await getCachedHistoryForwardTag(
+          String(forwardId),
+          historyMediaOptions,
+        ),
       );
     } else {
       parts.push("[forward]");
@@ -448,7 +465,11 @@ async function buildMessageContent(
     ["xml", "json", "lightapp", "ark"].includes(seg.type),
   )) {
     const cardData =
-      cardSeg.data?.data || cardSeg.data?.xml || cardSeg.data || cardSeg.xml || "";
+      cardSeg.data?.data ||
+      cardSeg.data?.xml ||
+      cardSeg.data ||
+      cardSeg.xml ||
+      "";
     if (cardData) {
       parts.push(
         getCachedHistoryCardTag(
@@ -464,7 +485,9 @@ async function buildMessageContent(
   if (parts.length > 0) return parts.join(" ");
 
   const segTypes = msg.message.map((seg: any) => seg.type);
-  const nonTextTypes = segTypes.filter((t: string) => t !== "text" && t !== "at");
+  const nonTextTypes = segTypes.filter(
+    (t: string) => t !== "text" && t !== "at",
+  );
   return nonTextTypes.length > 0 ? `[${nonTextTypes.join(", ")}]` : "";
 }
 
@@ -474,7 +497,7 @@ async function buildMessageContent(
  */
 export async function getGroupHistory(
   groupId: number,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   count: number = 100,
   selfId: number,
   db?: {
@@ -547,8 +570,9 @@ export async function getGroupHistory(
   }
 
   try {
-    const bot = ctx.pickBot(selfId) as any;
+    const bot = ctx.pickBot(selfId);
     const historyMediaOptions: HistoryMediaProcessingOptions = {
+      bot,
       ai: mediaOptions?.ai,
       workingModel: mediaOptions?.workingModel,
       multimodalWorkingModel: mediaOptions?.multimodalWorkingModel,
@@ -561,32 +585,23 @@ export async function getGroupHistory(
               saveMediaSummarySource: db.saveMediaSummarySource?.bind(db),
             }
           : undefined,
-      bot,
       groupId,
     };
-    // 调用 OneBot API 获取群聊历史
-    const result = await bot.api("get_group_msg_history", {
-      group_id: String(groupId),
-      message_seq: "0",
-      count: Math.min(count, 200), // 最多获取200条
-      reverse_order: false,
-      disable_get_url: false,
-      parse_mult_msg: true,
-      quick_reply: false,
-    });
-    const messages = result?.messages || result?.data?.messages || [];
-    if (!Array.isArray(messages)) {
-      logger.warn("[getGroupHistory] API 返回格式异常:", result);
-      return botMessages;
-    }
+    const messages = bot
+      ? await bot.getHistory(
+          { type: "group", group_id: groupId },
+          undefined,
+          Math.min(count, 200),
+        )
+      : [];
 
     const botUin = selfId;
     const memberNameCache = new Map<string, string>();
     const hashLookupCache = new Map<string, string | null>();
 
     for (const m of messages) {
-      const uid = m?.user_id;
-      const senderName = m?.sender?.card || m?.sender?.nickname;
+      const uid = m.user_id;
+      const senderName = m.nickname;
       if (uid != null && senderName && !memberNameCache.has(String(uid))) {
         memberNameCache.set(String(uid), String(senderName));
       }
@@ -656,4 +671,21 @@ export function normalizeIdList(input: unknown): number[] {
         .filter((id) => Number.isFinite(id) && id > 0),
     ),
   );
+}
+
+async function fetchQuotedMessage(
+  e: any,
+  ctx: MiokuContext,
+): Promise<{
+  message: any[];
+  sender?: { user_id?: string; nickname?: string };
+} | null> {
+  const bot = e?.bot ?? ctx.pickBot(e?.self_id ?? "");
+  if (!bot || !e?.quote_id) return null;
+  try {
+    const result = await bot.getMessage(e.quote_id);
+    return result ?? null;
+  } catch {
+    return null;
+  }
 }

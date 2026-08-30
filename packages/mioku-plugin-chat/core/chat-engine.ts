@@ -1,5 +1,5 @@
 import type { AIInstance, SessionToolDefinition } from "mioku";
-import { logger } from "mioki";
+import { logger } from "mioku";
 import type { AITool } from "mioku";
 import type {
   ToolContext,

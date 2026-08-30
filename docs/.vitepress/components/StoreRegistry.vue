@@ -56,7 +56,7 @@
             <h3 class="store-card-name">{{ item.name }}</h3>
             <div class="store-badges">
               <span class="store-badge store-badge--type">
-                {{ item.type === 'plugin' ? '插件' : '服务' }}
+                {{ item.type === 'plugin' ? '插件' : item.type === 'service' ? '服务' : '适配器' }}
               </span>
               <span v-if="item.builtin" class="store-badge store-badge--builtin">内置</span>
               <span v-else-if="item.official" class="store-badge store-badge--official">官方</span>
@@ -83,7 +83,7 @@
       </div>
 
       <p v-if="items.length === 0" class="store-empty">
-        {{ searchQuery ? '没有匹配的结果' : '暂无插件或服务' }}
+        {{ searchQuery ? '没有匹配的结果' : '暂无插件、服务或适配器' }}
       </p>
 
       <div v-if="totalPages > 1" class="store-pagination">
@@ -106,6 +106,7 @@ const tabs = [
   { key: 'all', label: '全部' },
   { key: 'plugin', label: '插件' },
   { key: 'service', label: '服务' },
+  { key: 'adapter', label: '适配器' },
 ]
 
 const activeType = ref('all')
@@ -119,11 +120,17 @@ const allPackages = ref([])
 function inferType(name) {
   if (name.startsWith('mioku-plugin-')) return 'plugin'
   if (name.startsWith('mioku-service-')) return 'service'
+  if (name.startsWith('mioku-adapter-')) return 'adapter'
   return null
 }
 
 function stripPrefix(name, type) {
-  const prefix = type === 'plugin' ? 'mioku-plugin-' : 'mioku-service-'
+  const prefix =
+    type === 'plugin'
+      ? 'mioku-plugin-'
+      : type === 'service'
+        ? 'mioku-service-'
+        : 'mioku-adapter-'
   return name.startsWith(prefix) ? name.slice(prefix.length) : name
 }
 
@@ -186,7 +193,12 @@ async function loadNpmPackages() {
 }
 
 async function fetchBuiltinPkgJson(type, key) {
-  const dir = type === 'plugin' ? `plugins/${key}` : `src/services/${key}`
+  const dir =
+    type === 'plugin'
+      ? `plugins/${key}`
+      : type === 'service'
+        ? `src/services/${key}`
+        : `packages/mioku-adapter-${key}`
   const res = await fetch(`${GITHUB_RAW}/${dir}/package.json`)
   if (!res.ok) return null
   return res.json()
@@ -222,14 +234,20 @@ async function mergeResults(officialRegistry, npmObjects) {
     })
   }
 
-  const { plugins: officialPlugins = {}, services: officialServices = {} } = officialRegistry
+  const {
+    plugins: officialPlugins = {},
+    services: officialServices = {},
+    adapters: officialAdapters = {},
+  } = officialRegistry
 
   const builtinTasks = []
 
   const processEntries = (entries, type) => {
     for (const [key, entry] of Object.entries(entries)) {
       const isBuiltin = Boolean(entry.builtin)
-      const npm = isBuiltin ? `mioku-${type === 'plugin' ? 'plugin' : 'service'}-${key}` : entry.npm
+      const npm = isBuiltin
+        ? `mioku-${type === 'plugin' ? 'plugin' : type === 'service' ? 'service' : 'adapter'}-${key}`
+        : entry.npm
       if (!npm) continue
 
       if (seen.has(npm)) {
@@ -237,6 +255,12 @@ async function mergeResults(officialRegistry, npmObjects) {
         existing.official = true
         existing.builtin = isBuiltin
       } else if (isBuiltin) {
+        const base =
+          type === 'plugin'
+            ? `plugins/${key}`
+            : type === 'service'
+              ? `src/services/${key}`
+              : `packages/mioku-adapter-${key}`
         seen.set(npm, {
           name: key,
           npm,
@@ -247,7 +271,7 @@ async function mergeResults(officialRegistry, npmObjects) {
           tags: [],
           official: true,
           builtin: true,
-          repo: `https://github.com/mioku-lab/mioku/tree/main/${type === 'plugin' ? 'plugins' : 'src/services'}/${key}`,
+          repo: `https://github.com/mioku-lab/mioku/tree/main/${base}`,
           npmUrl: `https://www.npmjs.com/package/${npm}`,
         })
 
@@ -267,6 +291,7 @@ async function mergeResults(officialRegistry, npmObjects) {
 
   processEntries(officialPlugins, 'plugin')
   processEntries(officialServices, 'service')
+  processEntries(officialAdapters, 'adapter')
 
   await Promise.all(builtinTasks)
 

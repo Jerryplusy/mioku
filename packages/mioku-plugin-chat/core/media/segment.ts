@@ -1,4 +1,4 @@
-import type { AIInstance } from "mioku";
+import type { AIInstance, Bot } from "mioku";
 import type { ChatConfig, MediaSummaryRecord } from "../../types";
 import type { HistoryMediaOptions } from "../../manage/types";
 import {
@@ -27,9 +27,7 @@ export function buildHistoryMediaProcessingOptions(
     getMediaSummary(key: string): MediaSummaryRecord | null;
     saveMediaSummary(summary: MediaSummaryRecord): void;
   },
-  bot: {
-    api<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T>;
-  },
+  bot: Bot,
   groupId: number,
   log: HistoryMediaProcessingOptions["logger"],
   runAIRequest?: <T>(request: () => Promise<T>) => Promise<T | null>,
@@ -53,17 +51,12 @@ export function getSegmentUrl(seg: {
 }
 
 export async function getVideoSourceCandidatesFromMessage(
-  bot: {
-    api(action: string, params?: Record<string, unknown>): Promise<unknown>;
-  },
+  bot: Bot,
   messageId: number | string | undefined,
 ): Promise<string[]> {
-  if (messageId == null) return [];
-  const result = (await bot.api("get_msg", { message_id: messageId })) as {
-    message?: unknown[];
-    data?: { message?: unknown[] };
-  };
-  const segments = result?.message || result?.data?.message || [];
+  if (messageId == null || !bot) return [];
+  const result = await bot.getMessage(messageId);
+  const segments = result?.message ?? [];
   if (!Array.isArray(segments)) return [];
   const candidates: string[] = [];
   for (const seg of segments as MediaMessageSegment[]) {
@@ -86,6 +79,9 @@ export function getCardData(seg: unknown): string | null {
   return typeof data === "string" ? data : JSON.stringify(data);
 }
 
-export function isMediaAnalysisBlocked(config: ChatConfig, userId: number): boolean {
+export function isMediaAnalysisBlocked(
+  config: ChatConfig,
+  userId: number,
+): boolean {
   return Boolean(config.mediaAnalysisBlacklistUsers?.includes(userId));
 }

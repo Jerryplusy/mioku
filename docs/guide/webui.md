@@ -1,16 +1,20 @@
 # WebUI
 
-## 关于 WebUI
+WebUI 是 Mioku 的可视化管理面板，提供插件 / 服务管理、配置编辑、AI 设置、日志查看等功能。它本身是一个服务，创建项目时勾选「安装 WebUI」即可，也可以事后补装：
 
-WebUI 是 Mioku 的可视化管理系统，提供插件/服务管理、配置编辑、AI 设置、日志查看等功能。
+```bash
+mioku install service webui
+```
 
-## 访问地址
+## 访问
 
-首次启动 Mioku 时会自动加载 WebUI，默认监听：
+启动后 WebUI 默认监听：
 
-- `http://0.0.0.0:3339`
+```text
+http://0.0.0.0:3339
+```
 
-如果你是本机访问，通常直接打开：
+本机访问直接打开：
 
 ```text
 http://127.0.0.1:3339
@@ -18,15 +22,11 @@ http://127.0.0.1:3339
 
 ## 首次登录
 
-如果还没有登录密钥，首次启动时会提示你设置。
-
-配置文件位于：
+首次访问会提示设置登录密钥，密钥保存在：
 
 ```text
 config/webui/auth.json
 ```
-
-示例：
 
 ```json
 {
@@ -36,28 +36,21 @@ config/webui/auth.json
 }
 ```
 
-## 可以做什么
+## 能做什么
 
-WebUI 主要用于：
+- **管理插件与服务**：安装、更新、卸载
+- **编辑插件配置**：WebUI 会读取插件自带的 `config.md` 规范文件，渲染成自定义配置界面，改完保存即热重载。插件、服务、适配器都能用 `config.md` 定义自己的配置界面，写法见[给 WebUI 提供配置界面](/developer/config-data#给-webui-提供配置界面configmd)
+- **查看和修改 AI 配置**：提供商、模型、实例
+- **查看数据库和日志**
+- **检查与更新 Mioku 框架**
 
-- 管理插件和服务，包括安装、更新和卸载
-- 编辑插件配置，WebUI 可以加载插件自定义的 `config.md` 规范文件，渲染插件自定义配置界面
+## 修改设置
 
-> 插件自定义配置界面详细信息见 [文档开发者部分](/developer/plugin-advanced)
-
-- 查看和修改 AI 配置
-- 查看数据库和日志
-- 检查与更新 Mioku
-
-## 修改 WebUI 设置
-
-WebUI 设置文件位于：
+WebUI 自己的设置位于：
 
 ```text
 config/webui/settings.json
 ```
-
-示例：
 
 ```json
 {
@@ -67,26 +60,11 @@ config/webui/settings.json
 }
 ```
 
-## 关于 WebUI
+改完重启生效。
 
-[WebUI 仓库地址](https://github.com/mioku-lab/mioku-webui.git)
+## 相关仓库
 
-[WebUI 服务地址](https://github.com/mioku-lab/mioku-service-webui.git)
+- [mioku-webui](https://github.com/mioku-lab/mioku-webui.git) —— 前端面板（Vite + React + TailwindCSS）
+- [mioku-service-webui](https://github.com/mioku-lab/mioku-service-webui.git) —— WebUI 服务
 
-使用 MIT 协议开源
-
-技术栈：
-
-- Vite
-- React
-- TailwindCSS
-
-开发：
-
-```bash
-git clone https://github.com/mioku-lab/mioku-webui.git
-cd mioku-webui
-bun install
-bun run dev # 开发模式
-bun run build # 运行构建
-```
+两者均以 MIT 协议开源。

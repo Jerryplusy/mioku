@@ -1,4 +1,4 @@
-import { logger } from "mioki";
+import { logger } from "mioku";
 import type { AITool } from "mioku";
 import type { ToolContext } from "../types";
 import type { SkillSessionManager } from "../manage/skill-session";

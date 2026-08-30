@@ -1,11 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
-import { getServiceConfigDir } from "mioku";
+import { getServiceConfigDir, normalizeAIThinkingLevel } from "mioku";
 import type {
   AIModelCapability,
   AIModelDescriptor,
   AIModelRole,
   AIProviderConfig,
+  AIThinkingLevel,
   ProvidersFile,
 } from "./types";
 import { modelFullId, parseModelFullId } from "./types";
@@ -200,12 +201,25 @@ export class ProvidersRegistry {
     const client = this.getClient(providerId);
     if (!client) throw new Error(`Provider disabled: ${providerId}`);
     const fetched = await client.listModels();
+    const existingByModelId = new Map(
+      this.data.models
+        .filter((item) => item.providerId === providerId)
+        .map((item) => [item.modelId, item]),
+    );
     const custom = this.data.models.filter(
       (item) => item.providerId === providerId && item.isCustom,
     );
     const merged = new Map<string, AIModelDescriptor>();
     for (const model of fetched) {
-      merged.set(model.id, { ...model, isCustom: false });
+      const previous = existingByModelId.get(model.modelId);
+      merged.set(model.id, {
+        ...model,
+        isCustom: false,
+        // 拉取后保留用户在旧列表上配置的思考等级
+        ...(previous?.thinkingLevel
+          ? { thinkingLevel: previous.thinkingLevel }
+          : {}),
+      });
     }
     for (const model of custom) {
       if (!merged.has(model.id)) merged.set(model.id, model);
@@ -223,6 +237,7 @@ export class ProvidersRegistry {
     modelId: string;
     name?: string;
     capabilities?: AIModelCapability[];
+    thinkingLevel?: AIThinkingLevel;
   }): AIModelDescriptor {
     const provider = this.getProvider(input.providerId);
     if (!provider) throw new Error(`Provider not found: ${input.providerId}`);
@@ -237,6 +252,13 @@ export class ProvidersRegistry {
     if (input.capabilities?.length) {
       descriptor.capabilities = input.capabilities;
     }
+    const thinkingLevel = normalizeAIThinkingLevel(
+      input.thinkingLevel,
+      provider.protocol,
+    );
+    if (thinkingLevel) {
+      descriptor.thinkingLevel = thinkingLevel;
+    }
     this.data.models = this.data.models.filter(
       (item) => item.id !== descriptor.id,
     );
@@ -245,10 +267,17 @@ export class ProvidersRegistry {
     return { ...descriptor };
   }
 
-  removeCustomModel(modelFullIdValue: string): boolean {
+  removeModel(
+    modelFullIdValue: string,
+    options: { customOnly?: boolean } = {},
+  ): boolean {
     const before = this.data.models.length;
     this.data.models = this.data.models.filter(
-      (item) => !(item.id === modelFullIdValue && item.isCustom),
+      (item) =>
+        !(
+          item.id === modelFullIdValue &&
+          (!options.customOnly || item.isCustom)
+        ),
     );
     for (const role of ROLES) {
       if (this.data.roles[role] === modelFullIdValue) {
@@ -256,6 +285,31 @@ export class ProvidersRegistry {
       }
     }
     if (this.data.models.length === before) return false;
+    this.save();
+    return true;
+  }
+
+  removeCustomModel(modelFullIdValue: string): boolean {
+    return this.removeModel(modelFullIdValue, { customOnly: true });
+  }
+
+  setModelThinkingLevel(
+    modelFullIdValue: string,
+    level: AIThinkingLevel | undefined,
+  ): boolean {
+    const index = this.data.models.findIndex(
+      (item) => item.id === modelFullIdValue,
+    );
+    if (index < 0) return false;
+    if (level === undefined) {
+      delete this.data.models[index].thinkingLevel;
+      this.save();
+      return true;
+    }
+    const provider = this.getProvider(this.data.models[index].providerId);
+    const normalized = normalizeAIThinkingLevel(level, provider?.protocol);
+    if (!normalized) return false;
+    this.data.models[index].thinkingLevel = normalized;
     this.save();
     return true;
   }

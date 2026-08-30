@@ -6,6 +6,7 @@ import type {
   AIProtocol,
   AIProviderConfig,
   AISkill,
+  AIThinkingLevel,
   AITool,
   AIUsageContext,
   AIUsageFinalization,
@@ -41,6 +42,7 @@ export type {
   AIProtocol,
   AIProviderConfig,
   AISkill,
+  AIThinkingLevel,
   AITool,
   ChatRuntime,
   ChatRuntimeBaseOptions,
@@ -112,6 +114,7 @@ export interface ProviderCompleteOptions {
   stream?: boolean;
   systemPrompt?: string;
   cachePreference?: "prefer" | "none";
+  thinkingLevel?: AIThinkingLevel;
   onTextDelta?: (delta: string) => void | Promise<void>;
 }
 
@@ -253,6 +256,11 @@ export interface AIService {
     capabilities?: AIModelCapability[];
   }): AIModelDescriptor;
   removeCustomModel(modelFullId: string): boolean;
+  removeModel(modelFullId: string): boolean;
+  setModelThinkingLevel(
+    modelFullId: string,
+    level: AIThinkingLevel | undefined,
+  ): boolean;
   getRoleBindings(): Record<AIModelRole, string | undefined>;
   setRoleBinding(role: AIModelRole, modelFullId: string | undefined): boolean;
   getInstanceByRole(role: AIModelRole): AIInstance | undefined;

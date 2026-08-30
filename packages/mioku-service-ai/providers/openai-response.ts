@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { logger } from "mioki";
+import { logger } from "mioku";
 import { extractUsageTokens } from "../usage/tracker";
 import type {
   AIModelDescriptor,
@@ -15,6 +15,7 @@ import {
   markStablePrefixCacheable,
   preferCache,
   toModelDescriptor,
+  toOpenAIReasoningEffort,
 } from "./base";
 
 export class OpenAIResponseProvider extends BaseProviderClient {
@@ -56,6 +57,7 @@ export class OpenAIResponseProvider extends BaseProviderClient {
       options.systemPrompt,
     );
     const tools = toResponseTools(prepared.tools);
+    const reasoningEffort = toOpenAIReasoningEffort(options.thinkingLevel);
     const body: Record<string, unknown> = {
       model: options.model,
       input,
@@ -65,6 +67,7 @@ export class OpenAIResponseProvider extends BaseProviderClient {
       ...(options.maxTokens != null
         ? { max_output_tokens: options.maxTokens }
         : {}),
+      ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
     };
 
     if (options.stream) {
@@ -268,9 +271,14 @@ function summarizeErrorBody(value: unknown): unknown {
 
 function pickResponseHeaders(headers: unknown): Record<string, string> | undefined {
   if (!headers || typeof headers !== "object") return undefined;
-  const values = headers instanceof Headers
-    ? Object.fromEntries(headers.entries())
-    : headers as Record<string, unknown>;
+  const values: Record<string, unknown> = {};
+  if (headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      values[key] = value;
+    });
+  } else {
+    Object.assign(values, headers);
+  }
   const allowed = ["content-type", "server", "x-request-id", "cf-ray"];
   const selected = Object.fromEntries(
     allowed.flatMap((name) => {

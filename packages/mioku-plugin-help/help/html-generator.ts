@@ -12,7 +12,7 @@
  */
 
 import type { CommandRole, PluginHelp } from "mioku";
-import { botConfig } from "mioki";
+import { botConfig } from "mioku";
 import { escapeHtml } from "../utils";
 import { getHelpTheme, HELP_BACKGROUND_IMAGE_URL } from "../theme";
 import { getRenderableEntries } from "./intent";

@@ -1,30 +1,87 @@
 {
   "plugins": {
-    "60s": { "npm": "mioku-plugin-60s" },
-    "meme": { "npm": "mioku-plugin-meme" },
-    "music": { "npm": "mioku-plugin-music" },
-    "admin": { "npm": "mioku-plugin-admin" },
-    "media": { "npm": "mioku-plugin-media" },
-    "chat": { "npm": "mioku-plugin-chat" },
-    "help": { "npm": "mioku-plugin-help" },
-    "boot": { "npm": "mioku-plugin-boot" },
-    "mc": { "npm": "mioku-plugin-mc" },
-    "deerpipe": { "npm": "mioku-plugin-deerpipe" },
-    "impact": { "npm": "mioku-plugin-impact" },
-    "sekai": { "npm": "mioku-plugin-sekai" },
-    "terraria": { "npm": "mioku-plugin-terraria" }
+    "60s": {
+      "npm": "mioku-plugin-60s"
+    },
+    "meme": {
+      "npm": "mioku-plugin-meme"
+    },
+    "music": {
+      "npm": "mioku-plugin-music"
+    },
+    "admin": {
+      "npm": "mioku-plugin-admin"
+    },
+    "media": {
+      "npm": "mioku-plugin-media"
+    },
+    "chat": {
+      "npm": "mioku-plugin-chat",
+      "builtin": true
+    },
+    "help": {
+      "npm": "mioku-plugin-help",
+      "builtin": true
+    },
+    "mc": {
+      "npm": "mioku-plugin-mc"
+    },
+    "deerpipe": {
+      "npm": "mioku-plugin-deerpipe"
+    },
+    "impact": {
+      "npm": "mioku-plugin-impact"
+    },
+    "sekai": {
+      "npm": "mioku-plugin-sekai"
+    },
+    "terraria": {
+      "npm": "mioku-plugin-terraria"
+    }
   },
   "services": {
-    "60s": { "npm": "mioku-service-60s" },
-    "webui": { "npm": "mioku-service-webui" },
-    "applemusic": { "npm": "mioku-service-applemusic" },
-    "netease": { "npm": "mioku-service-netease" },
-    "ai": { "npm": "mioku-service-ai" },
-    "config": { "npm": "mioku-service-config" },
-    "screenshot": { "npm": "mioku-service-screenshot" },
-    "help": { "npm": "mioku-service-help" },
+    "60s": {
+      "npm": "mioku-service-60s"
+    },
+    "webui": {
+      "npm": "mioku-service-webui"
+    },
+    "applemusic": {
+      "npm": "mioku-service-applemusic"
+    },
+    "netease": {
+      "npm": "mioku-service-netease"
+    },
+    "ai": {
+      "npm": "mioku-service-ai",
+      "builtin": true
+    },
+    "config": {
+      "npm": "mioku-service-config",
+      "builtin": true
+    },
+    "screenshot": {
+      "npm": "mioku-service-screenshot",
+      "builtin": true
+    },
+    "help": {
+      "npm": "mioku-service-help",
+      "builtin": true
+    },
     "audio": {
       "npm": "mioku-service-audio"
+    }
+  },
+  "adapters": {
+    "onebotv11": {
+      "npm": "mioku-adapter-onebotv11"
+    },
+    "icqq": {
+      "npm": "mioku-adapter-icqq"
+    },
+    "stdin": {
+      "npm": "mioku-adapter-stdin",
+      "builtin": true
     }
   }
 }

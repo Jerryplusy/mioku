@@ -1,7 +1,8 @@
-import { definePlugin, type MiokiContext } from "mioki";
+import { definePlugin, type MiokuContext } from "mioku";
 import { getService, Services } from "mioku";
 import * as path from "path";
 import { HELP_DEMO_CONFIG } from "./demo-config";
+import { HELP_STATUS_DEFAULT_CONFIG } from "./status/config";
 import {
   generateHelpImage,
   replyWithImage,
@@ -23,7 +24,7 @@ const helpPlugin = definePlugin({
   version: "2.1.0",
   description: "帮助插件，生成帮助图片，并提供 #状态 指令",
 
-  async setup(ctx: MiokiContext) {
+  async setup(ctx: MiokuContext) {
     // 启动后台采样器
     networkSampler.start();
     perfMonitor.start();
@@ -48,6 +49,11 @@ const helpPlugin = definePlugin({
 
     if (configService) {
       await configService.registerConfig("help", "demo", HELP_DEMO_CONFIG.demo);
+      await configService.registerConfig(
+        "help",
+        "status",
+        HELP_STATUS_DEFAULT_CONFIG,
+      );
     }
 
     // 注册 help manifest，让 `#help 状态` 能命中

@@ -1,13 +1,22 @@
-import type { MiokiContext } from "mioki";
+import type { Bot, MiokuContext } from "mioku";
 import type { AIInstance, AIService } from "mioku";
 import type { SkillPermissionRole } from "mioku";
 import type { ChatRuntimePromptInjection } from "mioku";
-import type { ChatConfig, ChatMessage, TargetMessage, ToolContext, ChatResult } from "../types";
+import type {
+  ChatConfig,
+  ChatMessage,
+  TargetMessage,
+  ToolContext,
+  ChatResult,
+} from "../types";
 import type { ChatDatabase } from "../db";
 import type { HumanizeEngine } from "../humanize";
 import type { EmojiAgent } from "../humanize";
 import type { SkillSessionManager } from "./skill-session";
-import type { GroupStructuredHistoryManager, StructuredUserInput } from "./group-structured-history";
+import type {
+  GroupStructuredHistoryManager,
+  StructuredUserInput,
+} from "./group-structured-history";
 import type { SendAIResponseOptions } from "../core/base";
 import type { GroupInfoResult, HumanizeContextsResult } from "../core/base";
 
@@ -32,7 +41,7 @@ export type RunRateLimitGuard = <T>(
 export type GetGroupHistoryMessages = (
   groupId: number,
   groupSessionId: string,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   historyCount: number,
   db: ChatDatabase,
   selfId: number,
@@ -40,7 +49,7 @@ export type GetGroupHistoryMessages = (
 ) => Promise<{ history: ChatMessage[] }>;
 
 export type GetGroupInfoData = (
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   groupId: number,
   selfId: number,
   fallbackGroupName?: string,
@@ -54,7 +63,10 @@ export type GetHumanizeContexts = (
   triggerUserId?: number,
 ) => Promise<HumanizeContextsResult>;
 
-export type SendAIResponse = (options: SendAIResponseOptions, selfId: number) => Promise<void>;
+export type SendAIResponse = (
+  options: SendAIResponseOptions,
+  selfId: number,
+) => Promise<void>;
 
 export type SaveBotMessages = (
   groupId: number,
@@ -63,14 +75,19 @@ export type SaveBotMessages = (
   timestamp: number,
   config: ChatConfig,
   db: ChatDatabase,
-  ctx: MiokiContext,
-  selfId: number,
+  ctx: MiokuContext,
+  bot?: Bot,
 ) => void;
 
-export type SendEmoji = (ctx: MiokiContext, groupId: number, emojiPath: string | null | undefined, selfId: number) => Promise<void>;
+export type SendEmoji = (
+  ctx: MiokuContext,
+  groupId: number,
+  emojiPath: string | null | undefined,
+  bot?: import("mioku").Bot,
+) => Promise<void>;
 
 export type SendMessage = (
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   groupId: number | undefined,
   userId: number,
   text: string,
@@ -80,7 +97,7 @@ export type SendMessage = (
 ) => Promise<void>;
 
 export type BuildToolContext = (options: {
-  ctx: MiokiContext;
+  ctx: MiokuContext;
   event: any;
   selfId: number;
   groupSessionId: string;
@@ -96,9 +113,15 @@ export type BuildToolContext = (options: {
   audioService?: import("mioku-service-audio").AudioServiceApi;
 }) => ToolContext;
 
-export type BuildStructuredUserInput = (event: any, content: string, fallbackTimestamp?: number) => StructuredUserInput;
+export type BuildStructuredUserInput = (
+  event: any,
+  content: string,
+  fallbackTimestamp?: number,
+) => StructuredUserInput;
 
-export type BuildStructuredUserInputFromTarget = (targetMessage: TargetMessage) => StructuredUserInput;
+export type BuildStructuredUserInputFromTarget = (
+  targetMessage: TargetMessage,
+) => StructuredUserInput;
 
 export type PromptCtxForRunChat = {
   config: ChatConfig;

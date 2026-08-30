@@ -1,5 +1,5 @@
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import type { MiokiContext } from "mioki";
+import type { MiokuContext } from "mioku";
 import type { AITool, AIService, SkillPermissionRole } from "mioku";
 import type { ChatDatabase } from "./db";
 
@@ -300,7 +300,7 @@ export interface SkillSession {
  * 工具上下文
  */
 export interface ToolContext {
-  ctx: MiokiContext;
+  ctx: MiokuContext;
   event: any;
   sessionId: string;
   groupId?: number;

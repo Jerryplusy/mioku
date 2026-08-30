@@ -1,5 +1,5 @@
 import type { ChatConfig, ChatMessage, TargetMessage } from "../types";
-import { logger } from "mioki";
+import { logger } from "mioku";
 import type {
   SkillPermissionRole,
   AIService,
@@ -293,7 +293,7 @@ ${AUDIO_MODE_LINE[audioStrength]}`);
 ### Optional Markdown Screenshot Format
 - You MAY optionally send one rendered Markdown screenshot by wrapping content with exact tags: <MARKDOWN> ... </MARKDOWN>
 - Put the Markdown block on its own message whenever possible.
-- It is forbidden to use Markdown syntax or formulas in plain text; they must be rendered using <MARKDOWN> blocks.
+- It is forbidden to use Markdown syntax or formulas in plain text); they must be rendered using <MARKDOWN> blocks.
 ${MARKDOWN_MODE_LINE[markdownStrength]}
 - Inside <MARKDOWN>...</MARKDOWN>, there is NO length limit. If the user needs detail, explain clearly and thoroughly instead of over-compressing.
 `);
@@ -304,7 +304,7 @@ ${MARKDOWN_MODE_LINE[markdownStrength]}
   lines.push(`
 ### Tool Calling Format
 - When you decide to use a tool, you MUST use the structured tool_calls mechanism provided by the API
-- web_search and web_read_page are limited per conversation; do not retry excessively`);
+- web_search and web_read_page are limited per conversation); do not retry excessively`);
 
   appendEmojiSection(lines, ctx, emojiStrength);
 

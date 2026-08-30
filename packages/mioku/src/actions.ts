@@ -1,0 +1,100 @@
+import { wait } from './utils'
+import { rootLogger } from './logger'
+
+import type { Bot } from './adapter'
+import type { MessageInput } from './adapter'
+import type { MessageTarget } from './adapter'
+
+/** 群发通知的选项 */
+export interface NoticeOptions {
+  /** 相邻两个目标之间的发送间隔（毫秒），默认 1000 */
+  readonly delay?: number
+  /** 统一覆盖发送目标，默认按名单逐个生成 */
+  readonly target?: MessageTarget
+}
+
+/** 通过指定 bot 发送一条消息 */
+export const sendMessage = async (bot: Bot, target: MessageTarget, message: MessageInput): Promise<unknown> => {
+  return await bot.sendMessage(target, message)
+}
+
+/** 逐目标群发：每个目标依次尝试各 bot 直到成功，目标之间间隔 delay 毫秒 */
+const notifyAll = async (
+  bots: readonly Bot[],
+  targets: readonly MessageTarget[],
+  message: MessageInput,
+  options: NoticeOptions = {},
+): Promise<void> => {
+  const delay = options.delay ?? 1000
+  for (const target of targets) {
+    let sent = false
+    for (const bot of bots) {
+      try {
+        await bot.sendMessage(target, message)
+        sent = true
+        break
+      } catch {
+        // 跳过失败的 bot，尝试下一个
+      }
+    }
+    if (!sent) {
+      rootLogger.warn(`通知目标 ${JSON.stringify(target)} 失败`)
+    }
+    await wait(delay)
+  }
+}
+
+/** 向多个群发送同一条消息 */
+export const noticeGroups = async (
+  bots: readonly Bot[],
+  groupIds: readonly (string | number)[],
+  message: MessageInput,
+  options: NoticeOptions = {},
+): Promise<void> => {
+  await notifyAll(
+    bots,
+    groupIds.map((group_id) => ({ type: 'group', group_id })),
+    message,
+    options,
+  )
+}
+
+/** 向多个好友私聊发送同一条消息 */
+export const noticeFriends = async (
+  bots: readonly Bot[],
+  userIds: readonly (string | number)[],
+  message: MessageInput,
+  options: NoticeOptions = {},
+): Promise<void> => {
+  await notifyAll(
+    bots,
+    userIds.map((user_id) => ({ type: 'private', user_id })),
+    message,
+    options,
+  )
+}
+
+/** 通知所有 owner，可通过 options.target 统一改发到别的目标 */
+export const noticeOwners = async (
+  bots: readonly Bot[],
+  owners: readonly string[],
+  message: MessageInput,
+  options: NoticeOptions = {},
+): Promise<void> => {
+  await notifyAll(
+    bots,
+    owners.map((user_id) => options.target ?? ({ type: 'private', user_id } as MessageTarget)),
+    message,
+    options,
+  )
+}
+
+/** 通知所有管理员，行为与 noticeOwners 一致 */
+export const noticeAdmins = async (
+  bots: readonly Bot[],
+  admins: readonly string[],
+  message: MessageInput,
+  options: NoticeOptions = {},
+): Promise<void> => {
+  return noticeOwners(bots, admins, message, options)
+}

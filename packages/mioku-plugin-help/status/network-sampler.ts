@@ -1,4 +1,4 @@
-import { systemInfo } from "mioki";
+import systemInfo from "systeminformation";
 import type { NetworkSample } from "./types";
 
 /**

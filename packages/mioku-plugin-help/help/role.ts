@@ -66,15 +66,10 @@ export async function resolveViewerRole(
     }
 
     if (event?.group_id != null && event?.user_id != null) {
-      const selfId =
-        event?.self_id != null ? Number(event.self_id) : undefined;
-      const bot =
-        selfId != null && typeof ctx?.pickBot === "function"
-          ? ctx.pickBot(selfId)
-          : undefined;
-      if (bot && typeof bot.getGroupMemberInfo === "function") {
+      const bot = event?.bot;
+      if (bot) {
         try {
-          const info = await bot.getGroupMemberInfo(
+          const info = await bot.getMemberInfo(
             event.group_id,
             event.user_id,
           );

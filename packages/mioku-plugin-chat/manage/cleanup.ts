@@ -1,4 +1,4 @@
-import { logger } from "mioki";
+import { logger } from "mioku";
 import type { ChatDatabase } from "../db";
 
 export interface CleanupConfig {

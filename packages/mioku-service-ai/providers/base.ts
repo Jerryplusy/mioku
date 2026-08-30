@@ -1,6 +1,8 @@
 import type {
   AIModelDescriptor,
+  AIProtocol,
   AIProviderConfig,
+  AIThinkingLevel,
   ProviderClient,
   ProviderCompleteOptions,
   ProviderCompleteResponse,
@@ -15,6 +17,70 @@ export const DEFAULT_API_URLS: Record<AIProviderConfig["protocol"], string> = {
   anthropic: "https://api.anthropic.com",
   gemini: "https://generativelanguage.googleapis.com",
 };
+
+/**
+ * OpenAI 系（chat / responses）的 reasoning effort 映射：
+ * - off 不下发参数（保留服务商默认行为）
+ * - max 归一到 xhigh（OpenAI 当前最高档）
+ */
+export function toOpenAIReasoningEffort(
+  level?: AIThinkingLevel,
+): "low" | "medium" | "high" | "xhigh" | undefined {
+  switch (level) {
+    case "low":
+    case "medium":
+    case "high":
+    case "xhigh":
+      return level;
+    case "max":
+      return "xhigh";
+    default:
+      return undefined;
+  }
+}
+
+/** Anthropic thinking budget_tokens 映射（off 不开启 thinking） */
+export function toAnthropicThinkingBudget(
+  level?: AIThinkingLevel,
+): number | undefined {
+  switch (level) {
+    case "low":
+      return 2048;
+    case "medium":
+      return 8192;
+    case "high":
+      return 16384;
+    case "xhigh":
+      return 24576;
+    case "max":
+      return 32768;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Gemini thinkingBudget 映射（gemini 协议最高只到 high）。
+ * off → 0 表示关闭思考。
+ */
+export function toGeminiThinkingBudget(
+  level?: AIThinkingLevel,
+): number | undefined {
+  switch (level) {
+    case "off":
+      return 0;
+    case "low":
+      return 1024;
+    case "medium":
+      return 8192;
+    case "high":
+    case "xhigh":
+    case "max":
+      return 24576;
+    default:
+      return undefined;
+  }
+}
 
 export function preferCache(
   options: ProviderCompleteOptions,

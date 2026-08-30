@@ -1,4 +1,4 @@
-import type { MiokiContext } from "mioki";
+import type { MiokuContext } from "mioku";
 import type { AIService } from "mioku";
 import type { ChatPluginContext } from "../context";
 import type { ChatConfig, TargetMessage } from "../types";
@@ -10,7 +10,7 @@ export async function handleIdleCheckDebug(
   e: any,
   cfg: ChatConfig,
 ): Promise<void> {
-  const ctx: MiokiContext = pluginCtx.ctx;
+  const ctx: MiokuContext = pluginCtx.ctx;
   const isOwner = ctx.isOwner?.(e) ?? false;
   if (!isOwner) {
     await e.reply("只有主人才能使用这个指令~");
@@ -32,7 +32,7 @@ export async function handleIdleCheckDebug(
       async () => {
         const now = Date.now();
         const botNickname =
-          cfg.nicknames[0] || ctx.pickBot(e.self_id).nickname || "Bot";
+          cfg.nicknames[0] || e.bot?.nickname || "Bot";
         ctx.logger.info(`[Debug] Manual idle check: group ${targetGroupId}`);
 
         const { history } = await pluginCtx.getGroupHistoryMessages(

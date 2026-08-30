@@ -1,4 +1,4 @@
-import { definePlugin, type MiokiContext } from "mioki";
+import { definePlugin, type MiokuContext } from "mioku";
 import type { AIInstance, AIModelRole, AIService } from "mioku";
 import type { AudioServiceApi } from "mioku-service-audio";
 import { getPluginRuntimeState, getService, Services } from "mioku";
@@ -117,7 +117,7 @@ export default definePlugin({
   name: "chat",
   version: "1.1.0",
   description: "AI 智能聊天插件",
-  async setup(ctx: MiokiContext) {
+  async setup(ctx: MiokuContext) {
     ctx.logger.info("聊天插件正在初始化...");
 
     const aiService = getService(ctx, Services.AI);
@@ -497,7 +497,7 @@ roleModels = resolved.models;
         processingSet,
       },
       matchMessageCommands: (
-        getPluginRuntimeState("boot") as
+        getPluginRuntimeState("core") as
           | {
               matchMessageCommands?: (
                 text: string,

@@ -1,4 +1,4 @@
-import { logger } from "mioki";
+import { HistoryMessage, logger } from "mioku";
 import type { AITool } from "mioku";
 import type { ChatMessage, ToolContext } from "../../types";
 import { searchWebWithSearxng } from "../web/searxng";
@@ -47,7 +47,8 @@ function extractGroupHistoryText(raw: any): string {
       continue;
     }
     if (seg?.type === "at") {
-      const target = seg?.qq || seg?.data?.qq || seg?.data?.id || seg?.data?.user_id;
+      const target =
+        seg?.qq || seg?.data?.qq || seg?.data?.id || seg?.data?.user_id;
       if (target === "all" || target === "everyone") parts.push("@全体成员");
       else if (target) parts.push(`@${target}`);
       continue;
@@ -68,15 +69,12 @@ async function fetchGroupHistoryByMessageIdPaging(
 ): Promise<ChatMessage[]> {
   if (!toolCtx.groupId || limit <= 0) return [];
 
-  const selfId = Number(toolCtx.event?.self_id || 0);
-  if (!selfId) return [];
-
-  const bot = toolCtx.ctx.pickBot(selfId);
+  const bot = toolCtx.event?.bot;
   if (!bot) return [];
 
   const collected: ChatMessage[] = [];
   const seenMessageIds = new Set<string>();
-  let cursorMessageId = 0;
+  let cursorMessageId = "";
   const maxPages = Math.max(1, Math.ceil(limit / 200) + 5);
   let page = 0;
 
@@ -84,73 +82,75 @@ async function fetchGroupHistoryByMessageIdPaging(
     const remaining = limit - collected.length;
     const pageSize = Math.min(200, remaining);
 
-    let response: any;
+    let history: HistoryMessage[];
     try {
-      response = await (bot as any).api("get_group_msg_history", {
-        group_id: String(toolCtx.groupId),
-        message_seq: String(cursorMessageId),
-        count: pageSize,
-        reverse_order: false,
-        disable_get_url: true,
-        parse_mult_msg: false,
-        quick_reply: false,
-      });
+      history = await bot.getHistory(
+        { type: "group", group_id: toolCtx.groupId },
+        cursorMessageId || undefined,
+        pageSize,
+      );
     } catch (err) {
       const errText = String(err);
       if (
-        cursorMessageId > 0 &&
-        (errText.includes("不存在") || errText.toLowerCase().includes("not exist"))
+        cursorMessageId !== "" &&
+        (errText.includes("不存在") ||
+          errText.toLowerCase().includes("not exist"))
       ) {
-        logger.info(`[recall_memory] get_group_msg_history stop at cursor ${cursorMessageId}: ${errText}`);
+        logger.info(
+          `[recall_memory] get_group_msg_history stop at cursor ${cursorMessageId}: ${errText}`,
+        );
       } else {
-        logger.warn(`[recall_memory] get_group_msg_history failed at cursor ${cursorMessageId}: ${errText}`);
+        logger.warn(
+          `[recall_memory] get_group_msg_history failed at cursor ${cursorMessageId}: ${errText}`,
+        );
       }
       break;
     }
 
-    const rawMessages = response?.messages || response?.data?.messages || [];
-    if (!Array.isArray(rawMessages) || rawMessages.length === 0) break;
+    if (!Array.isArray(history) || history.length === 0) break;
 
-    let oldestMessageId: number | null = null;
+    let oldestMessageId: string | null = null;
     let newAdded = 0;
 
-    for (const raw of rawMessages) {
-      const messageId = Number(raw?.message_id || raw?.message_seq || 0);
+    for (const raw of history) {
+      const messageId = String(raw.message_id || "");
       const key =
-        messageId > 0
+        messageId !== ""
           ? `mid:${messageId}`
-          : `${String(raw?.user_id || "unknown")}:${String(raw?.time || "0")}:${String(raw?.raw_message || "")}`;
+          : `${String(raw.user_id || "unknown")}:${String(raw.time || "0")}:${extractGroupHistoryText(raw)}`;
       if (seenMessageIds.has(key)) continue;
       seenMessageIds.add(key);
 
       const content = extractGroupHistoryText(raw);
       if (!content.trim()) continue;
 
-      const ts = typeof raw?.time === "number" ? raw.time * 1000 : Date.now();
+      const ts = raw.time ?? Date.now();
       collected.push({
         sessionId: toolCtx.sessionId,
-        role: String(raw?.user_id) === String(selfId) ? "assistant" : "user",
+        role: String(raw.user_id) === String(bot.bot_id) ? "assistant" : "user",
         content,
-        userId: typeof raw?.user_id === "number" ? raw.user_id : Number(raw?.user_id),
-        userName: raw?.sender?.card || raw?.sender?.nickname || String(raw?.user_id || "unknown"),
-        userRole: raw?.sender?.role || "member",
+        userId: Number(raw.user_id || 0),
+        userName: raw.nickname || String(raw.user_id || "unknown"),
+        userRole: "member",
         groupId: toolCtx.groupId,
         timestamp: ts,
-        messageId: messageId > 0 ? messageId : undefined,
+        messageId: messageId !== "" ? Number(messageId) : undefined,
       });
       newAdded += 1;
 
-      if (messageId > 0 && (oldestMessageId === null || messageId < oldestMessageId)) {
+      if (
+        messageId !== "" &&
+        (oldestMessageId === null || messageId < oldestMessageId)
+      ) {
         oldestMessageId = messageId;
       }
     }
 
-    if (newAdded === 0 || oldestMessageId === null || oldestMessageId <= 1) break;
+    if (newAdded === 0 || oldestMessageId === null || oldestMessageId === "")
+      break;
 
-    // NapCat message_seq expects an existing id; don't subtract 1 (IDs may be non-contiguous).
-    const nextCursor = oldestMessageId;
-    if (nextCursor === cursorMessageId) break;
-    cursorMessageId = nextCursor;
+    if (oldestMessageId === cursorMessageId) break;
+    cursorMessageId = oldestMessageId;
     page += 1;
   }
 
@@ -182,7 +182,8 @@ export function createWebSearchTool(toolCtx: ToolContext): AITool {
         },
         limit: {
           type: "number",
-          description: "Max number of results to return. Will be clamped by config maxLimit.",
+          description:
+            "Max number of results to return. Will be clamped by config maxLimit.",
         },
         time_range: {
           type: "string",
@@ -192,17 +193,20 @@ export function createWebSearchTool(toolCtx: ToolContext): AITool {
         categories: {
           type: "array",
           items: { type: "string" },
-          description: 'Optional categories, e.g. ["general"], ["news"], ["science"]',
+          description:
+            'Optional categories, e.g. ["general"], ["news"], ["science"]',
         },
         engines: {
           type: "array",
           items: { type: "string" },
-          description: 'Optional engines, e.g. ["google"], ["bing"], ["duckduckgo"]',
+          description:
+            'Optional engines, e.g. ["google"], ["bing"], ["duckduckgo"]',
         },
       },
       required: [],
     },
-    handler: async (args) => searchWebWithSearxng(toolCtx.config.searxng, args || {}),
+    handler: async (args) =>
+      searchWebWithSearxng(toolCtx.config.searxng, args || {}),
   };
 }
 
@@ -217,7 +221,10 @@ export function createWebReadPageTool(toolCtx: ToolContext): AITool {
     parameters: {
       type: "object",
       properties: {
-        url: { type: "string", description: "The http/https URL of the webpage to read" },
+        url: {
+          type: "string",
+          description: "The http/https URL of the webpage to read",
+        },
         render_js: {
           type: "boolean",
           description:
@@ -234,7 +241,8 @@ export function createWebReadPageTool(toolCtx: ToolContext): AITool {
     handler: async (args) => {
       try {
         const ai = toolCtx.config.webReader.useWorkingModel
-          ? (toolCtx.aiService.getInstanceByRole?.("working") ?? toolCtx.aiService.getDefault())
+          ? (toolCtx.aiService.getInstanceByRole?.("working") ??
+            toolCtx.aiService.getDefault())
           : undefined;
         if (toolCtx.config.webReader.useWorkingModel && !ai) {
           return { success: false, error: "AI instance not available" };
@@ -275,19 +283,41 @@ export function createRecallMemoryTool(toolCtx: ToolContext): AITool {
       const question = String(args?.question || "").trim();
       if (!question) return { success: false, error: "question is required" };
 
-      const ai = toolCtx.aiService.getInstanceByRole?.("working") ?? toolCtx.aiService.getDefault();
+      const ai =
+        toolCtx.aiService.getInstanceByRole?.("working") ??
+        toolCtx.aiService.getDefault();
       if (!ai) return { success: false, error: "AI instance not available" };
 
-      const groupHistoryLimit = resolveGroupRecallLimit(toolCtx.config.memory?.groupHistoryLimit);
-      const userHistoryLimit = resolveUserHistoryLimit(toolCtx.config.memory?.userHistoryLimit);
-      const groupHistoryMessages = await fetchGroupHistoryByMessageIdPaging(toolCtx, groupHistoryLimit);
-      const targetUserIds = extractTargetUserIdsFromQuestion(question, toolCtx.userId);
-      const userHistories: MemoryUserHistoryChunk[] = targetUserIds.map((userId) => ({
-        userId,
-        messages: toolCtx.db.getMessagesByUser(userId, toolCtx.sessionId, userHistoryLimit),
-      }));
+      const groupHistoryLimit = resolveGroupRecallLimit(
+        toolCtx.config.memory?.groupHistoryLimit,
+      );
+      const userHistoryLimit = resolveUserHistoryLimit(
+        toolCtx.config.memory?.userHistoryLimit,
+      );
+      const groupHistoryMessages = await fetchGroupHistoryByMessageIdPaging(
+        toolCtx,
+        groupHistoryLimit,
+      );
+      const targetUserIds = extractTargetUserIdsFromQuestion(
+        question,
+        toolCtx.userId,
+      );
+      const userHistories: MemoryUserHistoryChunk[] = targetUserIds.map(
+        (userId) => ({
+          userId,
+          messages: toolCtx.db.getMessagesByUser(
+            userId,
+            toolCtx.sessionId,
+            userHistoryLimit,
+          ),
+        }),
+      );
 
-      const retriever = new MemoryRetrieval(ai, () => toolCtx.config, toolCtx.db);
+      const retriever = new MemoryRetrieval(
+        ai,
+        () => toolCtx.config,
+        toolCtx.db,
+      );
       const answer = await retriever.retrieveByQuestion({
         sessionId: toolCtx.sessionId,
         question,

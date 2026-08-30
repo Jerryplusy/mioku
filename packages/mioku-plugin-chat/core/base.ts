@@ -1,5 +1,5 @@
-import type { MiokiContext } from "mioki";
-import { logger } from "mioki";
+import type { Bot, MiokuContext } from "mioku";
+import { createGroupRef, logger } from "mioku";
 import type { SkillPermissionRole } from "mioku";
 import type { AIInstance, AIService } from "mioku";
 import type { ScreenshotService } from "mioku";
@@ -24,7 +24,7 @@ import {
 } from "./media/markdown-message";
 
 export interface SendAIResponseOptions {
-  ctx: MiokiContext;
+  ctx: MiokuContext;
   groupId: number;
   messages: string[];
   config: ChatConfig;
@@ -141,10 +141,7 @@ export async function sendAIResponse(
 
       if (pokeUsers.length > 0) {
         for (const pokeId of pokeUsers) {
-          await bot.api("group_poke", {
-            group_id: groupId,
-            user_id: pokeId,
-          });
+          await bot.pokeMember(String(groupId), String(pokeId));
         }
       }
 
@@ -152,12 +149,13 @@ export async function sendAIResponse(
 
       const finalQuoteId = pendingReply;
       if (finalQuoteId !== undefined) {
-        lineSegments.push({ type: "reply", id: String(finalQuoteId) });
+        lineSegments.push(ctx.segment.reply(finalQuoteId));
         pendingReply = undefined;
       }
 
       for (const atId of atUsers) {
-        lineSegments.push(ctx.segment.at(atId));
+        if (String(atId) === String(selfId)) continue;
+        lineSegments.push(ctx.segment.at(String(atId)));
       }
 
       if (markdownContent) {
@@ -178,13 +176,11 @@ export async function sendAIResponse(
             (imageSource?: string) => {
               const segments: any[] = [];
               if (finalQuoteIdForImage !== undefined) {
-                segments.push({
-                  type: "reply",
-                  id: String(finalQuoteIdForImage),
-                });
+                segments.push(ctx.segment.reply(finalQuoteIdForImage));
               }
               for (const atId of atUsers) {
-                segments.push(ctx.segment.at(atId));
+                if (String(atId) === String(selfId)) continue;
+                segments.push(ctx.segment.at(String(atId)));
               }
               segments.push(
                 ctx.segment.image(
@@ -217,11 +213,11 @@ export async function sendAIResponse(
         lineSegments.push(ctx.segment.text(fallbackText));
       }
       if (audioSource) {
-        lineSegments.push(ctx.segment.record(audioSource));
+        lineSegments.push(ctx.segment.raw("record", { file: audioSource }));
       }
 
       if (lineSegments.length > 0) {
-        await bot.sendGroupMsg(groupId, lineSegments);
+        await bot.sendMessage({ type: "group", group_id: groupId}, lineSegments);
         lastDelayBasisText = sendableText || fallbackText || audioText || line;
       }
 
@@ -241,7 +237,7 @@ export async function sendAIResponse(
 }
 
 export async function sendMessage(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   groupId: number | undefined,
   userId: number,
   text: string,
@@ -296,13 +292,9 @@ export async function sendMessage(
         continue;
       }
 
-      // 戳人 - 立即执行
       if (groupId && pokeUsers.length > 0) {
         for (const pokeId of pokeUsers) {
-          await bot.api("group_poke", {
-            group_id: groupId,
-            user_id: pokeId,
-          });
+          await bot.pokeMember(String(groupId), String(pokeId));
         }
       }
 
@@ -327,14 +319,11 @@ export async function sendMessage(
             (imageSource?: string) => {
               const segments: any[] = [];
               if (finalQuoteIdForImage !== undefined) {
-                segments.push({
-                  type: "reply",
-                  id: String(finalQuoteIdForImage),
-                });
+                segments.push(ctx.segment.reply(finalQuoteIdForImage));
               }
               for (const atId of atUsers) {
                 if (String(atId) !== String(selfId)) {
-                  segments.push(ctx.segment.at(atId));
+                  segments.push(ctx.segment.at(String(atId)));
                 }
               }
               segments.push(
@@ -366,13 +355,13 @@ export async function sendMessage(
         const sendableText = markdownContent ?? cleanText;
         const segments: any[] = [];
         if (pendingReply !== undefined) {
-          segments.push({ type: "reply", id: String(pendingReply) });
+          segments.push(ctx.segment.reply(pendingReply));
           pendingReply = undefined;
         }
         if (markdownContent) {
           for (const atId of atUsers) {
             if (String(atId) !== String(selfId)) {
-              segments.push(ctx.segment.at(atId));
+              segments.push(ctx.segment.at(String(atId)));
             }
           }
           if (sendableText) {
@@ -381,11 +370,11 @@ export async function sendMessage(
             segments.push(ctx.segment.text(fallbackText));
           }
           if (audioSource) {
-            segments.push(ctx.segment.record(audioSource));
+            segments.push(ctx.segment.raw("record", { file: audioSource }));
           }
 
           if (segments.length > 0 && groupId) {
-            await bot.sendGroupMsg(groupId, segments);
+            await bot.sendMessage({ type: "group", group_id: groupId}, segments);
             lastDelayBasisText =
               sendableText || fallbackText || audioText || line;
           }
@@ -398,7 +387,7 @@ export async function sendMessage(
         // 有 @ 用户时，构建消息保持原始位置
         // 先将原始行按 @ 标记分割，然后重新构建
         let remaining = line;
-        const atPattern = /\[at:(\d+)\]/g;
+        const atPattern = /\[at: \d+\]/g;
 
         let lastIndex = 0;
         let match;
@@ -412,13 +401,13 @@ export async function sendMessage(
               .replace(/\[audio:[^\]]+\]/gi, "")
               .trim();
             if (cleaned) {
-              segments.push({ type: "text", text: cleaned });
+              segments.push(ctx.segment.text(cleaned));
             }
           }
 
           const atId = match[1];
           if (String(atId) !== String(selfId)) {
-            segments.push(ctx.segment.at(atId));
+            segments.push(ctx.segment.at(String(atId)));
           }
 
           lastIndex = match.index + match[0].length;
@@ -433,20 +422,20 @@ export async function sendMessage(
             .replace(/\[audio:[^\]]+\]/gi, "")
             .trim();
           if (cleaned) {
-            segments.push({ type: "text", text: cleaned });
+            segments.push(ctx.segment.text(cleaned));
           }
         }
 
         if (audioSource) {
-          segments.push(ctx.segment.record(audioSource));
+          segments.push(ctx.segment.raw("record", { file: audioSource }));
         } else if (fallbackText) {
-          segments.push({ type: "text", text: fallbackText });
+          segments.push(ctx.segment.text(fallbackText));
         }
 
         // 发送消息
         if (segments.length > 0) {
           if (groupId) {
-            await bot.sendGroupMsg(groupId, segments);
+            await bot.sendMessage({ type: "group", group_id: groupId}, segments);
             lastDelayBasisText =
               sendableText || fallbackText || audioText || line;
           }
@@ -462,7 +451,7 @@ export async function sendMessage(
         ) {
           const sendSegments: any[] = [];
           if (pendingReply !== undefined) {
-            sendSegments.push({ type: "reply", id: String(pendingReply) });
+            sendSegments.push(ctx.segment.reply(pendingReply));
             pendingReply = undefined;
           }
           if (sendableText) {
@@ -471,7 +460,7 @@ export async function sendMessage(
             sendSegments.push(ctx.segment.text(fallbackText));
           }
           if (audioSource) {
-            sendSegments.push(ctx.segment.record(audioSource));
+            sendSegments.push(ctx.segment.raw("record", { file: audioSource }));
           }
           if (sendSegments.length > 0) {
             await dispatchSegments(bot, groupId, userId, () => sendSegments);
@@ -527,7 +516,7 @@ function normalizeActionLineBreaks(text: string): string {
 }
 
 async function buildMarkdownImage(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   markdownContent: string,
   screenshotService: ScreenshotService | undefined,
   enableMarkdownScreenshot: boolean,
@@ -566,18 +555,18 @@ async function dispatchSegments(
 }
 
 async function sendByTarget(
-  bot: any,
+  bot: Bot,
   groupId: number | undefined,
   userId: number | undefined,
-  segments: any[],
+  segments: readonly any[],
 ): Promise<void> {
   if (groupId) {
-    await bot.sendGroupMsg(groupId, segments);
+    await bot.sendMessage({ type: "group", group_id: groupId}, segments);
     return;
   }
 
   if (userId) {
-    await bot.sendPrivateMsg(userId, segments);
+    await bot.sendMessage({ type: "private", user_id: userId}, segments);
     return;
   }
 
@@ -612,7 +601,7 @@ function isLocalFilePath(value: string): boolean {
 }
 
 async function resolveAudioSource(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   options: {
     audioText?: string;
     config: ChatConfig;
@@ -650,7 +639,7 @@ export interface GroupHistoryResult {
 export async function getGroupHistoryMessages(
   groupId: number,
   groupSessionId: string,
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   historyCount: number,
   db: ChatDatabase,
   selfId: number,
@@ -689,7 +678,7 @@ export interface GroupInfoResult {
 }
 
 export async function getGroupInfoData(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   groupId: number,
   selfId: number,
   fallbackGroupName?: string,
@@ -698,9 +687,16 @@ export async function getGroupInfoData(
   let memberCount: number | undefined;
 
   try {
-    const groupInfo = await ctx.pickBot(selfId).getGroupInfo(groupId);
-    groupName = (groupInfo as any)?.group_name || fallbackGroupName;
-    memberCount = (groupInfo as any)?.member_count;
+    const bot = ctx.pickBot(selfId);
+    if (!bot) {
+      groupName = fallbackGroupName;
+      return { groupName, memberCount };
+    }
+    const groupInfo = await createGroupRef(bot, String(groupId)).getInfo();
+    if (groupInfo) {
+      groupName = groupInfo.group_name || fallbackGroupName;
+      memberCount = groupInfo.member_count;
+    }
   } catch {
     groupName = fallbackGroupName;
   }
@@ -744,7 +740,7 @@ export async function getHumanizeContexts(
 }
 
 export interface BuildToolContextOptions {
-  ctx: MiokiContext;
+  ctx: MiokuContext;
   event: any;
   selfId: number;
   groupSessionId: string;
@@ -761,7 +757,7 @@ export interface BuildToolContextOptions {
 }
 
 function resolveTriggerSkillRole(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   event: any,
 ): SkillPermissionRole {
   const userId = event?.user_id || event?.sender?.user_id;
@@ -844,11 +840,11 @@ export function saveBotMessages(
   timestamp: number,
   config: ChatConfig,
   db: ChatDatabase,
-  ctx: MiokiContext,
-  selfId: number,
+  ctx: MiokuContext,
+  bot: Bot | undefined,
 ): void {
-  const bot = ctx.pickBot(selfId);
   const botNickname = config.nicknames[0] || (bot?.nickname ?? "Miku");
+  const selfId = bot ? Number(bot.bot_id) : 0;
 
   if (!bot) {
     ctx.logger.warn(`[saveBotMessages] bot ${selfId} not available`);
@@ -871,23 +867,22 @@ export function saveBotMessages(
 }
 
 export async function sendEmoji(
-  ctx: MiokiContext,
+  ctx: MiokuContext,
   groupId: number,
   emojiPath: string | null | undefined,
-  selfId: number,
+  bot: Bot | undefined,
 ): Promise<void> {
   if (!emojiPath) return;
-  const bot = ctx.pickBot(selfId);
   if (!bot) {
     ctx.logger.error(
-      `[sendEmoji] bot ${String(selfId)} not found, skip sending emoji`,
+      `[sendEmoji] bot not available, skip sending emoji`,
     );
     return;
   }
 
   try {
     const emojiSegment = ctx.segment.image(`file://${emojiPath}`);
-    await bot.sendGroupMsg(groupId, [emojiSegment]);
+    await bot.sendMessage({ type: "group", group_id: groupId}, [emojiSegment]);
   } catch (err) {
     try {
       const fsPromises = await import("fs/promises");
@@ -922,7 +917,7 @@ export async function sendEmoji(
 
       const base64DataUrl = `data:${mimeType};base64,${base64}`;
       const base64Segment = ctx.segment.image(base64DataUrl);
-      await bot.sendGroupMsg(groupId, [base64Segment]);
+      await bot.sendMessage({ type: "group", group_id: groupId}, [base64Segment]);
       ctx.logger.info(`[Emoji] Sent via base64: ${path.basename(emojiPath)}`);
     } catch (base64Err) {
       ctx.logger.error(`[Emoji] Base64 also failed: ${base64Err}`);

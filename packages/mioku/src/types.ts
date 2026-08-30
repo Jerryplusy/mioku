@@ -2,6 +2,7 @@
 
 // ---------- framework ----------
 
+/** 框架服务的最小形态：init 负责初始化，api 是对外暴露的接口对象 */
 export interface MiokuService {
   name: string;
   version: string;
@@ -11,6 +12,7 @@ export interface MiokuService {
   dispose?(): Promise<void>;
 }
 
+/** package.json 的 `mioku` 字段中控制框架行为的运行时配置 */
 export interface MiokuRuntimeConfig {
   plugins?: string[];
   plugins_dir?: string;
@@ -18,16 +20,17 @@ export interface MiokuRuntimeConfig {
   [key: string]: unknown;
 }
 
+/** 宽松的 package.json 结构，用于读取插件的元信息 */
 export interface PackageJsonLike {
   name?: string;
   version?: string;
   description?: string;
-  keywords?: string[];
-  mioki?: MiokuRuntimeConfig;
-  mioku?: PluginPackageConfig;
+  keywords?: readonly string[];
+  mioku?: unknown;
   dependencies?: Record<string, string>;
 }
 
+/** 已加载插件的元信息，供内置 core 插件与帮助系统使用 */
 export interface PluginMetadata {
   name: string;
   version: string;
@@ -37,6 +40,7 @@ export interface PluginMetadata {
   config: PluginPackageConfig;
 }
 
+/** 已发现服务的元信息 */
 export interface ServiceMetadata {
   name: string;
   version: string;
@@ -47,12 +51,15 @@ export interface ServiceMetadata {
 
 // ---------- plugin package config ----------
 
+/** 插件 package.json 中 `mioku` 字段的解析结果 */
 export interface PluginPackageConfig {
+  /** 插件依赖的服务名，如 `ai`、`config` */
   services?: string[];
   help?: PluginHelp;
   accessHooks?: AccessHook[];
 }
 
+/** 插件的帮助信息，框架会自动收集并注册到帮助服务 */
 export interface PluginHelp {
   title: string;
   description: string;
@@ -94,7 +101,9 @@ export function normalizeSkillPermissionRole(
 
 export interface AccessHook {
   id: string;
+  /** 匹配文本的正则（字符串形式，如 `/^\.help$/`），用于在事件层面拦截/放行 */
   match?: string;
+  /** 命中的事件路由，如 `notice.group.poke` */
   event?: string;
   description?: string;
 }
@@ -110,6 +119,7 @@ export interface AccessScopeConfig {
   commands?: Record<string, Record<string, AccessRuleEntry>>;
 }
 
+/** 访问控制配置：按全局 / 群 / 用户三级对插件与指令放行或拦截 */
 export interface AccessControlConfig {
   version: 1;
   global: AccessScopeConfig;
@@ -119,6 +129,7 @@ export interface AccessControlConfig {
 
 // ---------- built-in service contracts ----------
 
+/** 配置服务：插件的配置文件统一注册、读取与热更新 */
 export interface ConfigService {
   registerConfig(
     pluginName: string,
@@ -132,6 +143,7 @@ export interface ConfigService {
   ): Promise<boolean>;
   getConfig(pluginName: string, configName: string): Promise<any>;
   getPluginConfigs(pluginName: string): Promise<Record<string, any>>;
+  /** 订阅配置变化，返回取消订阅函数 */
   onConfigChange(
     pluginName: string,
     configName: string,
@@ -139,6 +151,7 @@ export interface ConfigService {
   ): () => void;
 }
 
+/** 截图服务：把 HTML / Markdown / URL 渲染成图片 */
 export interface ScreenshotService {
   screenshot(html: string, options?: any): Promise<string>;
   screenshotMarkdown(markdownContent: string, options?: any): Promise<string>;
@@ -146,6 +159,7 @@ export interface ScreenshotService {
   cleanupTemp(olderThanMs?: number): Promise<number>;
 }
 
+/** 帮助服务：插件的帮助信息注册与查询 */
 export interface HelpService {
   registerHelp(pluginName: string, help: PluginHelp): void;
   getHelp(pluginName: string): PluginHelp | undefined;
@@ -159,6 +173,7 @@ export interface WebUIService {
 
 // ---------- AI service ----------
 
+/** AI 工具：暴露给模型的函数，供模型在对话中调用 */
 export interface AITool {
   name: string;
   description: string;
@@ -170,6 +185,7 @@ export interface AITool {
   handler: (args: any, event?: any) => Promise<any> | any;
 }
 
+/** AI 技能：一组工具的组合，可按权限开放给不同角色的用户 */
 export interface AISkill {
   name: string;
   description: string;
@@ -182,6 +198,7 @@ export interface TextMessage {
   content: string;
 }
 
+/** 多模态消息内容：文本或图片 URL */
 export interface MultimodalContentItem {
   type: "text" | "image_url";
   text?: string;
@@ -196,6 +213,7 @@ export interface MultimodalMessage {
   content: string | MultimodalContentItem[];
 }
 
+/** 一次工具调用的记录（名称、参数与结果） */
 export interface ToolCallRecord {
   name: string;
   arguments: any;
@@ -207,6 +225,7 @@ export interface SessionToolDefinition {
   tool: AITool;
 }
 
+/** 模型补全请求的完整选项 */
 export interface CompleteOptions {
   model?: string;
   messages: any[];
@@ -214,6 +233,7 @@ export interface CompleteOptions {
   max_tokens?: number;
   stream?: boolean;
   tools?: any[];
+  /** 会话内可执行的工具（自动进入工具循环） */
   executableTools?: SessionToolDefinition[];
   executableToolsProvider?: () => SessionToolDefinition[];
   maxIterations?: number;
@@ -239,10 +259,52 @@ export type AIProtocol =
   | "anthropic"
   | "gemini";
 
+/** 模型能力标记：文本 / 视觉 / 工具调用 / 推理 */
 export type AIModelCapability = "text" | "vision" | "tool-use" | "reasoning";
 
+/** 思考等级，部分推理模型支持从 off 到 max 逐级调节 */
+export type AIThinkingLevel =
+  | "off"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+export const AI_THINKING_LEVELS: AIThinkingLevel[] = [
+  "off",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
+export const AI_GEMINI_THINKING_LEVELS: AIThinkingLevel[] = [
+  "off",
+  "low",
+  "medium",
+  "high",
+];
+
+export function normalizeAIThinkingLevel(
+  value: unknown,
+  protocol?: AIProtocol,
+): AIThinkingLevel | undefined {
+  const raw = String(value ?? "")
+    .trim()
+    .toLowerCase() as AIThinkingLevel;
+  if (!raw) return undefined;
+  if (protocol === "gemini") {
+    return AI_GEMINI_THINKING_LEVELS.includes(raw) ? raw : undefined;
+  }
+  return AI_THINKING_LEVELS.includes(raw) ? raw : undefined;
+}
+
+/** 模型角色：主对话 / 干活 / 看图 */
 export type AIModelRole = "main" | "working" | "vision";
 
+/** 一个模型提供商的连接配置 */
 export interface AIProviderConfig {
   id: string;
   name: string;
@@ -253,6 +315,7 @@ export interface AIProviderConfig {
   headers?: Record<string, string>;
 }
 
+/** 模型描述：归属于某个提供商，带能力与上下文窗口信息 */
 export interface AIModelDescriptor {
   id: string;
   providerId: string;
@@ -262,6 +325,7 @@ export interface AIModelDescriptor {
   contextWindow?: number;
   maxOutputTokens?: number;
   isCustom?: boolean;
+  thinkingLevel?: AIThinkingLevel;
 }
 
 export interface AIInstanceInfo {
@@ -271,6 +335,7 @@ export interface AIInstanceInfo {
   role?: AIModelRole;
 }
 
+/** AI 实例：一个绑定到具体提供商与模型的调用句柄 */
 export interface AIInstance {
   generateText(options: {
     prompt?: string;
@@ -305,6 +370,7 @@ export interface AIInstance {
   removePrompt(name: string): boolean;
 }
 
+/** AI 服务：实例 / 提供商 / 模型 / 技能的统一管理入口 */
 export interface AIService {
   create(options: {
     name: string;
@@ -347,6 +413,11 @@ export interface AIService {
     capabilities?: AIModelCapability[];
   }): AIModelDescriptor;
   removeCustomModel?(modelFullId: string): boolean;
+  removeModel?(modelFullId: string): boolean;
+  setModelThinkingLevel?(
+    modelFullId: string,
+    level: AIThinkingLevel | undefined,
+  ): boolean;
   getRoleBindings?(): Record<AIModelRole, string | undefined>;
   setRoleBinding?(role: AIModelRole, modelFullId: string | undefined): boolean;
   getInstanceByRole?(role: AIModelRole): AIInstance | undefined;
@@ -371,6 +442,7 @@ export interface AIService {
 
 // ---------- chat runtime ----------
 
+/** 聊天运行时：让插件复用 chat 插件的"发通知 / 收集信息"能力 */
 export interface ChatRuntime {
   generateNotice(options: ChatRuntimeNoticeOptions): Promise<ChatRuntimeResult>;
   requestInformation(
@@ -380,6 +452,7 @@ export interface ChatRuntime {
 
 export const TOOL_RESULT_FOLLOWUP_KEY = "__miokuFollowup";
 
+/** 工具结果附带的内容：文本与图片/视频引用 */
 export interface ToolResultFollowup {
   text: string;
   images?: Array<{ url: string; detail?: "auto" | "low" | "high" }>;
@@ -416,6 +489,7 @@ export type ChatRuntimeNoticeOptions = ChatRuntimeBaseOptions & {
   instruction: string;
 };
 
+/** 让 AI 按给定 JSON Schema 收集并返回结构化信息 */
 export type ChatRuntimeInformationRequestOptions = ChatRuntimeBaseOptions & {
   task: string;
   schema: {

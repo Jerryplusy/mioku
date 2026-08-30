@@ -1,4 +1,4 @@
-import { logger } from "mioki";
+import { logger } from "mioku";
 import type { MiokuService, PluginHelp } from "mioku";
 import { HelpService } from "./types";
 
