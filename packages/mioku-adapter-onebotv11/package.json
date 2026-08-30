@@ -1,0 +1,48 @@
+{
+  "name": "mioku-adapter-onebotv11",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "OneBot v11 adapter for mioku (NapCat).",
+  "keywords": [
+    "mioku"
+  ],
+  "engines": {
+    "node": ">= 22.18.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsdown -w",
+    "build": "tsdown"
+  },
+  "bin": {
+    "mioku-adapter-onebotv11": "./dist/cli.mjs"
+  },
+  "exports": {
+    ".": {
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.mjs"
+    },
+    "./cli": {
+      "require": "./dist/cli.cjs",
+      "import": "./dist/cli.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "author": "Viki <hi@viki.moe> (https://github.com/vikiboss)",
+  "license": "MIT",
+  "peerDependencies": {
+    "mioku": "^1.0.0"
+  },
+  "dependencies": {
+    "consola": "^3.4.2",
+    "napcat-sdk": "^0.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.8",
+    "mioku": "workspace:*",
+    "tsdown": "^0.18.4",
+    "typescript": "^5.9.3"
+  }
+}

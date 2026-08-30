@@ -4,9 +4,10 @@
   "type": "module",
   "dependencies": {
     "mioku": "workspace:*",
+    "mioku-adapter-onebotv11": "workspace:*",
+    "mioku-adapter-stdin": "workspace:*",
     "mioku-plugin-60s": "workspace:*",
     "mioku-plugin-admin": "workspace:*",
-    "mioku-plugin-boot": "workspace:*",
     "mioku-plugin-chat": "workspace:*",
     "mioku-plugin-deerpipe": "workspace:*",
     "mioku-plugin-help": "workspace:*",
@@ -15,27 +16,30 @@
     "mioku-plugin-media": "workspace:*",
     "mioku-plugin-meme": "workspace:*",
     "mioku-plugin-music": "workspace:*",
+    "mioku-plugin-sekai": "workspace:*",
+    "mioku-plugin-terraria": "workspace:*",
     "mioku-service-60s": "workspace:*",
     "mioku-service-ai": "workspace:*",
     "mioku-service-applemusic": "workspace:*",
-    "mioku-service-netease": "workspace:*",
+    "mioku-service-audio": "workspace:*",
     "mioku-service-config": "workspace:*",
     "mioku-service-help": "workspace:*",
+    "mioku-service-netease": "workspace:*",
+    "mioku-service-packet": "workspace:*",
     "mioku-service-screenshot": "workspace:*",
-    "mioku-service-webui": "workspace:*",
-    "mioku-service-audio": "workspace:*"
+    "mioku-service-webui": "workspace:*"
   },
   "scripts": {
     "start": "bun run app.ts"
   },
-  "mioki": {
-    "prefix": "~",
+  "mioku": {
+    "prefix": ".",
     "owners": [
-      3479445703
+      3479445703,
+      "stdin"
     ],
     "admins": [],
     "plugins": [
-      "boot",
       "help",
       "chat",
       "demo",
@@ -46,16 +50,23 @@
       "meme",
       "mc",
       "deerpipe",
-      "impact"
+      "impact",
+      "terraria",
+      "sekai"
     ],
     "log_level": "info",
-    "napcat": [
-      {
-        "protocol": "ws",
-        "port": 5577,
-        "host": "192.168.1.201",
-        "token": "114514"
-      }
-    ]
+    "adapters": {
+      "onebotv11": {
+        "instances": [
+          {
+            "protocol": "ws",
+            "host": "192.168.1.201",
+            "port": 5577,
+            "token": "114514"
+          }
+        ]
+      },
+      "stdin": {}
+    }
   }
 }

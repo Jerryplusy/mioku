@@ -2,7 +2,7 @@
 
 > AI-powered bot application based on mioki
 
-基于 [mioki](https://mioki.viki.moe/) 的聊天机器人框架。
+轻量·跨平台·插件式的机器人框架
 
 ## 特性
 

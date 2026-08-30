@@ -1,6 +1,6 @@
 {
   "name": "mioku-plugin-help",
-  "version": "2.3.3",
+  "version": "3.0.0",
   "description": "帮助插件，使用截图服务生成美观的帮助图片，并提供 #状态 指令",
   "main": "index.ts",
   "type": "module",
@@ -32,11 +32,12 @@
     ]
   },
   "peerDependencies": {
-    "mioku": "^0.8.0",
-    "mioki": "^0.16.0"
+    "mioku": "^1.0.0"
+  },
+  "dependencies": {
+    "systeminformation": "^5.31.6"
   },
   "devDependencies": {
-    "mioku": "workspace:*",
-    "mioki": "^0.16.0"
+    "mioku": "workspace:*"
   }
 }
