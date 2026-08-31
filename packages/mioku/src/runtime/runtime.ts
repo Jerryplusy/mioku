@@ -43,12 +43,18 @@ import type { Adapter, AdapterDefinition, BotLifecycleEvent } from "../adapter";
 import type { PluginCandidate } from "../loader";
 import type { Event } from "../adapter";
 import type { Bot } from "../adapter";
+import { CrossAdapterMessageDeduplicator } from "./cross-adapter-dedup";
 
 export interface CreateRuntimeOptions {
   readonly cwd: string;
   readonly logger: Logger;
   readonly builtinPlugins?: readonly MiokuPlugin[];
   readonly driverFactory?: () => Driver;
+  /** 去重选项；缺省全部开启 */
+  readonly dedup?: {
+    /** 跨适配器指纹去重 */
+    readonly crossAdapter?: boolean;
+  };
 }
 
 export interface AdapterStartResult {
@@ -80,6 +86,7 @@ export class MiokuRuntime {
   >();
   readonly #driverFactory: () => Driver;
   readonly #builtinPlugins: readonly MiokuPlugin[];
+  readonly #crossDedup: CrossAdapterMessageDeduplicator | null;
   #started = false;
   #stopped = false;
 
@@ -98,6 +105,10 @@ export class MiokuRuntime {
     });
     this.#bots = new BotRegistry();
     this.#capabilities = new CapabilityRegistry();
+    this.#crossDedup =
+      options.dedup?.crossAdapter === false
+        ? null
+        : new CrossAdapterMessageDeduplicator();
   }
 
   get cwd(): string {
@@ -251,6 +262,7 @@ export class MiokuRuntime {
       capabilities: this.#capabilities,
       logger: this.#logger.child({ adapter: state.definition.name }),
       emit: (event) => this.#emitLifecycle(event),
+      crossDedup: this.#crossDedup,
     });
   }
 

@@ -224,7 +224,10 @@ const unregister = registerStatusProvider(
     adapter: "echo",
     bot_id: bot.bot_id,
     impl: "echo-server",       // 平台自报的实现名，可省
-    version: "1.2.3",          // 平台自报的实现版本，可省
+    version: "1.2.3",          // 实现端版本，可省
+    protocol: "v11",           // 协议版本，如 OneBot 的 v11，可省
+    platform: "aPad",          // 登录设备，可省
+    platform_version: "9.3.50.40225", // 登录设备的客户端版本，可省
     stats: {
       friends: 128,
       groups: 32,

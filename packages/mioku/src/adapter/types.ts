@@ -56,6 +56,8 @@ export interface AdapterContext {
 export interface Adapter {
   readonly name: string;
   readonly version: string;
+  /** 底层实现库 */
+  readonly impl?: { readonly name: string; readonly version?: string };
 
   start(context: AdapterContext): Promise<void> | void;
   stop(reason?: string): Promise<void> | void;

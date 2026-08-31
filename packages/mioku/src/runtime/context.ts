@@ -5,6 +5,7 @@ import type { Driver } from '../driver'
 import type { Event } from '../adapter'
 import type { CapabilityRegistry } from '../adapter'
 import type { EventBus } from './bus'
+import type { CrossAdapterMessageDeduplicator } from './cross-adapter-dedup'
 import type { Logger } from '../logger'
 import type { BotRegistry } from './bots'
 import type { Adapter } from '../adapter'
@@ -34,6 +35,7 @@ export class AdapterContextImpl implements AdapterContext {
   readonly #logger: Logger
   readonly #emit: (event: BotLifecycleEvent) => Promise<void>
   readonly #pendingStarts = new Set<Promise<void>>()
+  readonly #crossDedup: CrossAdapterMessageDeduplicator | null
 
   constructor(options: {
     state: RuntimeAdapterState
@@ -43,6 +45,7 @@ export class AdapterContextImpl implements AdapterContext {
     capabilities: CapabilityRegistry
     logger: Logger
     emit: (event: BotLifecycleEvent) => Promise<void>
+    crossDedup?: CrossAdapterMessageDeduplicator | null
   }) {
     this.#state = options.state
     this.#bots = options.bots
@@ -51,6 +54,7 @@ export class AdapterContextImpl implements AdapterContext {
     this.#capabilities = options.capabilities
     this.#logger = options.logger
     this.#emit = options.emit
+    this.#crossDedup = options.crossDedup ?? null
   }
 
   registerBot(bot: Bot): BotContext {
@@ -147,6 +151,28 @@ export class AdapterContextImpl implements AdapterContext {
   }
 
   async dispatch(event: Event): Promise<void> {
+    if (event.kind === 'message') {
+      // 发送者是本运行时里另一台已连接 bot（如同群的其它 bot 实例）时，
+      // 不进入任何 handler，切断 bot 互相触发导致的循环。
+      // 发送者恰为接收 bot 自身 id 的消息（自身回显、stdin 控制台用户）保持原行为，
+      // 由插件层的 self 过滤与 owner 体系处理。
+      const senderId = event.user_id
+      if (senderId != null) {
+        const senderBot = this.#bots.pick(senderId)
+        if (senderBot && senderBot.bot_id !== event.self_id) {
+          this.#logger.debug(
+            `拦截来自其他已连接 bot 的消息: sender=${senderId} self=${event.self_id}`,
+          )
+          return
+        }
+      }
+      if (this.#crossDedup?.isDuplicate(event)) {
+        this.#logger.debug(
+          `丢弃跨适配器重复消息: adapter=${event.identity?.adapter ?? ''} sender=${event.user_id ?? ''}`,
+        )
+        return
+      }
+    }
     await this.#bus.dispatch(event)
   }
 

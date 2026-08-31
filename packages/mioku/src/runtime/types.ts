@@ -20,10 +20,16 @@ export interface AdapterStatusStats {
 export interface AdapterStatus {
   readonly adapter: string
   readonly bot_id?: string
-  /** 实现名称，如 NapCat / Lagrange，由平台自报 */
+  /** 实现端名称，如 NapCat / LLOneBot，由平台自报 */
   readonly impl?: string
-  /** 实现版本，如 OneBot 实现端的 app_version */
+  /** 实现端版本，如 OneBot 实现端的 app_version */
   readonly version?: string
+  /** 协议版本，如 OneBot 的 v11 */
+  readonly protocol?: string
+  /** 登录设备 / 平台，如 aPad、iPhone */
+  readonly platform?: string
+  /** 登录设备对应的客户端版本，如 icqq 的签名版本 9.3.50.40225 */
+  readonly platform_version?: string
   readonly stats?: AdapterStatusStats
   /** 原始数据，仅供插件读取，core 不展示 */
   readonly data: Readonly<Record<string, unknown>>

@@ -36,7 +36,7 @@ import {
 } from './system/restart'
 import { startAutoUpdateScheduler } from './system/auto-update'
 
-import type { MessageSegment } from '../../adapter'
+import type { Adapter, MessageSegment } from '../../adapter'
 import type { MessageEvent } from '../../adapter'
 import type { AccessHook, AccessControlConfig, PluginHelp, PluginMetadata } from '../../types'
 import type { MiokuStatus } from './status'
@@ -48,6 +48,12 @@ export type { MiokuStatus } from './status'
 export type { StatusProvider } from './adapters'
 
 export const CORE_PLUGINS = ['mioku-core']
+
+type AdapterEntry = {
+  name: string
+  version?: string
+  impl?: { name: string; version?: string }
+}
 
 export const formatMiokuStatusFn = formatMiokuStatus
 
@@ -227,17 +233,19 @@ const core: MiokuPlugin = definePlugin({
 
     const collectBots = (): typeof ctx.bots => ctx.bots
     /** 已加载的适配器优先，再补上只在 bot 上出现过的适配器名 */
-    const collectAdapters = (): { name: string; version?: string }[] => {
-      const list: { name: string; version?: string }[] = ctx.adapters.map((adapter) => ({
-        name: adapter.name,
-        version: adapter.version,
-      }))
+    const collectAdapters = (): AdapterEntry[] => {
+      const describe = (name: string, adapter?: Adapter): AdapterEntry => ({
+        name,
+        version: adapter?.version,
+        impl: adapter?.impl ? { name: adapter.impl.name, version: adapter.impl.version } : undefined,
+      })
+      const list = ctx.adapters.map((adapter) => describe(adapter.name, adapter))
       const seen = new Set(list.map((adapter) => adapter.name))
       for (const bot of ctx.bots) {
         const name = String(bot.adapter)
         if (seen.has(name)) continue
         seen.add(name)
-        list.push({ name, version: ctx.getAdapter(name)?.version })
+        list.push(describe(name, ctx.getAdapter(name)))
       }
       return list
     }
