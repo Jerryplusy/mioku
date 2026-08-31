@@ -38,7 +38,7 @@ import { createOneBotStatusProvider } from './status'
 import { buildMessageEvent, buildMetaEvent, buildNoticeEvent, buildRequestEvent, decodeWsMessage } from './event'
 import { buildPayload, sentFromOneBot, stringifyMessage } from './message'
 
-import type { Adapter, AdapterContext, AdapterFactoryOptions } from 'mioku'
+import type { Adapter, AdapterContext, AdapterFactoryOptions, EventIdentity } from 'mioku'
 import type { OneBotAdapterConfig, OneBotInstanceConfig } from './config'
 import type { AdapterStatus, Capability, Event, Logger, Bot, MessageEvent } from 'mioku'
 import type { WebSocketConnection } from 'mioku'
@@ -146,6 +146,41 @@ const buildNoticeFromOneBot = (
   }
 }
 
+const idOf = (value: unknown): string | undefined =>
+  typeof value === 'number' || typeof value === 'string' ? String(value) : undefined
+
+/**
+ * 从原始 OneBot 数据构建判重用的 identity：
+ * notice/request 等无 message_id 的事件必须携带区分度字段，
+ * 否则同一秒内的不同事件会被误判为重复。
+ */
+const buildHandleIdentity = (adapter: string, botId: string, data: Record<string, unknown>): EventIdentity => {
+  const postType = typeof data.post_type === 'string' ? data.post_type : 'unknown'
+  const userId = idOf(data.user_id)
+  const groupId = idOf(data.group_id)
+  const subType = typeof data.sub_type === 'string' ? data.sub_type : undefined
+  let fingerprint: string | undefined
+  if (postType === 'notice') {
+    fingerprint = [idOf(data.notice_type), subType, userId, idOf(data.target_id)]
+      .filter((part) => part != null)
+      .join('.')
+  } else if (postType === 'request') {
+    fingerprint = [idOf(data.request_type), subType].filter((part) => part != null).join('.')
+  } else if (postType === 'meta_event') {
+    fingerprint = [idOf(data.meta_event_type), subType].filter((part) => part != null).join('.')
+  }
+  return {
+    adapter,
+    bot_id: botId,
+    event_type: postType,
+    message_id: idOf(data.message_id),
+    timestamp: typeof data.time === 'number' ? data.time * 1000 : undefined,
+    source_id: groupId ?? userId,
+    native_event_id: idOf(data.flag),
+    fingerprint: fingerprint || undefined,
+  }
+}
+
 const buildAdapter = (
   instance: OneBotInstanceConfig,
   adapterName: 'onebotv11',
@@ -174,17 +209,11 @@ const buildAdapter = (
 
   const handleEvent = async (data: Record<string, unknown>): Promise<void> => {
     if (!bot || !adapterContext) return
-    const identity = {
-      adapter: adapterName,
-      bot_id: bot.bot_id,
-      event_type: typeof data.post_type === 'string' ? data.post_type : 'unknown',
-      message_id:
-        typeof data.message_id === 'number' || typeof data.message_id === 'string'
-          ? String(data.message_id)
-          : undefined,
-      timestamp: typeof data.time === 'number' ? data.time * 1000 : undefined,
+    const identity = buildHandleIdentity(adapterName, bot.bot_id, data)
+    if (dedup.isDuplicate(identity)) {
+      logger.debug(`丢弃重复事件: ${identity.event_type}${identity.message_id ? `#${identity.message_id}` : ''}`)
+      return
     }
-    if (dedup.isDuplicate(identity)) return
 
     if (data.post_type === 'message') {
       receiveCount++

@@ -21,6 +21,7 @@ export const createOneBotStatusProvider = (
         bot_id: bot.bot_id,
         impl: versionInfo.app_name,
         version: versionInfo.app_version,
+        protocol: versionInfo.protocol_version,
         stats: {
           friends: friendList.length,
           groups: groupList.length,
