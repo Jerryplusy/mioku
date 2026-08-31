@@ -31,6 +31,12 @@ fields:
         description: qsign 服务的 /sign 地址，通常需要带 ?key=...
         placeholder: 可空
 
+      - key: platform
+        label: 登录设备类型
+        type: text
+        description: 登录设备类型：aphone（安卓手机，默认）/ apad（安卓平板）/ awatch（安卓手表）/ ipad / imac
+        placeholder: aphone
+
       - key: ignore_self
         label: 忽略自己账号的消息
         type: switch
