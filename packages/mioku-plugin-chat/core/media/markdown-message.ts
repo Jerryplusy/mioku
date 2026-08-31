@@ -1,6 +1,28 @@
 export const MARKDOWN_OPEN_TAG = "<MARKDOWN>";
 export const MARKDOWN_CLOSE_TAG = "</MARKDOWN>";
 
+const QUOTE_MARKER_ONLY = /^(?:\s*\[reply:[^\]\n]+\])+\s*$/i;
+
+export function isQuoteMarkerOnlyUnit(unit: string): boolean {
+  return QUOTE_MARKER_ONLY.test(String(unit || "").trim());
+}
+
+export function mergeQuoteMarkerUnits(units: string[]): string[] {
+  const result: string[] = [];
+  let pending: string[] = [];
+
+  for (const unit of units) {
+    if (isQuoteMarkerOnlyUnit(unit)) {
+      pending.push(unit.trim());
+      continue;
+    }
+    result.push(pending.length > 0 ? [...pending, unit].join("\n") : unit);
+    pending = [];
+  }
+
+  return result;
+}
+
 export function splitOutgoingUnits(text: string): string[] {
   const normalized = String(text || "").replace(/\r/g, "");
   const result: string[] = [];

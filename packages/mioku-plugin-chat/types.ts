@@ -270,7 +270,7 @@ export interface ChatMessage {
   groupId?: number;
   groupName?: string;
   timestamp: number;
-  messageId?: number; // QQ message_id
+  messageId?: string; // 消息 id
 }
 
 /**
@@ -282,7 +282,7 @@ export interface TargetMessage {
   userRole: string;
   userTitle?: string;
   content: string;
-  messageId?: number;
+  messageId?: string;
   timestamp: number;
 }
 
@@ -336,7 +336,7 @@ export interface ChatResult {
   messages: string[];
   pendingAt: number[];
   pendingPoke: number[];
-  pendingQuote?: number;
+  pendingQuote?: string;
   toolCalls: { name: string; args: any; result: any }[];
   emojiPath?: string | null;
   protocolMessages?: ChatCompletionMessageParam[];

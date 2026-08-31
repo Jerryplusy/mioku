@@ -56,7 +56,7 @@ export async function isQuotingBot(
         return null;
       }
     } catch (err) {
-      logger.error(err);
+      ctx.logger.error(err);
     }
   }
   return null;
@@ -214,7 +214,7 @@ interface FormattedHistoryMessage {
   userName: string;
   userRole: string;
   content: string;
-  messageId: number;
+  messageId: string;
   timestamp: number;
   role: "user" | "assistant";
 }
@@ -229,6 +229,8 @@ interface HistoryFormatContext {
     | undefined;
   historyMediaOptions: HistoryMediaProcessingOptions;
   botUin: number;
+  /** 本运行时全部已连接 bot 的 id：这些账号的消息一律不作为用户历史（防 bot 互触循环） */
+  botIds: Set<string>;
   memberNameCache: Map<string, string>;
   hashLookupCache: Map<string, string | null>;
 }
@@ -258,6 +260,8 @@ async function resolveMemberName(
 }
 
 function extractQuotedText(messageSegs: any): string {
+  // icqq 的 source.message 是 brief 字符串；onebot 是 segment 数组
+  if (typeof messageSegs === "string") return messageSegs.trim();
   if (!Array.isArray(messageSegs) || messageSegs.length === 0) return "";
   const parts: string[] = [];
   for (const seg of messageSegs) {
@@ -347,7 +351,10 @@ async function formatHistoryMessage(
   msg: HistoryMessage,
   ctx: HistoryFormatContext,
 ): Promise<FormattedHistoryMessage | null> {
+  // 自己或本运行时其它 bot 的消息不作为用户历史，
+  // 否则多 bot 同群时会把彼此的消息当作用户接话，形成循环触发
   if (String(msg.user_id) === String(ctx.botUin)) return null;
+  if (ctx.botIds.has(String(msg.user_id))) return null;
 
   let content = "";
   try {
@@ -364,7 +371,10 @@ async function formatHistoryMessage(
     userName: msg.nickname || String(msg.user_id || "unknown"),
     userRole: "member",
     content,
-    messageId: Number(msg.message_id) || 0,
+    messageId:
+      msg.message_id != null && msg.message_id !== ""
+        ? String(msg.message_id)
+        : "",
     timestamp: msg.time ?? Date.now(),
     role: "user",
   };
@@ -524,7 +534,7 @@ export async function getGroupHistory(
     userName: string;
     userRole: string;
     content: string;
-    messageId: number;
+    messageId: string;
     timestamp: number;
     role: "user" | "assistant";
   }>
@@ -535,7 +545,7 @@ export async function getGroupHistory(
     userName: string;
     userRole: string;
     content: string;
-    messageId: number;
+    messageId: string;
     timestamp: number;
     role: "user" | "assistant";
   }> = [];
@@ -548,7 +558,7 @@ export async function getGroupHistory(
         userName: msg.userName || "Miku",
         userRole: msg.userRole || "member",
         content: msg.content,
-        messageId: msg.messageId ?? 0,
+        messageId: msg.messageId ?? "",
         timestamp: msg.timestamp,
         role: "assistant",
       });
@@ -562,7 +572,7 @@ export async function getGroupHistory(
         userName: msg.userName || String(msg.userId || "unknown"),
         userRole: msg.userRole || "member",
         content: msg.content,
-        messageId: msg.messageId ?? 0,
+        messageId: msg.messageId ?? "",
         timestamp: msg.timestamp,
         role: "user",
       });
@@ -596,6 +606,8 @@ export async function getGroupHistory(
       : [];
 
     const botUin = selfId;
+    const botIds = new Set<string>(ctx.bots.map((b) => String(b.bot_id)));
+    botIds.add(String(botUin));
     const memberNameCache = new Map<string, string>();
     const hashLookupCache = new Map<string, string | null>();
 
@@ -611,6 +623,7 @@ export async function getGroupHistory(
       db,
       historyMediaOptions,
       botUin,
+      botIds,
       memberNameCache,
       hashLookupCache,
     };

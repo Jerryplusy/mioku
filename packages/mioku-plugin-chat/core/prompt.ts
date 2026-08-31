@@ -45,7 +45,7 @@ export interface DynamicPromptContext {
   reviewMessages?: {
     contents: string[];
     userNames: string[];
-    messageIds: number[];
+    messageIds: string[];
   };
   currentEmotion?: string;
   expressionContext?: string;
@@ -276,7 +276,7 @@ function buildResponseFormatSection(
 - **SPECIAL ACTIONS in your text (auto-parsed and removed from message):**
   - Use [at:123456] in your text to @ someone (123456 is the QQ number)
   - Use [poke:123456] in your text to poke someone. IMPORTANT: when you plan to poke a user, DON't describe your poke actions.
-  - Use [reply:123456] at the START of a line to quote-reply that message (123456 is message_id)
+  - Use [reply:message_id] at the START of a line to quote-reply that message (copy the message_id EXACTLY as shown after # in the chat history; it may contain letters, e.g. [reply:P2rW...pMB])
   - **You can use MULTIPLE [reply:xxx] markers in different lines to quote multiple messages!**`);
 
   if (ctx.config.audio?.enabled) {
@@ -579,13 +579,15 @@ function buildChatHistorySection(ctx: DynamicPromptContext): string {
   for (const msg of chatHistory) {
     const time = new Date(msg.timestamp);
     const timeStr = `${String(time.getMonth() + 1).padStart(2, "0")}-${String(time.getDate()).padStart(2, "0")} ${String(time.getHours()).padStart(2, "0")}:${String(time.getMinutes()).padStart(2, "0")}`;
+    const msgIdStr = msg.messageId ? `#${msg.messageId}` : "";
 
     if (msg.role === "assistant") {
+      const contentStr = msgIdStr ? `${msg.content} ${msgIdStr}` : msg.content;
       if (currentAssistantBlock && currentAssistantBlock.timeStr === timeStr) {
-        currentAssistantBlock.contents.push(msg.content);
+        currentAssistantBlock.contents.push(contentStr);
       } else {
         flushAssistant();
-        currentAssistantBlock = { timeStr, contents: [msg.content] };
+        currentAssistantBlock = { timeStr, contents: [contentStr] };
       }
       continue;
     }
@@ -600,16 +602,16 @@ function buildChatHistorySection(ctx: DynamicPromptContext): string {
           : "Member";
     const titleStr = msg.userTitle ? `, ${msg.userTitle}` : "";
     const qqStr = msg.userId ? `${msg.userId}` : "";
-    const msgIdStr = msg.messageId ? ` #${msg.messageId}` : "";
     mergedLines.push(
-      `[${timeStr}] ${name}(${qqStr}, ${roleLabel}${titleStr})${msgIdStr}): ${msg.content}`,
+      `[${timeStr}] ${name}(${qqStr}, ${roleLabel}${titleStr})${msgIdStr ? ` ${msgIdStr}` : ""}: ${msg.content}`,
     );
   }
   flushAssistant();
 
   return `## Recent Context
 ${mergedLines.join("\n")}
--- DON'T repeat yourself or bring up old topics - focus on what's being said right now. --`;
+-- DON'T repeat yourself or bring up old topics - focus on what's being said right now. --
+-- Use [reply:message_id] with the #id shown after a message to quote-reply it. --`;
 }
 
 function buildTargetMessageSection(

@@ -66,7 +66,7 @@ export type GetHumanizeContexts = (
 export type SendAIResponse = (
   options: SendAIResponseOptions,
   selfId: number,
-) => Promise<void>;
+) => Promise<Array<string | undefined>>;
 
 export type SaveBotMessages = (
   groupId: number,
@@ -77,6 +77,7 @@ export type SaveBotMessages = (
   db: ChatDatabase,
   ctx: MiokuContext,
   bot?: Bot,
+  sentMessageIds?: Array<string | undefined>,
 ) => void;
 
 export type SendEmoji = (
@@ -146,7 +147,7 @@ export type PromptCtxForRunChat = {
   reviewMessages?: {
     contents: string[];
     userNames: string[];
-    messageIds: number[];
+    messageIds: string[];
   };
   promptInjections?: ChatRuntimePromptInjection[];
   emojiAgent?: EmojiAgent;

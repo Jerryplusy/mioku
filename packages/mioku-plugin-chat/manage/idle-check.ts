@@ -237,7 +237,7 @@ export class IdleCheckManager {
       userId: 0,
       userRole: "member",
       content: "[No one in the group is talking? I'll answer!]",
-      messageId: 0,
+      messageId: "",
       timestamp: scheduledAt,
     };
     const botRole = await getBotRole(groupId, this.ctx, selfId);

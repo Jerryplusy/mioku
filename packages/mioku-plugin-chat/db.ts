@@ -24,7 +24,7 @@ function toChatMessage(row: any): ChatMessage {
     groupId: row.group_id,
     groupName: row.group_name,
     timestamp: row.timestamp,
-    messageId: row.message_id,
+    messageId: row.message_id != null ? String(row.message_id) : undefined,
   };
 }
 
@@ -174,7 +174,7 @@ export async function initDatabase(): Promise<ChatDatabase> {
       group_id INTEGER,
       group_name TEXT,
       timestamp INTEGER NOT NULL,
-      message_id INTEGER
+      message_id TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);
@@ -452,7 +452,10 @@ export async function initDatabase(): Promise<ChatDatabase> {
         $groupId: msg.groupId ?? null,
         $groupName: msg.groupName ?? null,
         $timestamp: msg.timestamp,
-        $messageId: msg.messageId ?? null,
+        $messageId:
+          msg.messageId == null || msg.messageId === ""
+            ? null
+            : String(msg.messageId),
       });
     },
 

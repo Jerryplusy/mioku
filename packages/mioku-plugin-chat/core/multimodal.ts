@@ -127,7 +127,7 @@ export type MediaByMessageId =
  */
 export async function getMediaByMessageId(
   ctx: MiokuContext,
-  messageId: number,
+  messageId: string | number,
   e: any,
 ): Promise<MediaByMessageId> {
   try {
@@ -153,7 +153,7 @@ export async function getMediaByMessageId(
 
     return null;
   } catch (err) {
-    logger.error(
+    ctx.logger.error(
       `[multimodal] Failed to get media from message ${messageId}: ${err}`,
     );
     return null;
@@ -191,7 +191,7 @@ export async function getQuoteImageUrl(
     // 提取图片 URL
     return (imageSeg as any).url || (imageSeg as any).data?.url || null;
   } catch (err) {
-    logger.error(`[multimodal] Failed to get quote image URL: ${err}`);
+    ctx.logger.error(`[multimodal] Failed to get quote image URL: ${err}`);
     return null;
   }
 }

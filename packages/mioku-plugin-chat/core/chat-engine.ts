@@ -1,5 +1,4 @@
 import type { AIInstance, SessionToolDefinition } from "mioku";
-import { logger } from "mioku";
 import type { AITool } from "mioku";
 import type {
   ToolContext,
@@ -19,6 +18,8 @@ import {
 } from "./external-skills";
 import {
   consumeCompleteStreamUnits,
+  isQuoteMarkerOnlyUnit,
+  mergeQuoteMarkerUnits,
   splitOutgoingUnits,
 } from "./media/markdown-message";
 import {
@@ -90,15 +91,16 @@ export async function runChat(
   const staticPrompt = buildStaticSystemPrompt(staticCtx);
   const dynamicUserContext = buildDynamicUserContext(dynamicCtx);
 
-  logger.info(
+  const engineLog = toolCtx.ctx.logger;
+  engineLog.info(
     `[chat-engine] Session ${toolCtx.sessionId} | target: ${targetMessage.userName}(${targetMessage.userId}): "${targetMessage.content}"`,
   );
   if (toolCtx.config.debug) {
-    logger.info("[chat-engine] === Static System Prompt ===");
-    logger.info(staticPrompt);
-    logger.info("[chat-engine] === Dynamic User Context ===");
-    logger.info(dynamicUserContext);
-    logger.info("[chat-engine] === End Prompts ===");
+    engineLog.info("[chat-engine] === Static System Prompt ===");
+    engineLog.info(staticPrompt);
+    engineLog.info("[chat-engine] === Dynamic User Context ===");
+    engineLog.info(dynamicUserContext);
+    engineLog.info("[chat-engine] === End Prompts ===");
   }
 
   const hasStructuredHistory =
@@ -181,6 +183,7 @@ export async function runChat(
     streamedMessages.push(text);
   };
 
+  let pendingQuoteMarkerLines: string[] = [];
   const flushStreamBuffer = async (force: boolean): Promise<void> => {
     while (true) {
       const { units, rest } = consumeCompleteStreamUnits(streamBuffer, force);
@@ -191,16 +194,28 @@ export async function runChat(
 
       streamBuffer = rest;
       for (const unit of units) {
+        if (!unit.trim()) {
+          continue;
+        }
+        if (isQuoteMarkerOnlyUnit(unit)) {
+          pendingQuoteMarkerLines.push(unit.trim());
+          continue;
+        }
+        const mergedUnit = pendingQuoteMarkerLines.length
+          ? [...pendingQuoteMarkerLines, unit].join("\n")
+          : unit;
+        pendingQuoteMarkerLines = [];
         const unitIndex = streamUnitIndex;
         streamUnitIndex += 1;
-        if (unit.trim()) {
-          await emitStreamSegment(unit, unitIndex);
-        }
+        await emitStreamSegment(mergedUnit, unitIndex);
       }
 
       if (!force) {
         break;
       }
+    }
+    if (force) {
+      pendingQuoteMarkerLines = [];
     }
   };
 
@@ -252,7 +267,9 @@ export async function runChat(
       targetMessage,
     })
     .catch((err) =>
-      logger.warn(`[chat-engine] background emotion refresh failed: ${err}`),
+      toolCtx.ctx.logger.warn(
+        `[chat-engine] background emotion refresh failed: ${err}`,
+      ),
     );
 
   if (streamEnabled) {
@@ -261,9 +278,9 @@ export async function runChat(
   }
 
   if (toolCtx.config.debug) {
-    logger.info("[chat-engine] === Raw AI Reply ===");
-    logger.info(response.content || "(empty)");
-    logger.info("[chat-engine] === End Raw AI Reply ===");
+    toolCtx.ctx.logger.info("[chat-engine] === Raw AI Reply ===");
+    toolCtx.ctx.logger.info(response.content || "(empty)");
+    toolCtx.ctx.logger.info("[chat-engine] === End Raw AI Reply ===");
   }
 
   const allToolCalls = response.allToolCalls || [];
@@ -275,16 +292,18 @@ export async function runChat(
   }
 
   if (toolCtx.config.debug && response.reasoning) {
-    logger.info(`[chat-engine] AI reasoning: ${response.reasoning}`);
+    toolCtx.ctx.logger.info(
+      `[chat-engine] AI reasoning: ${response.reasoning}`,
+    );
   }
 
   if (toolCtx.config.debug && allToolCalls.length > 0) {
     for (const toolCall of allToolCalls) {
       const resultPreview = JSON.stringify(toolCall.result);
-      logger.info(
+      toolCtx.ctx.logger.info(
         `[chat-engine] Tool call: ${toolCall.name}(${JSON.stringify(toolCall.arguments).substring(0, 100)})`,
       );
-      logger.info(
+      toolCtx.ctx.logger.info(
         `[chat-engine] Tool result: ${toolCall.name} -> ${resultPreview ? resultPreview.substring(0, 300) : "undefined"}`,
       );
     }
@@ -298,7 +317,9 @@ export async function runChat(
       currentUserMessages,
       [],
     );
-    logger.info(`[chat-engine] Session ${toolCtx.sessionId} ended by tool`);
+    toolCtx.ctx.logger.info(
+      `[chat-engine] Session ${toolCtx.sessionId} ended by tool`,
+    );
     toolCtx.aiService.finalizeUsage?.(usageId, {
       sentUserMessages: 0,
       sentAssistantMessages: 0,
@@ -358,9 +379,9 @@ export async function runChat(
     }
   }
 
-  const finalMessages = splitOutgoingUnits(finalText).filter(
-    (unit) => unit.trim() && unit.trim() !== "---",
-  );
+  const finalMessages = mergeQuoteMarkerUnits(
+    splitOutgoingUnits(finalText),
+  ).filter((unit) => unit.trim() && unit.trim() !== "---");
   const sentAssistantMessages = streamEnabled
     ? streamedMessages.length
     : finalMessages.length;
@@ -369,7 +390,7 @@ export async function runChat(
     sentAssistantMessages,
   });
 
-  logger.info(
+  toolCtx.ctx.logger.info(
     `[chat-engine] Session ${toolCtx.sessionId} done | ${finalMessages.length} msg(s), ${allToolCalls.length} tool call(s)`,
   );
 
@@ -955,7 +976,7 @@ ${failedSummary}
       return text;
     }
   } catch (err) {
-    logger.warn(
+    toolCtx.ctx.logger.warn(
       `[chat-engine] Failed to generate tool-failure fallback reply: ${err}`,
     );
   }

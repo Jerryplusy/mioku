@@ -72,6 +72,12 @@ async function fetchGroupHistoryByMessageIdPaging(
   const bot = toolCtx.event?.bot;
   if (!bot) return [];
 
+  const otherBotIds = new Set<string>(
+    toolCtx.ctx.bots
+      .map((b) => String(b.bot_id))
+      .filter((id) => id !== String(bot.bot_id)),
+  );
+
   const collected: ChatMessage[] = [];
   const seenMessageIds = new Set<string>();
   let cursorMessageId = "";
@@ -113,6 +119,9 @@ async function fetchGroupHistoryByMessageIdPaging(
     let newAdded = 0;
 
     for (const raw of history) {
+      const rawUserId = String(raw.user_id || "");
+      if (rawUserId !== "" && otherBotIds.has(rawUserId)) continue;
+
       const messageId = String(raw.message_id || "");
       const key =
         messageId !== ""
@@ -134,7 +143,7 @@ async function fetchGroupHistoryByMessageIdPaging(
         userRole: "member",
         groupId: toolCtx.groupId,
         timestamp: ts,
-        messageId: messageId !== "" ? Number(messageId) : undefined,
+        messageId: messageId !== "" ? messageId : undefined,
       });
       newAdded += 1;
 
@@ -156,7 +165,7 @@ async function fetchGroupHistoryByMessageIdPaging(
 
   collected.sort((a, b) => {
     if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
-    return (a.messageId || 0) - (b.messageId || 0);
+    return String(a.messageId ?? "").localeCompare(String(b.messageId ?? ""));
   });
 
   return collected.length > limit ? collected.slice(-limit) : collected;

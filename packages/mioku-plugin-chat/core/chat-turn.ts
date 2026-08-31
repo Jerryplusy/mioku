@@ -41,7 +41,7 @@ interface ResolvedRuntimeContext {
   userRole: "owner" | "admin" | "member";
   userTitle?: string;
   groupName?: string;
-  messageId?: number;
+  messageId?: string;
 }
 
 const NO_NEW_MESSAGE =
@@ -147,13 +147,13 @@ export async function finalizeChatTurn(
   const { groupId, groupSessionId, userId, selfId, cfg, toolCtx, result, event } = args;
 
   if (groupId) {
-    await pluginCtx.sendAIResponse(
+    const sentMessageIds = await pluginCtx.sendAIResponse(
       { ctx, groupId, messages: result.messages, config: cfg, sentIndices: toolCtx.sentMessageIndices, audioService: pluginCtx.audioService },
       selfId,
     );
     await pluginCtx.sendEmoji(ctx, groupId, result.emojiPath, event?.bot);
     const now = Date.now();
-    pluginCtx.saveBotMessages(groupId, groupSessionId, result.messages, now, cfg, pluginCtx.db, ctx, event?.bot);
+    pluginCtx.saveBotMessages(groupId, groupSessionId, result.messages, now, cfg, pluginCtx.db, ctx, event?.bot, sentMessageIds);
     if (args.isLive) {
       pluginCtx.idleCheckManager.recordBotMessages(groupSessionId, result.messages.length, selfId);
     }

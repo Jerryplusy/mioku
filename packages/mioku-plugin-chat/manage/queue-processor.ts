@@ -25,7 +25,7 @@ import { finalizeChatTurn } from "../core/chat-turn";
 import { extractContent, getBotRole } from "../utils";
 
 interface DynamicDelayQueueData {
-  messages: Array<{ event: any; content: string; userName: string; userId: number; messageId: number; timestamp: number }>;
+  messages: Array<{ event: any; content: string; userName: string; userId: number; messageId: string; timestamp: number }>;
   timer: NodeJS.Timeout | null;
   delayUntil: number;
 }
