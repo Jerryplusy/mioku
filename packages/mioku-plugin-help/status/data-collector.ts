@@ -2,12 +2,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 import systemInfo from "systeminformation";
 import {
+  buildAdapterReport,
   connectedBots,
   getPluginMetadataList,
   getService,
   Services,
 } from "mioku";
-import type { AIService, Bot, MiokuContext } from "mioku";
+import type {
+  AdapterInstanceStatus,
+  AIService,
+  Bot,
+  MiokuContext,
+} from "mioku";
 import { getRenderVersions } from "../utils";
 import { perfMonitor } from "./performance-monitor";
 import { networkSampler } from "./network-sampler";
@@ -26,8 +32,6 @@ import type {
   MemoryStick,
   NetworkStatus,
   NodeRuntimeStatus,
-  OneBotStatusData,
-  OneBotVersionInfoData,
   ResourceStatus,
   StatusSnapshot,
   SystemInfo,
@@ -216,82 +220,55 @@ async function collectBotStatuses(
   ctx: MiokuContext,
   stdinAvatar?: string,
 ): Promise<BotAccountStatus[]> {
-  const results: BotAccountStatus[] = [];
-  for (const bot of bots) {
+  // 统一走框架的适配器上报，不再按 OneBot 的 get_version_info / get_status 猜
+  const adapters = ctx.adapters.map((adapter) => ({
+    name: adapter.name,
+    version: adapter.version,
+    impl: adapter.impl,
+  }));
+  const report = await withTimeout(buildAdapterReport({ bots, adapters })).catch(
+    () => null,
+  );
+  const instances = new Map<string, AdapterInstanceStatus>();
+  const implOf = new Map<string, { name: string; version?: string } | undefined>();
+  for (const entry of report?.adapters ?? []) {
+    implOf.set(entry.name, entry.impl);
+    for (const instance of entry.instances) {
+      instances.set(`${entry.name}:${instance.bot_id}`, instance);
+    }
+  }
+
+  return bots.map((bot) => {
     const uin = String(bot.bot_id);
     const adapter = String(bot.adapter);
     const isStdin = adapter === "stdin";
-    const nickname = String(bot.nickname || "Unknown Bot");
-    let framework = isStdin ? adapter : "unknown";
-    const avatarUrl = isStdin
-      ? toImageSrc(stdinAvatar || "")
-      : `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=160`;
+    const instance = instances.get(`${adapter}:${uin}`);
+    const lib = implOf.get(adapter);
+    // 实现端优先用平台自报的（NapCat / LLOneBot），否则退回适配器的底层库（ICQQ）
+    const framework = instance?.impl || lib?.name || adapter;
+    const appVersion = instance?.version || lib?.version || "";
 
-    let online = true;
-    let groupCount = 0;
-    let friendCount = 0;
-    let appVersion = "unknown";
-    let protocolVersion = "unknown";
-    const [statusResult, groupsResult, friendsResult, versionResult] =
-      await Promise.allSettled([
-        withTimeout(Promise.resolve().then(() => bot.sendApi<OneBotStatusData>("get_status"))).catch(
-          () => null,
-        ),
-        withTimeout(Promise.resolve().then(() => bot.getGroupList())).catch(
-          () => [],
-        ),
-        withTimeout(Promise.resolve().then(() => bot.getFriendList())).catch(
-          () => [],
-        ),
-        withTimeout(
-          Promise.resolve().then(() => bot.sendApi<OneBotVersionInfoData>("get_version_info")),
-        ).catch(() => null),
-      ]);
-    if (statusResult.status === "fulfilled" && statusResult.value) {
-      online = Boolean(statusResult.value.online);
-    }
-    if (isStdin) {
-      // 终端适配器没有 OneBot 版本信息，直接用适配器包版本
-      appVersion = String(ctx.getAdapter(adapter)?.version ?? "unknown");
-    } else if (versionResult.status === "fulfilled" && versionResult.value) {
-      const v = versionResult.value;
-      framework = String(v.app_name || "").trim() || framework;
-      if (v.app_version && v.app_version.trim()) {
-        appVersion = v.app_version.trim();
-      }
-      if (v.protocol_version && v.protocol_version.trim()) {
-        protocolVersion = v.protocol_version.trim();
-      }
-    }
-    if (
-      groupsResult.status === "fulfilled" &&
-      Array.isArray(groupsResult.value)
-    ) {
-      groupCount = groupsResult.value.length;
-    }
-    if (
-      friendsResult.status === "fulfilled" &&
-      Array.isArray(friendsResult.value)
-    ) {
-      friendCount = friendsResult.value.length;
-    }
-
-    results.push({
+    return {
       uin,
-      nickname,
-      avatarUrl,
+      nickname: String(bot.nickname || "Unknown Bot"),
+      avatarUrl: isStdin
+        ? toImageSrc(stdinAvatar || "")
+        : `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=160`,
       adapter,
-      framework,
-      appVersion,
-      protocolVersion,
-      online,
-      groupCount,
-      friendCount,
-      send: 0,
-      receive: 0,
-    });
-  }
-  return results;
+      framework: isStdin ? adapter : framework,
+      appVersion: isStdin
+        ? String(ctx.getAdapter(adapter)?.version ?? "")
+        : appVersion,
+      protocolVersion: instance?.protocol ?? "",
+      platform: instance?.platform ?? "",
+      platformVersion: instance?.platformVersion ?? "",
+      online: bot.online,
+      groupCount: instance?.stats.groups ?? 0,
+      friendCount: instance?.stats.friends ?? 0,
+      send: instance?.stats.sent ?? 0,
+      receive: instance?.stats.received ?? 0,
+    };
+  });
 }
 
 async function collectFramework(
