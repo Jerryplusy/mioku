@@ -1,7 +1,7 @@
 {
   "name": "mioku-adapter-onebotv11",
   "type": "module",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OneBot v11 adapter for mioku (NapCat).",
   "keywords": [
     "mioku"
