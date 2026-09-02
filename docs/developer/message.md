@@ -56,7 +56,9 @@ segment.face("1")                        // 表情
 segment.forward("forward_id")            // 合并转发
 segment.node({ user_id, nickname, content })  // 转发节点
 segment.json({...})                      // JSON 卡片
-segment.raw(type, data)                  // 任意原始段，兜底用
+segment.markdown("# 标题\n**markdown** 内容")   // markdown 消息
+segment.button({ label, action, data })  // 交互按钮
+segment.raw(type, data)                  // 任意原始段
 ```
 
 ::: tip 发本地文件
