@@ -1,5 +1,6 @@
 import { escapeHtml } from "../utils";
 import { getHelpTheme, HELP_BACKGROUND_IMAGE_URL } from "../theme";
+import { displayAdapterId } from "mioku";
 import type {
   AIUsageStatsLite,
   BotAccountStatus,
@@ -139,9 +140,10 @@ function renderHero(
           .map((bot) => {
             const statusText = bot.online ? "在线" : "离线";
             const statusColor = bot.online ? "#10b981" : "#ef4444";
+            const adapterLabel = displayAdapterId(bot.adapter);
             const implText =
               bot.adapter === "stdin"
-                ? `${bot.adapter}@${bot.appVersion}`
+                ? `${adapterLabel}@${bot.appVersion}`
                 : bot.appVersion
                   ? `${bot.framework} ${bot.appVersion}${bot.protocolVersion ? ` · 协议 ${bot.protocolVersion}` : ""}`
                   : bot.framework;
@@ -151,7 +153,7 @@ function renderHero(
             // Nickname is rendered as a bold large heading above the avatar
             // row (not as a chip). Chips below only carry the metadata.
             const tags = [
-              { text: String(bot.uin || "—"), kind: "data" },
+              { text: displayAdapterId(bot.uin) || "—", kind: "data" },
               { text: statusText, kind: bot.online ? "ok" : "danger" },
               { text: `好友 ${fmtNumber(bot.friendCount)}`, kind: "data" },
               { text: `群聊 ${fmtNumber(bot.groupCount)}`, kind: "data" },
