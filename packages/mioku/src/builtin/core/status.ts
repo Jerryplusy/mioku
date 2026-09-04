@@ -2,7 +2,7 @@ import os from 'node:os'
 import cp from 'node:child_process'
 import { version } from '../../../package.json' with { type: 'json' }
 
-import { filesize, localNum, prettyMs } from '../../utils'
+import { filesize, localNum, prettyMs, displayAdapterId } from '../../utils'
 
 import type { Bot } from '../../adapter'
 import type { AdapterReport, AdapterStatusStats } from './adapters'
@@ -191,7 +191,7 @@ export const formatMiokuStatus = async (status: MiokuStatus): Promise<string> =>
       const statsLine = hasStats
         ? `\n📋 ${localNum(bot.friends ?? 0)} 好友 / ${localNum(bot.groups ?? 0)} 群 / 📮 收 ${localNum(bot.receive ?? 0)} 发 ${localNum(bot.send ?? 0)}`
         : ''
-      return `👤 ${bot.nickname || '(未命名)'} (${bot.bot_id})${statsLine}`
+      return `👤 ${bot.nickname || '(未命名)'} (${displayAdapterId(bot.bot_id)})${statsLine}`
     })
     .join('\n')
 

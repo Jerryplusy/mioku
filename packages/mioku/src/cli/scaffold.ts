@@ -72,7 +72,7 @@ async function selectPackages(
   message: string,
   prefix: string,
   initial: string[] = [],
-  options: { exclude?: string[] } = {},
+  options: { exclude?: string[]; typeLabel?: string } = {},
 ): Promise<string[]> {
   console.log(`\n正在从 npm 拉取 ${prefix}* 包...`);
   const hits = await searchMiokuPackages(prefix);
@@ -81,13 +81,18 @@ async function selectPackages(
     return [];
   }
   const excludeSet = new Set(options.exclude ?? []);
+  const typeLabel = options.typeLabel ?? "";
   const items = hits
     .filter((hit) => !excludeSet.has(hit.name))
-    .map((hit) => ({
-      label: `${hit.name}  (${hit.description || "暂无介绍"})`,
-      value: hit.name,
-    }));
-  return multiSelect(message, items, initial);
+    .map((hit) => {
+      const shortName = shortNameOfPackage(hit.name);
+      const desc = hit.description || "暂无介绍";
+      const label = typeLabel
+        ? `${shortName}  (${typeLabel} · ${desc})`
+        : `${shortName}  (${desc})`;
+      return { label, value: hit.name };
+    });
+  return multiSelect(message, items, initial, { required: false });
 }
 
 export async function scaffoldCommand(version: string): Promise<number> {
@@ -114,14 +119,14 @@ export async function scaffoldCommand(version: string): Promise<number> {
   ];
 
   const adapterNames = await selectPackages(
-    "选择要安装的适配器（上下键选择，空格勾选，回车确认，系统适配器 stdin 将自动安装）",
+    "选择要安装的适配器（上下键选择，空格勾选，回车确认）",
     ADAPTER_PREFIX,
     [],
-    { exclude: SYSTEM_ADAPTERS },
+    { exclude: SYSTEM_ADAPTERS, typeLabel: "mioku 适配器" },
   );
   const allAdapterNames = [...SYSTEM_ADAPTERS, ...adapterNames];
   if (adapterNames.length === 0) {
-    consola.warn("未选择其他适配器，将仅启用系统适配器 stdin（终端输入）");
+    consola.info("未选择其他适配器，仅启用标准输入");
   }
 
   const pkgJsonObj = {
@@ -199,7 +204,7 @@ export async function scaffoldCommand(version: string): Promise<number> {
     "选择要安装的插件（上下键选择，空格勾选，回车确认）",
     PLUGIN_PREFIX,
     [],
-    { exclude: SYSTEM_PLUGINS },
+    { exclude: SYSTEM_PLUGINS, typeLabel: "mioku 插件" },
   );
   consola.info(
     `系统插件将自动安装: ${SYSTEM_PLUGINS.map(shortNameOfPackage).join(", ")}`,

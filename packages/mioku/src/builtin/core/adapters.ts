@@ -1,5 +1,5 @@
 import { getOrCreate } from "../../internal/registry";
-import { localNum, prettyMs } from "../../utils";
+import { localNum, prettyMs, displayAdapterId } from "../../utils";
 
 import type { Bot } from "../../adapter";
 import type { AdapterStatus, AdapterStatusStats } from "../../runtime/types";
@@ -225,7 +225,7 @@ const formatInstance = (instance: AdapterInstanceStatus): string[] => {
     instance.online ? "" : "🔴 离线",
   ].filter(Boolean);
   const lines = [
-    `👤 ${instance.nickname || "(未命名)"} (${instance.bot_id})${tags.length ? ` · ${tags.join(" · ")}` : ""}`,
+    `👤 ${instance.nickname || "(未命名)"} (${displayAdapterId(instance.bot_id)})${tags.length ? ` · ${tags.join(" · ")}` : ""}`,
   ];
   const uptime =
     instance.online && instance.connected_at != null
@@ -246,9 +246,9 @@ const summarize = (entry: AdapterReportEntry): string => {
   return `${online === 0 ? "🔴" : "🟡"} ${localNum(online)}/${localNum(total)} 实例在线`;
 };
 
-/** `名称@包版本[/实现库 v版本]` */
+/** `名称@包版本[/实现库 v版本]`，名称走人类可读映射 */
 const formatAdapterName = (entry: AdapterReportEntry): string => {
-  const base = `${entry.name}${entry.version ? `@${entry.version}` : ""}`;
+  const base = `${displayAdapterId(entry.name)}${entry.version ? `@${entry.version}` : ""}`;
   if (!entry.impl) return base;
   const impl = `${entry.impl.name}${entry.impl.version ? ` v${entry.impl.version}` : ""}`;
   return `${base}/${impl}`;

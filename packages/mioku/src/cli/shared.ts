@@ -190,6 +190,7 @@ export async function multiSelect(
   message: string,
   items: Array<{ label: string; value: string }>,
   initial: string[] = [],
+  options: { required?: boolean } = {},
 ): Promise<string[]> {
   if (items.length === 0) return [];
   const result = await consola.prompt(message, {
@@ -197,6 +198,7 @@ export async function multiSelect(
     options: items,
     initial,
     cancel: "reject",
+    required: options.required ?? false,
   });
   return (result as Array<string | { value: string }>).map((item) =>
     typeof item === "string" ? item : item.value,
