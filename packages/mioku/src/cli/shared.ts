@@ -217,7 +217,14 @@ export function runAdapterCli(name: string, cwd: string): void {
       `mioku-adapter-${name}${ext}`,
     );
     if (fs.existsSync(binPath)) {
-      run(binPath, [], { cwd });
+      const realPath = (() => {
+        try {
+          return fs.realpathSync(binPath);
+        } catch {
+          return binPath;
+        }
+      })();
+      run(realPath, [], { cwd });
       return;
     }
   }
