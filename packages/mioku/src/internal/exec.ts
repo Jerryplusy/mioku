@@ -20,7 +20,10 @@ function windowsExtensions(): string[] {
 // for npm's global bin, which is where `npm i -g bun` actually lands.
 function searchDirs(): string[] {
   const raw = process.env.PATH || process.env.Path || "";
-  const dirs = raw.split(path.delimiter).map((d) => d.trim()).filter(Boolean);
+  const dirs = raw
+    .split(path.delimiter)
+    .map((d) => d.trim())
+    .filter(Boolean);
   const home = os.homedir();
 
   const extra = isWindows
@@ -58,7 +61,8 @@ export function resolveCommand(command: string): string | null {
   } else {
     const exts = isWindows ? windowsExtensions() : [""];
     const hasKnownExt =
-      isWindows && exts.some((ext) => command.toLowerCase().endsWith(ext.toLowerCase()));
+      isWindows &&
+      exts.some((ext) => command.toLowerCase().endsWith(ext.toLowerCase()));
 
     outer: for (const dir of searchDirs()) {
       if (hasKnownExt) {
@@ -93,26 +97,19 @@ function needsCmdShell(resolved: string): boolean {
   return ext === ".cmd" || ext === ".bat";
 }
 
-// cmd.exe argument quoting: escape embedded quotes and any run of backslashes
-// that precedes a quote, then wrap the whole thing so metacharacters inside
-// (&, |, <, >, ^) are inert.
-function quoteForCmd(arg: string): string {
-  if (arg === "") return '""';
-  const escaped = arg
-    .replace(/(\\*)"/g, '$1$1\\"')
-    .replace(/(\\+)$/, "$1$1");
-  return `"${escaped}"`;
-}
-
 export interface SpawnPlan {
   file: string;
   args: string[];
   windowsVerbatimArguments?: boolean;
+  shell?: boolean | string;
 }
 
 // Windows can't CreateProcess a .cmd/.bat shim directly (npm installs bun as
-// bun.cmd), so those get routed through cmd.exe with hand-quoted arguments
-// rather than shell: true, which would leave the args unquoted.
+// bun.cmd), so those get routed through cmd.exe via shell: true. Previously
+// we hand-rolled a cmd.exe invocation with windowsVerbatimArguments: true,
+// but that combination misbehaves with spawnSync + stdio:"inherit" on
+// Node.js >= 20 (manifests as the spawned process printing "undefined" or
+// a spurious EINVAL), so we let Node's shell wrapper do the quoting.
 /** 生成跨平台的 spawn 参数，Windows 下 .cmd/.bat 会改经 cmd.exe 执行 */
 export function buildSpawnPlan(command: string, args: string[]): SpawnPlan {
   const resolved = resolveCommand(command);
@@ -125,12 +122,10 @@ export function buildSpawnPlan(command: string, args: string[]): SpawnPlan {
     return { file: resolved, args };
   }
 
-  const comspec = process.env.ComSpec || process.env.COMSPEC || "cmd.exe";
-  const line = [resolved, ...args].map(quoteForCmd).join(" ");
   return {
-    file: comspec,
-    args: ["/d", "/s", "/c", `"${line}"`],
-    windowsVerbatimArguments: true,
+    file: resolved,
+    args,
+    shell: true,
   };
 }
 
@@ -153,7 +148,7 @@ export function runCommand(
       cwd: options.cwd,
       env: options.env,
       stdio: ["ignore", "pipe", "pipe"],
-      windowsVerbatimArguments: plan.windowsVerbatimArguments,
+      shell: plan.shell,
     });
 
     let stdout = "";
@@ -189,7 +184,7 @@ export function runCommandInherit(
   const result = spawnSync(plan.file, plan.args, {
     cwd: options.cwd,
     stdio: "inherit",
-    windowsVerbatimArguments: plan.windowsVerbatimArguments,
+    shell: plan.shell,
   });
 
   if (result.error) throw result.error;

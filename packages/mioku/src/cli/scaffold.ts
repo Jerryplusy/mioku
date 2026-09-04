@@ -111,7 +111,7 @@ export async function scaffoldCommand(version: string): Promise<number> {
       .map((o) => o.trim())
       .filter(Boolean),
     STDIN_OWNER,
-  ].join(", ");
+  ];
 
   const adapterNames = await selectPackages(
     "选择要安装的适配器（上下键选择，空格勾选，回车确认，系统适配器 stdin 将自动安装）",
@@ -124,33 +124,32 @@ export async function scaffoldCommand(version: string): Promise<number> {
     consola.warn("未选择其他适配器，将仅启用系统适配器 stdin（终端输入）");
   }
 
-  const pkgJson = dedent(`
-    {
-      "name": "${name}",
-      "private": true,
-      "type": "module",
-      "dependencies": {
-        "mioku": "latest"
-        ${allAdapterNames.map((pkg) => `,\n        "${pkg}": "latest"`).join("")}
+  const pkgJsonObj = {
+    name,
+    private: true,
+    type: "module" as const,
+    dependencies: {
+      mioku: "latest",
+      ...Object.fromEntries(allAdapterNames.map((p) => [p, "latest"])),
+    },
+    mioku: {
+      prefix: ".",
+      owners: ownersList,
+      admins: [] as string[],
+      plugins: ["demo"],
+      log_level: "info",
+      online_push: false,
+      error_push: false,
+      adapters: {
+        stdin: {},
       },
-      "mioku": {
-        "prefix": ".",
-        "owners": [${ownersList}],
-        "admins": [],
-        "plugins": ["demo"],
-        "log_level": "info",
-        "online_push": false,
-        "error_push": false,
-        "adapters": {
-          "stdin": {}
-        }
-      },
-      "scripts": {
-        "start": "bun run app.ts",
-        "dev": "bun run --watch app.ts"
-      }
-    }
-  `);
+    },
+    scripts: {
+      start: "bun run app.ts",
+      dev: "bun run --watch app.ts",
+    },
+  };
+  const pkgJson = `${JSON.stringify(pkgJsonObj, null, 2)}\n`;
 
   const pluginCode = dedent(`
     import { definePlugin } from 'mioku'
