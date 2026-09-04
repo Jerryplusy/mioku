@@ -16,8 +16,8 @@ function windowsExtensions(): string[] {
 }
 
 // PATH is a snapshot taken at process start, so a package manager installed
-// mid-run won't be on it. These are the standard install prefixes for bun and
-// for npm's global bin, which is where `npm i -g bun` actually lands.
+// mid-run won't be on it. We enumerate every plausible install prefix for
+// bun / npm / scoop / chocolatey so the CLI can find bun in one shot.
 function searchDirs(): string[] {
   const raw = process.env.PATH || process.env.Path || "";
   const dirs = raw
@@ -25,12 +25,31 @@ function searchDirs(): string[] {
     .map((d) => d.trim())
     .filter(Boolean);
   const home = os.homedir();
+  const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming");
+  const localAppData =
+    process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+  const programFiles = process.env.ProgramFiles || "C:\\Program Files";
+  const programFilesX86 =
+    process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
 
   const extra = isWindows
     ? [
+        // 官方安装器
         path.join(home, ".bun", "bin"),
-        path.join(process.env.APPDATA || "", "npm"),
-        path.join(process.env.ProgramFiles || "", "nodejs"),
+        // npm 全局（带 .cmd shim）
+        path.join(appData, "npm"),
+        path.join(appData, "npm", "node_modules", ".bin"),
+        // 备用 bun 位置
+        path.join(localAppData, "bun", "bin"),
+        path.join(programFiles, "bun", "bin"),
+        path.join(programFilesX86, "bun", "bin"),
+        // scoop
+        path.join(home, "scoop", "shims"),
+        // chocolatey
+        "C:\\ProgramData\\chocolatey\\bin",
+        // node 自带（很多用户 npm i -g 装到 node 目录）
+        path.join(programFiles, "nodejs"),
+        path.join(programFilesX86, "nodejs"),
       ]
     : [
         path.join(home, ".bun", "bin"),
@@ -48,6 +67,27 @@ function isExecutableFile(candidate: string): boolean {
   } catch {
     return false;
   }
+}
+
+function searchCommandViaShell(command: string): string | null {
+  if (command.includes("/") || command.includes(path.sep)) return null;
+  const shellCmd = isWindows ? "where" : "which";
+  try {
+    const result = spawnSync(shellCmd, [command], {
+      encoding: "utf-8",
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 5000,
+    });
+    if (result.status === 0 && result.stdout) {
+      const first = result.stdout
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .find(Boolean);
+      if (first && isExecutableFile(first)) return first;
+    }
+  } catch {}
+  return null;
 }
 
 /** 在 PATH 及常见安装目录中解析命令的完整路径，结果带缓存 */
@@ -81,6 +121,8 @@ export function resolveCommand(command: string): string | null {
         }
       }
     }
+
+    if (!resolved) resolved = searchCommandViaShell(command);
   }
 
   resolveCache.set(command, resolved);

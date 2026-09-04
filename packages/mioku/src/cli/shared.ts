@@ -1,4 +1,5 @@
 import fs, { readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import consola from "consola";
 import dedent from "dedent";
@@ -323,6 +324,37 @@ export function ensurePackageManager(): void {
     clearCommandCache();
   }
   if (!hasCommand("bun")) {
+    const home = os.homedir();
+    const candidates =
+      process.platform === "win32"
+        ? [
+            path.join(home, ".bun", "bin", "bun.exe"),
+            path.join(process.env.APPDATA || "", "npm", "bun.cmd"),
+            path.join(
+              process.env.APPDATA || "",
+              "npm",
+              "node_modules",
+              ".bin",
+              "bun.cmd",
+            ),
+          ]
+        : [
+            path.join(home, ".bun", "bin", "bun"),
+            "/usr/local/bin/bun",
+            "/opt/homebrew/bin/bun",
+          ];
+    for (const c of candidates) {
+      try {
+        if (fs.existsSync(c)) {
+          consola.warn(
+            `检测到 bun 已安装在 ${c}。请把该目录加入 PATH 后重新运行本命令。`,
+          );
+          break;
+        }
+      } catch {
+        // 忽略
+      }
+    }
     consola.error(
       "bun 安装后仍无法在 PATH 中找到，请重启终端或将 bun 的安装目录加入 PATH 后重试",
     );
