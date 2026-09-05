@@ -32,6 +32,7 @@ import type { TaskContext } from 'node-cron'
 import type { CapabilityRegistry } from '../adapter'
 import type { BotRegistry } from './bots'
 import type { Message, MessageInput } from '../adapter'
+import { CrossAdapterEventDeduplicator } from './cross-adapter-dedup'
 
 /** 插件管理器：插件列表查询与运行时启停 */
 export interface PluginManager {
@@ -55,6 +56,7 @@ export interface ContextOptions {
   readonly listAdapters: () => readonly Adapter[]
   readonly onUpdateConfig: (updater: (config: MiokuConfig) => void | Promise<void>) => Promise<void>
   readonly pluginManager: PluginManager
+  readonly dedup?: boolean
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -92,6 +94,8 @@ export const hasEventRight = (event: unknown): boolean => isEventOwnerOrAdmin(ev
 
 type SemanticRoute<R extends string> = R extends `${string}:${infer Rest}` ? Rest : R
 
+type NormalizeRoute<R extends string> = R extends `!${infer Rest}` ? Rest : R
+
 type EventKindOfSemanticRoute<R extends string> = R extends `message${string}`
   ? MessageEvent
   : R extends `notice${string}`
@@ -102,7 +106,7 @@ type EventKindOfSemanticRoute<R extends string> = R extends `message${string}`
         ? MetaEvent
         : Event
 
-export type EventKindOfRoute<R extends string> = EventKindOfSemanticRoute<SemanticRoute<R>>
+export type EventKindOfRoute<R extends string> = EventKindOfSemanticRoute<SemanticRoute<NormalizeRoute<R>>>
 
 type AdapterBotOf<Name extends string> = Name extends keyof AdapterBotMap
   ? AdapterBotMap[Name] extends Bot
@@ -238,11 +242,15 @@ export class MiokuContext {
     route: R,
     handler: (event: RouteEvent<R>) => void | Promise<void>,
   ): () => void {
-    const routes = Array.isArray(route) ? route : [route]
+    const inputRoutes = Array.isArray(route) ? route : [route]
+    const bypassDedup = inputRoutes.some((item) => item.startsWith('!'))
+    const routes = inputRoutes.map((item) => item.startsWith('!') ? item.slice(1) : item)
     const source = `plugin:${this.#options.pluginName}`
     const handledEvents = new WeakSet<Event>()
+    const dedup = bypassDedup || this.#options.dedup === false ? null : new CrossAdapterEventDeduplicator()
     const wrappedHandler = async (event: Event): Promise<void> => {
       if (handledEvents.has(event)) return
+      if (dedup?.isDuplicate(event)) return
       handledEvents.add(event)
       await handler(event as RouteEvent<R>)
     }

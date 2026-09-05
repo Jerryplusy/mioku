@@ -43,7 +43,6 @@ import type { Adapter, AdapterDefinition, BotLifecycleEvent } from "../adapter";
 import type { PluginCandidate } from "../loader";
 import type { Event } from "../adapter";
 import type { Bot } from "../adapter";
-import { CrossAdapterMessageDeduplicator } from "./cross-adapter-dedup";
 
 export interface CreateRuntimeOptions {
   readonly cwd: string;
@@ -86,7 +85,7 @@ export class MiokuRuntime {
   >();
   readonly #driverFactory: () => Driver;
   readonly #builtinPlugins: readonly MiokuPlugin[];
-  readonly #crossDedup: CrossAdapterMessageDeduplicator | null;
+  readonly #dedupEnabled: boolean;
   #started = false;
   #stopped = false;
 
@@ -96,6 +95,7 @@ export class MiokuRuntime {
     this.#driverFactory =
       options.driverFactory ?? (() => createDefaultDriver());
     this.#builtinPlugins = options.builtinPlugins ?? BUILTIN_PLUGINS;
+    this.#dedupEnabled = options.dedup?.crossAdapter !== false;
     this.#driver = this.#driverFactory();
     this.#bus = new EventBus();
     this.#bus.setLogger((level, message, detail) => {
@@ -105,10 +105,6 @@ export class MiokuRuntime {
     });
     this.#bots = new BotRegistry();
     this.#capabilities = new CapabilityRegistry();
-    this.#crossDedup =
-      options.dedup?.crossAdapter === false
-        ? null
-        : new CrossAdapterMessageDeduplicator();
   }
 
   get cwd(): string {
@@ -262,7 +258,6 @@ export class MiokuRuntime {
       capabilities: this.#capabilities,
       logger: this.#logger.child({ adapter: state.definition.name }),
       emit: (event) => this.#emitLifecycle(event),
-      crossDedup: this.#crossDedup,
     });
   }
 
@@ -280,6 +275,7 @@ export class MiokuRuntime {
       config: botConfig,
       logger: this.#logger.child({ plugin: plugin.name }),
       priority: plugin.priority ?? 100,
+      dedup: this.#dedupEnabled,
       getAdapter: <T extends Adapter = Adapter>(name: string) =>
         this.getAdapter<T>(name),
       listAdapters: () => this.adapters,

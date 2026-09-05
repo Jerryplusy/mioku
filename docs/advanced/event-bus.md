@@ -58,5 +58,4 @@ off(); // 取消注册
 
 ## 事件去重
 
-`ctx.handle` 会对同一个事件对象做 WeakSet 去重：如果同一个事件对象被 dispatch 两次，同一 handler 只会执行一次。这主要是为了防止适配器重复派发同一事件（比如重连时的重复投递）。
-
+`ctx.handle` 除了用 WeakSet 防止同一个事件对象重复执行，还会对不同 Bot/适配器构造出的等价事件做指纹去重。需要逐条处理时，可以用 `ctx.handle("!message", handler)` 绕过指纹去重。完整规则见[消息与事件去重](/advanced/event-dedup)。

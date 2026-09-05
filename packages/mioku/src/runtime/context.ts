@@ -5,7 +5,6 @@ import type { Driver } from '../driver'
 import type { Event } from '../adapter'
 import type { CapabilityRegistry } from '../adapter'
 import type { EventBus } from './bus'
-import type { CrossAdapterMessageDeduplicator } from './cross-adapter-dedup'
 import type { Logger } from '../logger'
 import type { BotRegistry } from './bots'
 import type { Adapter } from '../adapter'
@@ -35,7 +34,6 @@ export class AdapterContextImpl implements AdapterContext {
   readonly #logger: Logger
   readonly #emit: (event: BotLifecycleEvent) => Promise<void>
   readonly #pendingStarts = new Set<Promise<void>>()
-  readonly #crossDedup: CrossAdapterMessageDeduplicator | null
 
   constructor(options: {
     state: RuntimeAdapterState
@@ -45,7 +43,6 @@ export class AdapterContextImpl implements AdapterContext {
     capabilities: CapabilityRegistry
     logger: Logger
     emit: (event: BotLifecycleEvent) => Promise<void>
-    crossDedup?: CrossAdapterMessageDeduplicator | null
   }) {
     this.#state = options.state
     this.#bots = options.bots
@@ -54,7 +51,6 @@ export class AdapterContextImpl implements AdapterContext {
     this.#capabilities = options.capabilities
     this.#logger = options.logger
     this.#emit = options.emit
-    this.#crossDedup = options.crossDedup ?? null
   }
 
   registerBot(bot: Bot): BotContext {
@@ -165,12 +161,6 @@ export class AdapterContextImpl implements AdapterContext {
           )
           return
         }
-      }
-      if (this.#crossDedup?.isDuplicate(event)) {
-        this.#logger.debug(
-          `丢弃跨适配器重复消息: adapter=${event.identity?.adapter ?? ''} sender=${event.user_id ?? ''}`,
-        )
-        return
       }
     }
     await this.#bus.dispatch(event)

@@ -311,6 +311,7 @@ export default defineConfig({
           text: "深入机制",
           items: [
             { text: "事件总线", link: "/advanced/event-bus" },
+            { text: "消息与事件去重", link: "/advanced/event-dedup" },
             { text: "包发现与加载", link: "/advanced/loader" },
             { text: "驱动器", link: "/advanced/driver" },
             { text: "运行时生命周期", link: "/advanced/runtime" },

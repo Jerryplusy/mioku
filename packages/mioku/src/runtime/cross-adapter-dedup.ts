@@ -1,22 +1,16 @@
-import type { Event, MessageEvent } from "../adapter";
+import type { Event, MessageEvent, NoticeEvent, RequestEvent } from "../adapter";
 
 interface Entry {
-  adapter: string;
-  bucket: number;
-  at: number;
+  expiresAt: number;
 }
 
-const BUCKET_SLACK = 1;
 const PRUNE_INTERVAL = 128;
-const TTL_MS = 15_000;
+const MESSAGE_TTL_MS = 15_000;
+const EVENT_TTL_MS = 60_000;
 const MAX_SIZE = 4096;
 const MAX_SEGMENTS = 16;
 const MAX_TEXT = 256;
 
-/**
- * 把消息段序列化为跨适配器稳定的内容指纹：
- * 文本/@/表情取内容，媒体段只取类型（url/文件名跨协议不稳定）
- */
 const contentFingerprintOf = (event: MessageEvent): string => {
   const parts: string[] = [];
   for (const seg of event.message) {
@@ -30,7 +24,7 @@ const contentFingerprintOf = (event: MessageEvent): string => {
       const target = data.qq ?? data.target;
       parts.push(`a:${target == null ? "" : String(target)}`);
     } else if (seg.type === "face") {
-      parts.push(`f:${data.id == null ? "" : String(data.id)}`);
+      parts.push("f");
     } else {
       parts.push(seg.type);
     }
@@ -40,17 +34,41 @@ const contentFingerprintOf = (event: MessageEvent): string => {
 
 const scopeKeyOf = (event: MessageEvent, content: string): string =>
   [
-    event.self_id ?? "",
     event.message_type ?? "",
-    event.group_id ?? event.user_id ?? "",
-    event.user_id ?? "",
+    event.sender?.nickname?.trim() || event.user_id || "",
     content,
+  ].join("|");
+
+const noticeKeyOf = (event: NoticeEvent): string =>
+  [
+    event.kind,
+    event.identity.event_type,
+    event.notice_type ?? "",
+    event.sub_type ?? "",
+    event.group_id ?? "",
+    event.user_id ?? "",
+    event.operator_id ?? "",
+    event.identity.fingerprint ?? "",
+    event.identity.timestamp == null ? "" : Math.floor(event.identity.timestamp / 1000),
+  ].join("|");
+
+const requestKeyOf = (event: RequestEvent): string =>
+  [
+    event.kind,
+    event.identity.event_type,
+    event.request_type ?? "",
+    event.sub_type ?? "",
+    event.group_id ?? "",
+    event.user_id ?? "",
+    event.comment ?? "",
+    event.identity.fingerprint ?? "",
+    event.identity.timestamp == null ? "" : Math.floor(event.identity.timestamp / 1000),
   ].join("|");
 
 /**
  * 跨适配器消息去重（L2）
  */
-export class CrossAdapterMessageDeduplicator {
+export class CrossAdapterEventDeduplicator {
   readonly #entries = new Map<string, Entry>();
   #inserts = 0;
   #dropped = 0;
@@ -61,31 +79,29 @@ export class CrossAdapterMessageDeduplicator {
   }
 
   isDuplicate(event: Event): boolean {
-    if (event.kind !== "message") return false;
-    const messageEvent = event as MessageEvent;
-    const adapter = messageEvent.identity?.adapter ?? "";
-    const now = Date.now();
-    const bucket = Math.floor((messageEvent.time ?? now) / 1000);
-    const key = scopeKeyOf(messageEvent, contentFingerprintOf(messageEvent));
-
-    const existing = this.#entries.get(key);
-    if (existing) {
-      if (Math.abs(existing.bucket - bucket) <= BUCKET_SLACK) {
-        if (existing.adapter !== adapter) {
-          this.#dropped++;
-          return true;
-        }
-        existing.bucket = bucket;
-        existing.at = now;
-        return false;
-      }
-      existing.bucket = bucket;
-      existing.at = now;
-      existing.adapter = adapter;
+    let key: string;
+    let ttl: number;
+    if (event.kind === "message") {
+      key = scopeKeyOf(event, contentFingerprintOf(event));
+      ttl = MESSAGE_TTL_MS;
+    } else if (event.kind === "notice") {
+      key = noticeKeyOf(event);
+      ttl = EVENT_TTL_MS;
+    } else if (event.kind === "request") {
+      key = requestKeyOf(event);
+      ttl = EVENT_TTL_MS;
+    } else {
       return false;
     }
+    const now = Date.now();
 
-    this.#entries.set(key, { adapter, bucket, at: now });
+    const existing = this.#entries.get(key);
+    if (existing?.expiresAt != null && existing.expiresAt >= now) {
+      this.#dropped++;
+      return true;
+    }
+
+    this.#entries.set(key, { expiresAt: now + ttl });
     this.#inserts++;
     if (this.#inserts >= PRUNE_INTERVAL || this.#entries.size > MAX_SIZE) {
       this.#inserts = 0;
@@ -96,7 +112,7 @@ export class CrossAdapterMessageDeduplicator {
 
   #prune(now: number): void {
     for (const [key, entry] of this.#entries) {
-      if (now - entry.at > TTL_MS) this.#entries.delete(key);
+      if (entry.expiresAt < now) this.#entries.delete(key);
     }
   }
 

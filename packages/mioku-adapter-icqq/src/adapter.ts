@@ -73,7 +73,6 @@ import {
   buildRequestEvent,
 } from "./event";
 import { toIcqqMessage } from "./message";
-import { AdapterEventDeduplicator } from "./dedup";
 import type {
   Adapter,
   AdapterContext,
@@ -97,7 +96,6 @@ const build = (
   const key = `Bot${index + 1}`;
   const label = `icqq ${key}`;
   const targets = [String(index + 1), String(instance.uin)];
-  const dedup = new AdapterEventDeduplicator();
   let client: Client | undefined;
   let bot: IcqqBot | undefined;
   let context: AdapterContext | undefined;
@@ -428,12 +426,6 @@ const build = (
           bot,
           event as Parameters<typeof buildMessageEvent>[1],
         );
-        if (dedup.isDuplicate(messageEvent.identity)) {
-          logger.debug(
-            `icqq ${key} 丢弃重复消息: ${messageEvent.message_id ?? "(无 id)"}`,
-          );
-          return;
-        }
         void context?.dispatch(messageEvent);
       });
       bind("sync.message", (event) => {
@@ -465,12 +457,6 @@ const build = (
             return client!.setGroupAddRequest(request.flag, yes, reason);
           },
         );
-        if (dedup.isDuplicate(requestEvent.identity)) {
-          logger.debug(
-            `icqq ${key} 丢弃重复请求: ${request.flag ?? "(无 flag)"}`,
-          );
-          return;
-        }
         void context?.dispatch(requestEvent);
       });
       logger.info(
@@ -519,7 +505,6 @@ const build = (
       }
       client = undefined;
       bot = undefined;
-      dedup.clear();
     },
   };
 };
