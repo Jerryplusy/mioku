@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   avatarSet,
+  avatarGet,
   bindCapabilities,
   botConfig,
   botStatus,
@@ -279,6 +280,10 @@ const build = (
         await currentBot.client.setAvatar(
           req.file as Parameters<typeof currentBot.client.setAvatar>[0],
         );
+      }),
+      ctx.registerCapability(avatarGet, target, async () => {
+        // icqq 账号即 QQ 号,直接走 QQ 号头像服务
+        return `https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(currentBot.bot_id)}&s=640`;
       }),
       ctx.registerCapability(botStatus, target, async () => {
         try {

@@ -20,3 +20,5 @@ export interface AvatarSetRequest {
 export const profileSet = defineCapability<ProfileSetRequest, void>('profile.set', 1)
 /** 设置 bot 头像 */
 export const avatarSet = defineCapability<AvatarSetRequest, void>('profile.setavatar', 1)
+/** 获取 bot 头像,返回头像地址;平台无法提供时返回 null */
+export const avatarGet = defineCapability<Record<string, never>, string | null>('profile.getavatar', 1)

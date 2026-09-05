@@ -140,13 +140,7 @@ function renderHero(
           .map((bot) => {
             const statusText = bot.online ? "在线" : "离线";
             const statusColor = bot.online ? "#10b981" : "#ef4444";
-            const adapterLabel = displayAdapterId(bot.adapter);
-            const implText =
-              bot.adapter === "stdin"
-                ? `${adapterLabel}@${bot.appVersion}`
-                : bot.appVersion
-                  ? `${bot.framework} ${bot.appVersion}${bot.protocolVersion ? ` · 协议 ${bot.protocolVersion}` : ""}`
-                  : bot.framework;
+            const implText = bot.implLabel;
             const platformText = bot.platform
               ? `${bot.platform}${bot.platformVersion ? ` v${bot.platformVersion}` : ""}`
               : "";
@@ -159,7 +153,7 @@ function renderHero(
               { text: `群聊 ${fmtNumber(bot.groupCount)}`, kind: "data" },
               { text: `收 ${fmtNumber(bot.receive)}`, kind: "data" },
               { text: `发 ${fmtNumber(bot.send)}`, kind: "data" },
-              { text: implText, kind: "data" },
+              ...(implText ? [{ text: implText, kind: "data" }] : []),
               ...(platformText ? [{ text: platformText, kind: "data" }] : []),
             ];
             const tagsHtml = tags

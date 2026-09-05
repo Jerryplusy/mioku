@@ -13,6 +13,8 @@ export interface BotAccountStatus {
   avatarUrl: string;
   /** 适配器名，如 "stdin" / "onebotv11" / "icqq"。 */
   adapter: string;
+  /** 协议端与版本的可展示文案，如 "ICQQ v1.12.3" / "LLOneBot/7.12.4"，取不到时为空串 */
+  implLabel: string;
   /** 实现端名称，如 "NapCat" / "LLOneBot" / "ICQQ"，取不到时为空串 */
   framework: string;
   /** 实现端版本，如 "5.0.6"*/

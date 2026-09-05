@@ -33,6 +33,7 @@ import {
   friendDelete,
   profileSet,
   avatarSet,
+  avatarGet,
   conversationGetHistory,
   botStatus,
   ForwardNode,
@@ -132,6 +133,8 @@ export interface BotBase {
   setProfile(profile: ProfileSetRequest): Promise<void>;
   /** file 为本地路径或 URL */
   setAvatar(file: string): Promise<void>;
+  /** 获取 bot 头像地址;平台不支持或取不到时返回 null */
+  getAvatar(): Promise<string | null>;
   /** 拉取会话历史，`before` 为上一页的消息 id */
   getHistory(
     target: MessageTarget,
@@ -348,6 +351,7 @@ export const bindCapabilities = <B extends object>(
     call(profileSet, profile),
   );
   bindDefault(bot, "setAvatar", (file: string) => call(avatarSet, { file }));
+  bindDefault(bot, "getAvatar", () => call(avatarGet, {}));
   bindDefault(
     bot,
     "getHistory",

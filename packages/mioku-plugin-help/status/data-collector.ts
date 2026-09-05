@@ -200,8 +200,7 @@ async function collectBots(
   }
   // stdin 适配器恒排第一位（终端是本机主人通道，优先展示）
   const sorted = [...bots].sort(
-    (a, b) =>
-      Number(b.adapter === "stdin") - Number(a.adapter === "stdin"),
+    (a, b) => Number(b.adapter === "stdin") - Number(a.adapter === "stdin"),
   );
   return collectBotStatuses(sorted, ctx, stdinAvatar);
 }
@@ -226,11 +225,14 @@ async function collectBotStatuses(
     version: adapter.version,
     impl: adapter.impl,
   }));
-  const report = await withTimeout(buildAdapterReport({ bots, adapters })).catch(
-    () => null,
-  );
+  const report = await withTimeout(
+    buildAdapterReport({ bots, adapters }),
+  ).catch(() => null);
   const instances = new Map<string, AdapterInstanceStatus>();
-  const implOf = new Map<string, { name: string; version?: string } | undefined>();
+  const implOf = new Map<
+    string,
+    { name: string; version?: string } | undefined
+  >();
   for (const entry of report?.adapters ?? []) {
     implOf.set(entry.name, entry.impl);
     for (const instance of entry.instances) {
@@ -238,37 +240,58 @@ async function collectBotStatuses(
     }
   }
 
-  return bots.map((bot) => {
-    const uin = String(bot.bot_id);
-    const adapter = String(bot.adapter);
-    const isStdin = adapter === "stdin";
-    const instance = instances.get(`${adapter}:${uin}`);
-    const lib = implOf.get(adapter);
-    // 实现端优先用平台自报的（NapCat / LLOneBot），否则退回适配器的底层库（ICQQ）
-    const framework = instance?.impl || lib?.name || adapter;
-    const appVersion = instance?.version || lib?.version || "";
+  return Promise.all(
+    bots.map(async (bot) => {
+      const uin = String(bot.bot_id);
+      const adapter = String(bot.adapter);
+      const isStdin = adapter === "stdin";
+      const instance = instances.get(`${adapter}:${uin}`);
+      const lib = implOf.get(adapter);
+      const framework = instance?.impl || lib?.name || adapter;
+      const appVersion = instance?.version || lib?.version || "";
+      const avatarFromBot =
+        typeof bot.getAvatar === "function"
+          ? await bot.getAvatar().catch(() => null)
+          : null;
+      // 协议端版本文案:平台自报的用 impl/version(如 LLOneBot/7.12.4),
+      // 平台不自报的退回适配器元数据(如 ICQQ v1.12.3),与 .status 的展示约定一致
+      const implLabel = isStdin
+        ? "stdin"
+        : instance?.impl
+          ? instance.version
+            ? `${instance.impl}/${instance.version}`
+            : String(instance.impl)
+          : lib?.name
+            ? lib.version
+              ? `${lib.name} v${lib.version}`
+              : lib.name
+            : "";
 
-    return {
-      uin,
-      nickname: String(bot.nickname || "Unknown Bot"),
-      avatarUrl: isStdin
-        ? toImageSrc(stdinAvatar || "")
-        : `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=160`,
-      adapter,
-      framework: isStdin ? adapter : framework,
-      appVersion: isStdin
-        ? String(ctx.getAdapter(adapter)?.version ?? "")
-        : appVersion,
-      protocolVersion: instance?.protocol ?? "",
-      platform: instance?.platform ?? "",
-      platformVersion: instance?.platformVersion ?? "",
-      online: bot.online,
-      groupCount: instance?.stats.groups ?? 0,
-      friendCount: instance?.stats.friends ?? 0,
-      send: instance?.stats.sent ?? 0,
-      receive: instance?.stats.received ?? 0,
-    };
-  });
+      return {
+        uin,
+        nickname: String(bot.nickname || "Unknown Bot"),
+        avatarUrl: isStdin
+          ? toImageSrc(stdinAvatar || "")
+          : avatarFromBot
+            ? toImageSrc(avatarFromBot)
+            : `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=160`,
+        adapter,
+        implLabel,
+        framework: isStdin ? adapter : framework,
+        appVersion: isStdin
+          ? String(ctx.getAdapter(adapter)?.version ?? "")
+          : appVersion,
+        protocolVersion: instance?.protocol ?? "",
+        platform: instance?.platform ?? "",
+        platformVersion: instance?.platformVersion ?? "",
+        online: bot.online,
+        groupCount: instance?.stats.groups ?? 0,
+        friendCount: instance?.stats.friends ?? 0,
+        send: instance?.stats.sent ?? 0,
+        receive: instance?.stats.received ?? 0,
+      };
+    }),
+  );
 }
 
 async function collectFramework(
