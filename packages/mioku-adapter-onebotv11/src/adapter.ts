@@ -37,6 +37,7 @@ import { AdapterEventDeduplicator } from './dedup'
 import { createOneBotStatusProvider } from './status'
 import { buildMessageEvent, buildMetaEvent, buildNoticeEvent, buildRequestEvent, decodeWsMessage } from './event'
 import { buildPayload, sentFromOneBot, stringifyMessage } from './message'
+import { version as adapterVersion } from '../package.json' with { type: 'json' }
 
 import type { Adapter, AdapterContext, AdapterFactoryOptions, EventIdentity } from 'mioku'
 import type { OneBotAdapterConfig, OneBotInstanceConfig } from './config'
@@ -476,7 +477,7 @@ const buildAdapter = (
 
   return {
     name: adapterName,
-    version: '1.0.0',
+    version: adapterVersion,
     async start(context: AdapterContext): Promise<void> {
       adapterContext = context
       const driver = context.getDriver()
@@ -548,7 +549,7 @@ const ADAPTER_NAME = 'onebotv11'
 
 export const oneBotAdapterDefinition = defineAdapter<OneBotAdapterConfig>({
   name: ADAPTER_NAME,
-  version: '1.0.0',
+  version: adapterVersion,
   apiVersion: 1,
   validateConfig: (config): OneBotAdapterConfig => {
     const instances = normalizeInstances(config)
@@ -564,7 +565,7 @@ export const oneBotAdapterDefinition = defineAdapter<OneBotAdapterConfig>({
     )
     return {
       name: ADAPTER_NAME,
-      version: '1.0.0',
+      version: adapterVersion,
       async start(context: AdapterContext): Promise<void> {
         for (const adapter of adapters) {
           await adapter.start(context)

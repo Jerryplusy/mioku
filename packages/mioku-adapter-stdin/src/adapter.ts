@@ -19,6 +19,7 @@ import {
 
 import { createStdinBot, type StdinBot } from "./bot";
 import { normalizeConfig, type StdinAdapterConfig } from "./config";
+import { version as adapterVersion } from "../package.json" with { type: "json" };
 
 const NAME = "stdin" as const;
 const BOT_ID = "stdin";
@@ -123,7 +124,7 @@ const build = (
 
   return {
     name: NAME,
-    version: "1.0.0",
+    version: adapterVersion,
     async start(next) {
       context = next;
       bot = bindCapabilities(
@@ -192,7 +193,7 @@ const build = (
 
 export const stdinAdapterDefinition = defineAdapter<StdinAdapterConfig>({
   name: NAME,
-  version: "1.0.0",
+  version: adapterVersion,
   apiVersion: 1,
   validateConfig: (input) => normalizeConfig(input),
   create: (options: AdapterFactoryOptions<StdinAdapterConfig>) =>

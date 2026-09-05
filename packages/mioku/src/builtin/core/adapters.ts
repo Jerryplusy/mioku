@@ -246,9 +246,8 @@ const summarize = (entry: AdapterReportEntry): string => {
   return `${online === 0 ? "🔴" : "🟡"} ${localNum(online)}/${localNum(total)} 实例在线`;
 };
 
-/** `名称@包版本[/实现库 v版本]`，名称走人类可读映射 */
 const formatAdapterName = (entry: AdapterReportEntry): string => {
-  const base = `${displayAdapterId(entry.name)}${entry.version ? `@${entry.version}` : ""}`;
+  const base = `${entry.name}${entry.version ? `@${entry.version}` : ""}`;
   if (!entry.impl) return base;
   const impl = `${entry.impl.name}${entry.impl.version ? ` v${entry.impl.version}` : ""}`;
   return `${base}/${impl}`;

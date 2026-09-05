@@ -54,6 +54,7 @@ import {
   type IcqqInstanceConfig,
 } from "./config";
 import { version as icqqVersion } from "../vendor/icqq/package.json" with { type: "json" };
+import { version as adapterVersion } from "../package.json" with { type: "json" };
 import { createIcqqBot, type IcqqBot, type IcqqData } from "./bot";
 import { createCaptchaHandler } from "./captcha";
 import { bridgeIcqqLog4js } from "./logger-bridge";
@@ -326,13 +327,16 @@ const build = (
 
   return {
     name: `${NAME}.${index + 1}`,
-    version: "1.0.0",
+    version: adapterVersion,
     async start(next) {
       context = next;
       // icqq 内部用 log4js 打日志，先桥接到 mioku logger 再创建客户端，避免启动横幅等漏出
       bridgeIcqqLog4js(logger);
       client = createClient({
         ...(instance.config ?? {}),
+        data_dir:
+          instance.config?.data_dir ??
+          path.join(process.cwd(), "data", "icqq"),
         ver: instance.ver ?? instance.config?.ver,
         sign_api_addr: instance.sign_api_addr ?? instance.config?.sign_api_addr,
         ignore_self:
@@ -393,7 +397,9 @@ const build = (
         settleLogin();
       });
       bind("system.login.device", (event) => {
-        void captcha.handleDeviceLock(event as { url: string; phone: string });
+        void captcha.handleDeviceLock(
+          event as { url: string; phone?: string },
+        );
         settleLogin();
       });
       bind("system.login.auth", (event) => {
@@ -515,7 +521,7 @@ const build = (
 
 export const icqqAdapterDefinition = defineAdapter<IcqqAdapterConfig>({
   name: NAME,
-  version: "1.0.0",
+  version: adapterVersion,
   apiVersion: 1,
   validateConfig: (input) => {
     const instances = normalizeInstances(input);
@@ -604,7 +610,7 @@ export const icqqAdapterDefinition = defineAdapter<IcqqAdapterConfig>({
 
     return {
       name: NAME,
-      version: "1.0.0",
+      version: adapterVersion,
       impl: { name: "ICQQ", version: icqqVersion },
       async start(context) {
         unregisterStatus = registerStatusProvider(NAME, statusProvider);
