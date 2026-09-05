@@ -27,7 +27,7 @@ export class UsageTracker {
   private measuredTokens: AIUsageMeasuredTokens | undefined;
   private finished = false;
 
-  constructor(private readonly options: UsageTrackerOptions) {
+  constructor(private options: UsageTrackerOptions) {
     for (const message of options.initialMessages) this.recordMessage(message);
     if (options.initialTools) {
       this.toolDefinitionTokens += estimateJsonTokens(options.initialTools);
@@ -44,8 +44,14 @@ export class UsageTracker {
   recordAssistant(assistant: AssistantMessageResult): void {
     this.recordMessage(assistant.raw);
     if (assistant.servedBy?.isFallback) {
+      this.setModel(assistant.servedBy.modelId);
       this.markFallback(assistant.servedBy.providerId, assistant.servedBy.modelId);
     }
+  }
+
+  setModel(model: string): void {
+    if (!model) return;
+    this.options.model = model;
   }
 
   markFallback(providerId: string, modelId: string): void {

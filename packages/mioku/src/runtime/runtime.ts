@@ -49,6 +49,11 @@ export interface CreateRuntimeOptions {
   readonly logger: Logger;
   readonly builtinPlugins?: readonly MiokuPlugin[];
   readonly driverFactory?: () => Driver;
+  /** 去重选项；缺省全部开启 */
+  readonly dedup?: {
+    /** 跨适配器指纹去重 */
+    readonly crossAdapter?: boolean;
+  };
 }
 
 export interface AdapterStartResult {
@@ -80,6 +85,7 @@ export class MiokuRuntime {
   >();
   readonly #driverFactory: () => Driver;
   readonly #builtinPlugins: readonly MiokuPlugin[];
+  readonly #dedupEnabled: boolean;
   #started = false;
   #stopped = false;
 
@@ -89,6 +95,7 @@ export class MiokuRuntime {
     this.#driverFactory =
       options.driverFactory ?? (() => createDefaultDriver());
     this.#builtinPlugins = options.builtinPlugins ?? BUILTIN_PLUGINS;
+    this.#dedupEnabled = options.dedup?.crossAdapter !== false;
     this.#driver = this.#driverFactory();
     this.#bus = new EventBus();
     this.#bus.setLogger((level, message, detail) => {
@@ -268,6 +275,7 @@ export class MiokuRuntime {
       config: botConfig,
       logger: this.#logger.child({ plugin: plugin.name }),
       priority: plugin.priority ?? 100,
+      dedup: this.#dedupEnabled,
       getAdapter: <T extends Adapter = Adapter>(name: string) =>
         this.getAdapter<T>(name),
       listAdapters: () => this.adapters,

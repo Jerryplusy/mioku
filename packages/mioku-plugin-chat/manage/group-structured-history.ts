@@ -8,7 +8,7 @@ export interface StructuredUserInput {
   userRole?: string;
   userTitle?: string;
   content: string;
-  messageId?: number;
+  messageId?: string;
   timestamp: number;
 }
 

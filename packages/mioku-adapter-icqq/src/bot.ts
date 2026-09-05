@@ -1,6 +1,8 @@
 import {
   parseDmMessageId,
   parseGroupMessageId,
+  genDmMessageId,
+  genGroupMessageId,
 } from "mioku-adapter-icqq/vendor/icqq";
 import type {
   Client,
@@ -223,6 +225,31 @@ export const createIcqqBot = (client: Client, data: IcqqData): IcqqBotBase => {
                   limit,
                 )
             : [];
+      const sourceIdOf = (
+        item: (typeof list)[number] & { source?: { user_id?: number; seq?: number; rand?: number; time?: number } },
+      ): string | undefined => {
+        const source = item.source;
+        if (!source || source.seq == null) return undefined;
+        try {
+          return target.type === "group" && target.group_id
+            ? genGroupMessageId(
+                num(target.group_id),
+                Number(source.user_id ?? 0),
+                Number(source.seq),
+                Number(source.rand ?? 0),
+                Number(source.time ?? 0),
+              )
+            : genDmMessageId(
+                num(target.user_id!),
+                Number(source.seq),
+                Number(source.rand ?? 0),
+                Number(source.time ?? 0),
+                0,
+              );
+        } catch {
+          return undefined;
+        }
+      };
       return list.map((item) => ({
         message_id: item.message_id,
         time: item.time * 1000,
@@ -232,6 +259,9 @@ export const createIcqqBot = (client: Client, data: IcqqData): IcqqBotBase => {
             ? String((item as { nickname?: unknown }).nickname)
             : undefined,
         message: fromIcqqMessage(item.message, item.raw_message),
+        source: item.source
+          ? { ...(item.source as object), id: sourceIdOf(item) }
+          : undefined,
       }));
     },
     recallMessage: async (messageId: string) => {
@@ -245,6 +275,12 @@ export const createIcqqBot = (client: Client, data: IcqqData): IcqqBotBase => {
             message_id: item.message_id,
             time: item.time * 1000,
             user_id: String(item.user_id),
+            sender: {
+              user_id: String(item.user_id),
+              nickname:
+                (item.sender as { card?: string } | undefined)?.card ||
+                item.sender?.nickname,
+            },
             raw_message: item.raw_message,
             message: fromIcqqMessage(item.message, item.raw_message),
           }

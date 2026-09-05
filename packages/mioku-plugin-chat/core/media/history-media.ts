@@ -80,7 +80,7 @@ export interface GroupNoticeHistorySummary {
   userRole: string;
   content: string;
   timestamp: number;
-  messageId: number;
+  messageId: string;
 }
 
 function runHistoryMediaAIRequest<T>(
@@ -393,7 +393,7 @@ export async function summarizeGroupNotice(
     userRole: "member",
     content,
     timestamp: normalizeNoticeTimestamp(notice),
-    messageId: 0,
+    messageId: String((notice as { message_id?: unknown }).message_id ?? ""),
   };
 }
 

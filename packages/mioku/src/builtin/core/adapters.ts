@@ -1,5 +1,5 @@
 import { getOrCreate } from "../../internal/registry";
-import { localNum, prettyMs } from "../../utils";
+import { localNum, prettyMs, displayAdapterId } from "../../utils";
 
 import type { Bot } from "../../adapter";
 import type { AdapterStatus, AdapterStatusStats } from "../../runtime/types";
@@ -57,6 +57,9 @@ export interface AdapterInstanceStatus {
   readonly connected_at?: number;
   readonly impl?: string;
   readonly version?: string;
+  readonly protocol?: string;
+  readonly platform?: string;
+  readonly platformVersion?: string;
   readonly stats: AdapterStatusStats;
   readonly data: Readonly<Record<string, unknown>>;
 }
@@ -66,6 +69,8 @@ export interface AdapterReportEntry {
   readonly name: string;
   /** 适配器包版本 */
   readonly version?: string;
+  /** 底层实现库，如 icqq 的 ICQQ 1.11.4 */
+  readonly impl?: { readonly name: string; readonly version?: string };
   readonly loaded: boolean;
   readonly instances: readonly AdapterInstanceStatus[];
 }
@@ -80,6 +85,7 @@ export interface BuildAdapterReportOptions {
   readonly adapters: readonly {
     readonly name: string;
     readonly version?: string;
+    readonly impl?: { readonly name: string; readonly version?: string };
   }[];
 }
 
@@ -119,6 +125,9 @@ const toInstance = (
     connected_at: bot.connected_at,
     impl: status?.impl,
     version: status?.version,
+    protocol: status?.protocol,
+    platform: status?.platform,
+    platformVersion: status?.platform_version,
     stats: normalizeStats(status?.stats, data),
     data,
   };
@@ -153,6 +162,7 @@ export const buildAdapterReport = async (
     return {
       name,
       version: known?.version,
+      impl: known?.impl,
       loaded: known != null,
       instances: paired
         .filter((entry) => entry.adapter === name)
@@ -207,10 +217,15 @@ const formatStats = (stats: AdapterStatusStats): string => {
 };
 
 const formatInstance = (instance: AdapterInstanceStatus): string[] => {
-  const impl = [instance.impl, instance.version].filter(Boolean).join("/");
-  const tags = [impl, instance.online ? "" : "🔴 离线"].filter(Boolean);
+  const tags = [
+    [instance.impl, instance.version].filter(Boolean).join("/"),
+    instance.platform
+      ? `${instance.platform}${instance.platformVersion ? ` v${instance.platformVersion}` : ""}`
+      : "",
+    instance.online ? "" : "🔴 离线",
+  ].filter(Boolean);
   const lines = [
-    `👤 ${instance.nickname || "(未命名)"} (${instance.bot_id})${tags.length ? ` · ${tags.join(" · ")}` : ""}`,
+    `👤 ${instance.nickname || "(未命名)"} (${displayAdapterId(instance.bot_id)})${tags.length ? ` · ${tags.join(" · ")}` : ""}`,
   ];
   const uptime =
     instance.online && instance.connected_at != null
@@ -231,12 +246,19 @@ const summarize = (entry: AdapterReportEntry): string => {
   return `${online === 0 ? "🔴" : "🟡"} ${localNum(online)}/${localNum(total)} 实例在线`;
 };
 
+const formatAdapterName = (entry: AdapterReportEntry): string => {
+  const base = `${entry.name}${entry.version ? `@${entry.version}` : ""}`;
+  if (!entry.impl) return base;
+  const impl = `${entry.impl.name}${entry.impl.version ? ` v${entry.impl.version}` : ""}`;
+  return `${base}/${impl}`;
+};
+
 export const formatAdapterReport = (report: AdapterReport): string => {
   if (!report.adapters.length)
     return "〓 🔌 mioku 适配器 〓\n(未加载任何适配器)";
 
   const lines = report.adapters.flatMap((entry) => [
-    `🔌 ${entry.name}${entry.version ? `/${entry.version}` : ""} · ${summarize(entry)}`,
+    `🔌 ${formatAdapterName(entry)} · ${summarize(entry)}`,
     ...entry.instances.flatMap(formatInstance),
   ]);
 

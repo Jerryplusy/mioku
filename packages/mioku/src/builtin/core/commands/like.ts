@@ -6,7 +6,7 @@ export function registerLikeCommand(
   ctx: MiokuContext,
   getConfig: () => CorePluginConfig,
 ): () => void {
-  return ctx.handle("message", async (event) => {
+  return ctx.handle("!message", async (event) => {
     const cfg = getConfig();
     const text = ctx.text(event)?.trim();
     if (!text || event?.user_id === event?.self_id) {

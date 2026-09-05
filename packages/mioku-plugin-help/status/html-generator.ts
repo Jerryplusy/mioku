@@ -1,10 +1,6 @@
-import {
-  escapeHtml,
-} from "../utils";
-import {
-  getHelpTheme,
-  HELP_BACKGROUND_IMAGE_URL,
-} from "../theme";
+import { escapeHtml } from "../utils";
+import { getHelpTheme, HELP_BACKGROUND_IMAGE_URL } from "../theme";
+import { displayAdapterId } from "mioku";
 import type {
   AIUsageStatsLite,
   BotAccountStatus,
@@ -76,7 +72,10 @@ function progressBar(percent: number, color: string): string {
   return `<div class="status-bar"><div class="status-bar__fill" style="width:${clamped}%;background:${color};"></div></div>`;
 }
 
-function progressColor(percent: number, theme: ReturnType<typeof getHelpTheme>): string {
+function progressColor(
+  percent: number,
+  theme: ReturnType<typeof getHelpTheme>,
+): string {
   if (percent >= 85) {
     return "linear-gradient(90deg, #ef4444, #f97316)";
   }
@@ -86,7 +85,10 @@ function progressColor(percent: number, theme: ReturnType<typeof getHelpTheme>):
   return `linear-gradient(90deg, ${theme.eyebrow}, ${theme.commandTitle})`;
 }
 
-function pieColor(percent: number, theme: ReturnType<typeof getHelpTheme>): string {
+function pieColor(
+  percent: number,
+  theme: ReturnType<typeof getHelpTheme>,
+): string {
   if (percent >= 85) {
     return "#ef4444";
   }
@@ -96,7 +98,10 @@ function pieColor(percent: number, theme: ReturnType<typeof getHelpTheme>): stri
   return theme.eyebrow;
 }
 
-function renderPieChart(percent: number, theme: ReturnType<typeof getHelpTheme>): string {
+function renderPieChart(
+  percent: number,
+  theme: ReturnType<typeof getHelpTheme>,
+): string {
   const clamped = Math.max(0, Math.min(100, percent));
   const filled = (clamped / 100) * PIE_CIRCUMFERENCE;
   const rest = PIE_CIRCUMFERENCE - filled;
@@ -128,36 +133,36 @@ function renderHero(
 ): string {
   const bots = snapshot.bots;
 
-  const accountRows = bots.length === 0
-    ? `<div class="status-hero__empty">当前没有在线账号</div>`
-    : bots
-        .map((bot) => {
-          const statusText = bot.online ? "在线" : "离线";
-          const statusColor = bot.online ? "#10b981" : "#ef4444";
-          // stdin 等本地适配器没有 OneBot 版本信息，统一显示为 `<适配器>@<包版本>`
-          const frameworkText =
-            bot.adapter === "stdin"
-              ? `${bot.adapter}@${bot.appVersion}`
-              : bot.appVersion && bot.appVersion !== "unknown"
-                ? `${bot.framework} ${bot.appVersion} · 协议 ${bot.protocolVersion}`
-                : bot.framework;
-          // Nickname is rendered as a bold large heading above the avatar
-          // row (not as a chip). Chips below only carry the metadata.
-          const tags = [
-            { text: String(bot.uin || "—"), kind: "data" },
-            { text: statusText, kind: bot.online ? "ok" : "danger" },
-            { text: `好友 ${fmtNumber(bot.friendCount)}`, kind: "data" },
-            { text: `群聊 ${fmtNumber(bot.groupCount)}`, kind: "data" },
-            { text: `收 ${fmtNumber(bot.receive)}`, kind: "data" },
-            { text: `发 ${fmtNumber(bot.send)}`, kind: "data" },
-            { text: frameworkText, kind: "data" },
-          ];
-          const tagsHtml = tags
-            .map(
-              (t) => `<span class="status-chip status-chip--${t.kind}">${escapeHtml(t.text)}</span>`,
-            )
-            .join("");
-          return `
+  const accountRows =
+    bots.length === 0
+      ? `<div class="status-hero__empty">当前没有在线账号</div>`
+      : bots
+          .map((bot) => {
+            const statusText = bot.online ? "在线" : "离线";
+            const statusColor = bot.online ? "#10b981" : "#ef4444";
+            const implText = bot.implLabel;
+            const platformText = bot.platform
+              ? `${bot.platform}${bot.platformVersion ? ` v${bot.platformVersion}` : ""}`
+              : "";
+            // Nickname is rendered as a bold large heading above the avatar
+            // row (not as a chip). Chips below only carry the metadata.
+            const tags = [
+              { text: displayAdapterId(bot.uin) || "—", kind: "data" },
+              { text: statusText, kind: bot.online ? "ok" : "danger" },
+              { text: `好友 ${fmtNumber(bot.friendCount)}`, kind: "data" },
+              { text: `群聊 ${fmtNumber(bot.groupCount)}`, kind: "data" },
+              { text: `收 ${fmtNumber(bot.receive)}`, kind: "data" },
+              { text: `发 ${fmtNumber(bot.send)}`, kind: "data" },
+              ...(implText ? [{ text: implText, kind: "data" }] : []),
+              ...(platformText ? [{ text: platformText, kind: "data" }] : []),
+            ];
+            const tagsHtml = tags
+              .map(
+                (t) =>
+                  `<span class="status-chip status-chip--${t.kind}">${escapeHtml(t.text)}</span>`,
+              )
+              .join("");
+            return `
             <div class="status-hero__account">
               <div class="status-hero__account-name">${escapeHtml(bot.nickname)}</div>
               <div class="status-hero__account-body">
@@ -169,8 +174,8 @@ function renderHero(
               </div>
             </div>
           `;
-        })
-        .join("");
+          })
+          .join("");
 
   return `
     <header class="status-hero">
@@ -190,8 +195,7 @@ function renderResourceCard(
 ): string {
   const linesHtml = lines
     .map(
-      (line) =>
-        `<div class="status-pie-card__line">${escapeHtml(line)}</div>`,
+      (line) => `<div class="status-pie-card__line">${escapeHtml(line)}</div>`,
     )
     .join("");
   return `
@@ -231,7 +235,10 @@ function renderResourcesSection(
       "SWAP",
       hasSwap ? r.swapPercent : 0,
       hasSwap
-        ? [`${r.swapUsedGB} / ${r.swapTotalGB} GB`, `可用 ${Math.max(0, r.swapTotalGB - r.swapUsedGB).toFixed(2)} GB`]
+        ? [
+            `${r.swapUsedGB} / ${r.swapTotalGB} GB`,
+            `可用 ${Math.max(0, r.swapTotalGB - r.swapUsedGB).toFixed(2)} GB`,
+          ]
         : ["未配置", ""],
       theme,
     ),
@@ -299,10 +306,10 @@ function buildSmoothPath(points: Array<{ x: number; y: number }>): string {
     const p1 = points[i];
     const p2 = points[i + 1];
     const p3 = points[Math.min(points.length - 1, i + 2)];
-    const cp1x = p1.x + (p2.x - p0.x) * tension / 3;
-    const cp1y = p1.y + (p2.y - p0.y) * tension / 3;
-    const cp2x = p2.x - (p3.x - p1.x) * tension / 3;
-    const cp2y = p2.y - (p3.y - p1.y) * tension / 3;
+    const cp1x = p1.x + ((p2.x - p0.x) * tension) / 3;
+    const cp1y = p1.y + ((p2.y - p0.y) * tension) / 3;
+    const cp2x = p2.x - ((p3.x - p1.x) * tension) / 3;
+    const cp2y = p2.y - ((p3.y - p1.y) * tension) / 3;
     d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
   }
   return d;
@@ -322,10 +329,7 @@ function renderNetworkChart(history: NetworkSample[]): string {
     return `<svg viewBox="0 0 ${w} ${h}" class="status-chart"><text x="${w / 2}" y="${h / 2}" text-anchor="middle" fill="#94a3b8" font-size="11">数据采集中…</text></svg>`;
   }
 
-  const maxVal = Math.max(
-    1,
-    ...history.map((s) => Math.max(s.rxBps, s.txBps)),
-  );
+  const maxVal = Math.max(1, ...history.map((s) => Math.max(s.rxBps, s.txBps)));
   const yMax = maxVal * 1.2;
   const t0 = history[0].ts;
   const t1 = history[history.length - 1].ts;
@@ -487,9 +491,7 @@ function renderSystemSection(
   } else {
     s.memSticks.forEach((m, i) => {
       const size =
-        m.sizeGB >= 1
-          ? `${m.sizeGB} GB`
-          : `${(m.sizeGB * 1024).toFixed(0)} MB`;
+        m.sizeGB >= 1 ? `${m.sizeGB} GB` : `${(m.sizeGB * 1024).toFixed(0)} MB`;
       const speed = m.speedMTs > 0 ? ` · ${m.speedMTs} MT/s` : "";
       const manu =
         m.manufacturer && m.manufacturer !== "Manufacturer"
@@ -527,7 +529,10 @@ function renderSystemSection(
           : `${d.sizeGB} GB`;
       const vendor = d.vendor && d.vendor !== d.name ? `${d.vendor} ` : "";
       const name = d.name || d.type || "Unknown";
-      const iface = d.interfaceType && d.interfaceType !== "Unknown" ? ` · ${d.interfaceType}` : "";
+      const iface =
+        d.interfaceType && d.interfaceType !== "Unknown"
+          ? ` · ${d.interfaceType}`
+          : "";
       items.push({
         label: `硬盘 ${i + 1}`,
         value: `${vendor}${name} · ${sizeLabel}${iface}`.trim(),

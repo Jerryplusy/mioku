@@ -27,7 +27,7 @@ interface CooldownMessage {
   content: string;
   userName: string;
   userId: number;
-  messageId: number;
+  messageId: string;
   timestamp: number;
   isDirectAt: boolean;
 }

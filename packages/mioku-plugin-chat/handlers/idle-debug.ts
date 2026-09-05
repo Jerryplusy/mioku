@@ -64,7 +64,7 @@ export async function handleIdleCheckDebug(
           userId: 0,
           userRole: "member",
           content: "[No one in the group is talking? I'll answer!]",
-          messageId: 0,
+          messageId: "",
           timestamp: now,
         };
         const botRole = await getBotRole(targetGroupId, ctx, e.self_id);

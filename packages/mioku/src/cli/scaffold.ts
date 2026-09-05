@@ -11,6 +11,7 @@ import {
   run,
   runAdapterCli,
   searchMiokuPackages,
+  fetchOfficialRegistry,
   shortNameOfPackage,
   resolveRequiredServices,
   rmrf,
@@ -75,19 +76,30 @@ async function selectPackages(
   options: { exclude?: string[] } = {},
 ): Promise<string[]> {
   console.log(`\n正在从 npm 拉取 ${prefix}* 包...`);
-  const hits = await searchMiokuPackages(prefix);
+  const [hits, registry] = await Promise.all([
+    searchMiokuPackages(prefix),
+    fetchOfficialRegistry(),
+  ]);
   if (hits.length === 0) {
     consola.warn(`未在 npm 上找到任何 ${prefix}* 包`);
     return [];
   }
+  const official = new Set<string>();
+  for (const group of [registry?.plugins, registry?.services, registry?.adapters]) {
+    for (const entry of Object.values(group ?? {})) {
+      if (entry?.npm) official.add(entry.npm);
+    }
+  }
   const excludeSet = new Set(options.exclude ?? []);
   const items = hits
     .filter((hit) => !excludeSet.has(hit.name))
-    .map((hit) => ({
-      label: `${hit.name}  (${hit.description || "暂无介绍"})`,
-      value: hit.name,
-    }));
-  return multiSelect(message, items, initial);
+    .map((hit) => {
+      const shortName = shortNameOfPackage(hit.name);
+      const desc = hit.description || "暂无介绍";
+      const badge = official.has(hit.name) ? "官方" : "社区";
+      return { label: `${shortName}  (${badge} · ${desc})`, value: hit.name };
+    });
+  return multiSelect(message, items, initial, { required: false });
 }
 
 export async function scaffoldCommand(version: string): Promise<number> {
@@ -111,46 +123,45 @@ export async function scaffoldCommand(version: string): Promise<number> {
       .map((o) => o.trim())
       .filter(Boolean),
     STDIN_OWNER,
-  ].join(", ");
+  ];
 
   const adapterNames = await selectPackages(
-    "选择要安装的适配器（上下键选择，空格勾选，回车确认，系统适配器 stdin 将自动安装）",
+    "选择要安装的适配器（上下键选择，空格勾选，回车确认）",
     ADAPTER_PREFIX,
     [],
     { exclude: SYSTEM_ADAPTERS },
   );
   const allAdapterNames = [...SYSTEM_ADAPTERS, ...adapterNames];
   if (adapterNames.length === 0) {
-    consola.warn("未选择其他适配器，将仅启用系统适配器 stdin（终端输入）");
+    consola.info("未选择其他适配器，仅启用标准输入");
   }
 
-  const pkgJson = dedent(`
-    {
-      "name": "${name}",
-      "private": true,
-      "type": "module",
-      "dependencies": {
-        "mioku": "latest"
-        ${allAdapterNames.map((pkg) => `,\n        "${pkg}": "latest"`).join("")}
+  const pkgJsonObj = {
+    name,
+    private: true,
+    type: "module" as const,
+    dependencies: {
+      mioku: "latest",
+      ...Object.fromEntries(allAdapterNames.map((p) => [p, "latest"])),
+    },
+    mioku: {
+      prefix: ".",
+      owners: ownersList,
+      admins: [] as string[],
+      plugins: ["demo"],
+      log_level: "info",
+      online_push: false,
+      error_push: false,
+      adapters: {
+        stdin: {},
       },
-      "mioku": {
-        "prefix": ".",
-        "owners": [${ownersList}],
-        "admins": [],
-        "plugins": ["demo"],
-        "log_level": "info",
-        "online_push": false,
-        "error_push": false,
-        "adapters": {
-          "stdin": {}
-        }
-      },
-      "scripts": {
-        "start": "bun run app.ts",
-        "dev": "bun run --watch app.ts"
-      }
-    }
-  `);
+    },
+    scripts: {
+      start: "bun run app.ts",
+      dev: "bun run --watch app.ts",
+    },
+  };
+  const pkgJson = `${JSON.stringify(pkgJsonObj, null, 2)}\n`;
 
   const pluginCode = dedent(`
     import { definePlugin } from 'mioku'

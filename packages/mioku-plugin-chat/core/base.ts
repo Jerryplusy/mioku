@@ -79,7 +79,7 @@ async function waitTypingDelay(
 export async function sendAIResponse(
   options: SendAIResponseOptions,
   selfId: number,
-): Promise<void> {
+): Promise<Array<string | undefined>> {
   const {
     ctx,
     groupId,
@@ -96,17 +96,25 @@ export async function sendAIResponse(
     ctx.logger.error(
       `[sendAIResponse] bot ${String(selfId)} not found, skip sending group message`,
     );
-    return;
+    return [];
   }
 
-  if (messages.length === 0) return;
+  if (messages.length === 0) return [];
+
+  const sentMessageIds: Array<string | undefined> = new Array(messages.length);
+  const recordSentId = (messageIndex: number, messageId?: string) => {
+    if (!messageId) return;
+    if (messageIndex >= 0 && messageIndex < messages.length) {
+      sentMessageIds[messageIndex] ??= messageId;
+    }
+  };
 
   for (let i = 0; i < messages.length; i++) {
     if (sentIndices?.has(i)) continue;
 
     const expandedLines = expandOutgoingLines(messages[i]);
 
-    let pendingReply: number | undefined;
+    let pendingReply: string | undefined;
     let lastDelayBasisText = "";
 
     for (let j = 0; j < expandedLines.length; j++) {
@@ -190,7 +198,7 @@ export async function sendAIResponse(
               return segments;
             },
             imagePath,
-          );
+          ).then((sentId) => recordSentId(i, sentId));
           lastDelayBasisText = summarizeMarkdown(markdownContent);
           if (typingDelayEnabled && j < expandedLines.length - 1) {
             const delayMs = calculateTypingDelayMs(lastDelayBasisText || line);
@@ -217,7 +225,11 @@ export async function sendAIResponse(
       }
 
       if (lineSegments.length > 0) {
-        await bot.sendMessage({ type: "group", group_id: groupId}, lineSegments);
+        const sent = await bot.sendMessage(
+          { type: "group", group_id: groupId },
+          lineSegments,
+        );
+        recordSentId(i, sent?.message_id);
         lastDelayBasisText = sendableText || fallbackText || audioText || line;
       }
 
@@ -234,6 +246,8 @@ export async function sendAIResponse(
 
     await onLineSent?.();
   }
+
+  return sentMessageIds;
 }
 
 export async function sendMessage(
@@ -259,7 +273,7 @@ export async function sendMessage(
     // 应用错别字生成器
     const expandedLines = expandOutgoingLines(text);
 
-    let pendingReply: number | undefined;
+    let pendingReply: string | undefined;
     let lastDelayBasisText = "";
 
     for (let j = 0; j < expandedLines.length; j++) {
@@ -374,7 +388,10 @@ export async function sendMessage(
           }
 
           if (segments.length > 0 && groupId) {
-            await bot.sendMessage({ type: "group", group_id: groupId}, segments);
+            await bot.sendMessage(
+              { type: "group", group_id: groupId },
+              segments,
+            );
             lastDelayBasisText =
               sendableText || fallbackText || audioText || line;
           }
@@ -396,7 +413,7 @@ export async function sendMessage(
           const beforeAt = remaining.slice(lastIndex, match.index);
           if (beforeAt) {
             const cleaned = beforeAt
-              .replace(/\[reply:-?\d+\]/g, "")
+              .replace(/\[reply:[^\]\n]+\]/g, "")
               .replace(/\[poke:\d+\]/g, "")
               .replace(/\[audio:[^\]]+\]/gi, "")
               .trim();
@@ -417,7 +434,7 @@ export async function sendMessage(
         const afterAt = remaining.slice(lastIndex);
         if (afterAt) {
           const cleaned = afterAt
-            .replace(/\[reply:-?\d+\]/g, "")
+            .replace(/\[reply:[^\]\n]+\]/g, "")
             .replace(/\[poke:\d+\]/g, "")
             .replace(/\[audio:[^\]]+\]/gi, "")
             .trim();
@@ -435,7 +452,10 @@ export async function sendMessage(
         // 发送消息
         if (segments.length > 0) {
           if (groupId) {
-            await bot.sendMessage({ type: "group", group_id: groupId}, segments);
+            await bot.sendMessage(
+              { type: "group", group_id: groupId },
+              segments,
+            );
             lastDelayBasisText =
               sendableText || fallbackText || audioText || line;
           }
@@ -510,7 +530,7 @@ function expandOutgoingLines(text: string): string[] {
 
 function normalizeActionLineBreaks(text: string): string {
   return String(text || "").replace(
-    /\\\s*(?=(?:\[\]|\[emotion:[^\]]+\]|\[audio:[^\]]+\]|\[reply:-?\d+\]))/gi,
+    /\\\s*(?=(?:\[\]|\[emotion:[^\]]+\]|\[audio:[^\]]+\]|\[reply:[^\]\n]+\]))/gi,
     "\n",
   );
 }
@@ -539,9 +559,10 @@ async function dispatchSegments(
   userId: number | undefined,
   buildSegments: (imageSource?: string) => any[],
   fallbackImagePath?: string,
-): Promise<void> {
+): Promise<string | undefined> {
   try {
-    await sendByTarget(bot, groupId, userId, buildSegments());
+    const sent = await sendByTarget(bot, groupId, userId, buildSegments());
+    return sent?.message_id;
   } catch (error) {
     if (!fallbackImagePath || !isLocalFilePath(fallbackImagePath)) {
       throw error;
@@ -550,7 +571,13 @@ async function dispatchSegments(
     const fsPromises = await import("fs/promises");
     const buffer = await fsPromises.readFile(fallbackImagePath);
     const base64Image = `base64://${buffer.toString("base64")}`;
-    await sendByTarget(bot, groupId, userId, buildSegments(base64Image));
+    const sent = await sendByTarget(
+      bot,
+      groupId,
+      userId,
+      buildSegments(base64Image),
+    );
+    return sent?.message_id;
   }
 }
 
@@ -559,15 +586,19 @@ async function sendByTarget(
   groupId: number | undefined,
   userId: number | undefined,
   segments: readonly any[],
-): Promise<void> {
+): Promise<import("mioku").SentMessage | undefined> {
   if (groupId) {
-    await bot.sendMessage({ type: "group", group_id: groupId}, segments);
-    return;
+    return await bot.sendMessage(
+      { type: "group", group_id: groupId },
+      segments,
+    );
   }
 
   if (userId) {
-    await bot.sendMessage({ type: "private", user_id: userId}, segments);
-    return;
+    return await bot.sendMessage(
+      { type: "private", user_id: userId },
+      segments,
+    );
   }
 
   throw new Error("No valid message target");
@@ -605,7 +636,7 @@ async function resolveAudioSource(
   options: {
     audioText?: string;
     config: ChatConfig;
-  audioService?: AudioServiceApi;
+    audioService?: AudioServiceApi;
   },
 ): Promise<string | null> {
   const trimmed = String(options.audioText || "").trim();
@@ -735,7 +766,9 @@ export async function getHumanizeContexts(
     topicContext: topicContext || undefined,
     expressionContext: expressionContext || undefined,
   };
-  logger.info(`[getHumanizeContexts] session=${groupSessionId} user=${userName} triggerUserId=${triggerUserId} memoryContext=undefined topicContext="${topicContext?.slice(0, 100) ?? ""}" expressionContext="${expressionContext?.slice(0, 100) ?? ""}"`);
+  logger.info(
+    `[getHumanizeContexts] session=${groupSessionId} user=${userName} triggerUserId=${triggerUserId} memoryContext=undefined topicContext="${topicContext?.slice(0, 100) ?? ""}" expressionContext="${expressionContext?.slice(0, 100) ?? ""}"`,
+  );
   return result;
 }
 
@@ -842,6 +875,7 @@ export function saveBotMessages(
   db: ChatDatabase,
   ctx: MiokuContext,
   bot: Bot | undefined,
+  sentMessageIds?: Array<string | undefined>,
 ): void {
   const botNickname = config.nicknames[0] || (bot?.nickname ?? "Miku");
   const selfId = bot ? Number(bot.bot_id) : 0;
@@ -851,7 +885,8 @@ export function saveBotMessages(
     return;
   }
 
-  for (const msg of messages) {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
     const botMsg: ChatMessage = {
       sessionId: groupSessionId,
       role: "assistant",
@@ -861,6 +896,7 @@ export function saveBotMessages(
       userRole: "member",
       groupId,
       timestamp,
+      messageId: sentMessageIds?.[i],
     };
     db.saveMessage(botMsg);
   }
@@ -874,15 +910,13 @@ export async function sendEmoji(
 ): Promise<void> {
   if (!emojiPath) return;
   if (!bot) {
-    ctx.logger.error(
-      `[sendEmoji] bot not available, skip sending emoji`,
-    );
+    ctx.logger.error(`[sendEmoji] bot not available, skip sending emoji`);
     return;
   }
 
   try {
     const emojiSegment = ctx.segment.image(`file://${emojiPath}`);
-    await bot.sendMessage({ type: "group", group_id: groupId}, [emojiSegment]);
+    await bot.sendMessage({ type: "group", group_id: groupId }, [emojiSegment]);
   } catch (err) {
     try {
       const fsPromises = await import("fs/promises");
@@ -917,7 +951,9 @@ export async function sendEmoji(
 
       const base64DataUrl = `data:${mimeType};base64,${base64}`;
       const base64Segment = ctx.segment.image(base64DataUrl);
-      await bot.sendMessage({ type: "group", group_id: groupId}, [base64Segment]);
+      await bot.sendMessage({ type: "group", group_id: groupId }, [
+        base64Segment,
+      ]);
       ctx.logger.info(`[Emoji] Sent via base64: ${path.basename(emojiPath)}`);
     } catch (base64Err) {
       ctx.logger.error(`[Emoji] Base64 also failed: ${base64Err}`);

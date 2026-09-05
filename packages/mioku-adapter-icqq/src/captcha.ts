@@ -52,28 +52,30 @@ export const createCaptchaHandler = (options: CaptchaHandlerOptions) => {
       });
     },
 
-    /** 设备锁验证：自动发送短信，验证码通过指令提交；也可走 URL 验证后重试登录 */
-    handleDeviceLock(event: { url: string; phone: string }) {
-      const prompt = [
-        `${label} 需要设备锁验证（密保手机 ${event.phone}），请提交收到的短信验证码：`,
-        `  .icqq ${targets[0]} sms <验证码>`,
-        `短信未收到可重发：.icqq ${targets[0]} sms`,
-        `或在浏览器完成以下链接验证后输入 .icqq ${targets[0]} login：`,
-        event.url,
-      ].join("\n");
-      register("device", prompt, {
-        sms: (code) =>
-          code ? client.submitSmsCode(code) : client.sendSmsCode(),
-        login: () => retryLogin(),
-      });
-      void client
-        .sendSmsCode()
-        .then(() => logger.info(`${label} 已请求发送短信验证码`))
-        .catch((err) => {
-          logger.warn(
-            `短信验证码发送失败: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        });
+    handleDeviceLock(event: { url: string; phone?: string }) {
+      const phone = (event.phone ?? "").trim();
+      const hasSms = phone.length > 0;
+      const prompt = hasSms
+        ? [
+            `${label} 需要设备锁验证（密保手机 ${phone}），请提交收到的短信验证码：`,
+            `  .icqq ${targets[0]} sms <验证码>`,
+            `短信未收到可重发：.icqq ${targets[0]} sms`,
+            `或在浏览器完成以下链接验证后输入 .icqq ${targets[0]} login：`,
+            event.url,
+          ].join("\n")
+        : [
+            `${label} 需要设备锁验证（新设备保护），请在浏览器完成以下链接验证：`,
+            event.url,
+            `完成后输入 .icqq ${targets[0]} login 重试登录`,
+          ].join("\n");
+      const actions: PendingRequest["actions"] = hasSms
+        ? {
+            sms: (code) =>
+              code ? client.submitSmsCode(code) : client.sendSmsCode(),
+            login: () => retryLogin(),
+          }
+        : { login: () => retryLogin() };
+      register("device", prompt, actions);
     },
 
     /** 身份验证：浏览器完成 URL 验证后，通过指令重试登录 */

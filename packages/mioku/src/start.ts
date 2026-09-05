@@ -38,6 +38,7 @@ export const startRuntime = async (
     cwd,
     logger,
     builtinPlugins: getBuiltinPlugins(),
+    dedup: { crossAdapter: botConfig.dedup?.cross_adapter ?? true },
   });
 
   const pluginDir = path.resolve(cwd, botConfig.plugins_dir ?? "plugins");

@@ -1,3 +1,8 @@
+---
+title: WebUI
+description: Mioku 可视化管理面板的使用指南
+---
+
 # WebUI
 
 WebUI 是 Mioku 的可视化管理面板，提供插件 / 服务管理、配置编辑、AI 设置、日志查看等功能。它本身是一个服务，创建项目时勾选「安装 WebUI」即可，也可以事后补装：

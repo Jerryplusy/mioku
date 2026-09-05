@@ -64,6 +64,30 @@ export interface ReplyOptions {
 
 export type ReplyArg = boolean | ReplyOptions;
 
+/** 交互按钮*/
+export interface ButtonOptions {
+  id?: string;
+  label: string;
+  /** 点击后按钮文字 */
+  visitedLabel?: string;
+  /** 0 灰色线框 1 蓝色线框 2 白字 3 蓝底白字 */
+  style?: 0 | 1 | 2 | 3;
+  /** callback 回调(默认) / command 指令(输入框插入) / link 跳转 */
+  action?: "callback" | "command" | "link";
+  /** callback / command 的数据 */
+  data?: string;
+  /** link 的跳转地址 */
+  url?: string;
+  /** "all" 所有人 / "admin" 仅管理员 / 用户 id 列表 */
+  permission?: "all" | "admin" | readonly string[];
+  /** command 点击后是否直接发送 */
+  enter?: boolean;
+  /** command 是否引用本消息 */
+  reply?: boolean;
+  /** 客户端版本过低时的提示文案 */
+  unsupportedTips?: string;
+}
+
 /** 会话引用：用于定位一段会话（含父会话） */
 export interface ConversationRef {
   readonly type: string;
@@ -219,6 +243,12 @@ export const segment = {
     return new MessageSegmentImpl("json", {
       data: typeof data === "string" ? data : JSON.stringify(data),
     });
+  },
+  markdown(content: string): MessageSegment {
+    return new MessageSegmentImpl("markdown", { content });
+  },
+  button(options: ButtonOptions): MessageSegment {
+    return new MessageSegmentImpl("button", { ...options });
   },
   raw(
     type: string,

@@ -1,4 +1,5 @@
 import fs, { readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import consola from "consola";
 import dedent from "dedent";
@@ -190,6 +191,7 @@ export async function multiSelect(
   message: string,
   items: Array<{ label: string; value: string }>,
   initial: string[] = [],
+  options: { required?: boolean } = {},
 ): Promise<string[]> {
   if (items.length === 0) return [];
   const result = await consola.prompt(message, {
@@ -197,6 +199,7 @@ export async function multiSelect(
     options: items,
     initial,
     cancel: "reject",
+    required: options.required ?? false,
   });
   return (result as Array<string | { value: string }>).map((item) =>
     typeof item === "string" ? item : item.value,
@@ -204,15 +207,26 @@ export async function multiSelect(
 }
 
 export function runAdapterCli(name: string, cwd: string): void {
-  const binPath = path.join(
-    cwd,
-    "node_modules",
-    ".bin",
-    `mioku-adapter-${name}`,
-  );
-  if (fs.existsSync(binPath)) {
-    run(binPath, [], { cwd });
-    return;
+  const isWin = process.platform === "win32";
+  const exts = isWin ? ["", ".cmd", ".ps1", ".bat"] : [""];
+  for (const ext of exts) {
+    const binPath = path.join(
+      cwd,
+      "node_modules",
+      ".bin",
+      `mioku-adapter-${name}${ext}`,
+    );
+    if (fs.existsSync(binPath)) {
+      const realPath = (() => {
+        try {
+          return fs.realpathSync(binPath);
+        } catch {
+          return binPath;
+        }
+      })();
+      run(realPath, [], { cwd });
+      return;
+    }
   }
   run("bunx", [`mioku-adapter-${name}`], { cwd });
 }
@@ -272,17 +286,87 @@ function findNpmPath(): string | null {
   return fallbacks.find((candidate) => resolveCommand(candidate)) ?? null;
 }
 
+function installBunViaOfficialScript(): void {
+  console.log("安装 bun...");
+  if (process.platform === "win32") {
+    const ps =
+      process.env.SystemRoot &&
+      path.join(
+        process.env.SystemRoot,
+        "System32",
+        "WindowsPowerShell",
+        "v1.0",
+        "powershell.exe",
+      );
+    const psExe = ps && resolveCommand(ps) ? ps : "powershell";
+    run(psExe, [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      "irm bun.sh/install.ps1 | iex",
+    ]);
+  } else {
+    run("bash", ["-c", "curl -fsSL https://bun.sh/install | bash"]);
+  }
+  clearCommandCache();
+}
+
 export function ensurePackageManager(): void {
   if (hasCommand("bun")) return;
-  console.log("安装 bun...");
-  const npmPath = findNpmPath();
-  if (!npmPath) {
-    consola.error("未找到 npm，请确保 Node.js 已安装并包含 npm");
+  try {
+    installBunViaOfficialScript();
+  } catch (err) {
+    const npmPath = findNpmPath();
+    if (!npmPath) {
+      consola.error("未找到 npm，请确保 Node.js 已安装并包含 npm");
+      consola.error(
+        '自动安装 bun 失败，请手动执行：\n  macOS / Linux: curl -fsSL https://bun.sh/install | bash\n  Windows: powershell -c "irm bun.sh/install.ps1 | iex"',
+      );
+      throw err;
+    }
+    consola.warn("官方安装脚本失败，回退到 npm 全局安装 bun ...");
+    run(npmPath, ["install", "-g", "bun"]);
+    clearCommandCache();
+  }
+  if (!hasCommand("bun")) {
+    const home = os.homedir();
+    const candidates =
+      process.platform === "win32"
+        ? [
+            path.join(home, ".bun", "bin", "bun.exe"),
+            path.join(process.env.APPDATA || "", "npm", "bun.cmd"),
+            path.join(
+              process.env.APPDATA || "",
+              "npm",
+              "node_modules",
+              ".bin",
+              "bun.cmd",
+            ),
+          ]
+        : [
+            path.join(home, ".bun", "bin", "bun"),
+            "/usr/local/bin/bun",
+            "/opt/homebrew/bin/bun",
+          ];
+    for (const c of candidates) {
+      try {
+        if (fs.existsSync(c)) {
+          consola.warn(
+            `检测到 bun 已安装在 ${c}。请把该目录加入 PATH 后重新运行本命令。`,
+          );
+          break;
+        }
+      } catch {
+        // 忽略
+      }
+    }
+    consola.error(
+      "bun 安装后仍无法在 PATH 中找到，请重启终端或将 bun 的安装目录加入 PATH 后重试",
+    );
     process.exit(1);
   }
-  run(npmPath, ["install", "-g", "bun"]);
-  // bun was just put on PATH; drop the cached miss so the next lookup finds it.
-  clearCommandCache();
 }
 
 export function getAddCommand(packages: string[]): [string, string[]] {
@@ -376,7 +460,7 @@ export function makeFileTree(
 ): void {
   for (const [name, content] of Object.entries(fileTree)) {
     if (typeof content === "object" && content !== null) {
-      const subPath = `${base}/${name}`;
+      const subPath = path.join(base, name);
       if (!fs.existsSync(subPath)) fs.mkdirSync(subPath, { recursive: true });
       for (const [subName, subContent] of Object.entries(content)) {
         if (typeof subContent === "object") {
@@ -385,11 +469,11 @@ export function makeFileTree(
             path.join(subPath, subName),
           );
         } else {
-          fs.writeFileSync(`${subPath}/${subName}`, subContent as string);
+          fs.writeFileSync(path.join(subPath, subName), subContent as string);
         }
       }
     } else {
-      const filePath = `${base}/${name}`;
+      const filePath = path.join(base, name);
       const dirname = path.dirname(filePath);
       if (!fs.existsSync(dirname)) fs.mkdirSync(dirname, { recursive: true });
       fs.writeFileSync(filePath, content as string);

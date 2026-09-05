@@ -4,10 +4,12 @@ import path from "node:path";
 
 import {
   avatarSet,
+  avatarGet,
   bindCapabilities,
   botConfig,
   botStatus,
   colors,
+  connectedBots,
   conversationGetHistory,
   defineAdapter,
   forwardSend,
@@ -47,17 +49,23 @@ import {
 } from "mioku-adapter-icqq/vendor/icqq";
 import {
   normalizeInstances,
+  normalizePlatform,
+  platformLabel,
   type IcqqAdapterConfig,
   type IcqqInstanceConfig,
 } from "./config";
+import { version as icqqVersion } from "../vendor/icqq/package.json" with { type: "json" };
+import { version as adapterVersion } from "../package.json" with { type: "json" };
 import { createIcqqBot, type IcqqBot, type IcqqData } from "./bot";
 import { createCaptchaHandler } from "./captcha";
+import { bridgeIcqqLog4js } from "./logger-bridge";
 import {
   addNotifier,
   attachStdinListener,
   clearPending,
   detachStdinListener,
   handleIcqqCommand,
+  listPending,
 } from "./interact";
 import {
   buildMessageEvent,
@@ -86,6 +94,7 @@ const build = (
   countersByBot: Map<string, BotCounters>,
 ): Adapter => {
   const key = `Bot${index + 1}`;
+  const label = `icqq ${key}`;
   const targets = [String(index + 1), String(instance.uin)];
   let client: Client | undefined;
   let bot: IcqqBot | undefined;
@@ -103,6 +112,47 @@ const build = (
   const bind = (event: string, listener: (value: unknown) => void): void => {
     client!.on(event, listener);
     disposers.push(() => client?.off(event));
+  };
+  const notifyOwners = (text: string): void => {
+    const owners = botConfig.owners
+      .map((owner) => Number(owner))
+      .filter((uin) => Number.isFinite(uin) && uin > 0);
+    if (owners.length === 0) return;
+    const selfUin = String(client?.uin ?? 0);
+    for (const uin of owners) {
+      void (async () => {
+        if (client?.isOnline()) {
+          try {
+            await client.sendPrivateMsg(uin, text);
+            return;
+          } catch {
+            // 客户端发送失败时回退到其它已连接的 bot
+          }
+        }
+        for (const other of connectedBots.values()) {
+          if (other.adapter === NAME && other.bot_id === selfUin) continue;
+          try {
+            await other.sendMessage(
+              { type: "private", user_id: String(uin) },
+              text,
+            );
+            return;
+          } catch {
+            // 尝试下一个 bot
+          }
+        }
+      })();
+    }
+  };
+  let settleLoginWait: (() => void) | undefined;
+  const loginSettled = new Promise<void>((resolve) => {
+    settleLoginWait = resolve;
+  });
+  let loginWaitDone = false;
+  const settleLogin = (): void => {
+    if (loginWaitDone) return;
+    loginWaitDone = true;
+    settleLoginWait?.();
   };
 
   const registerBotCapabilities = (
@@ -229,6 +279,10 @@ const build = (
           req.file as Parameters<typeof currentBot.client.setAvatar>[0],
         );
       }),
+      ctx.registerCapability(avatarGet, target, async () => {
+        // icqq 账号即 QQ 号,直接走 QQ 号头像服务
+        return `https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(currentBot.bot_id)}&s=640`;
+      }),
       ctx.registerCapability(botStatus, target, async () => {
         try {
           const info = await currentBot.client.getStatusInfo();
@@ -247,7 +301,6 @@ const build = (
     if (!client || !context) return;
     botData.bot_id = String(client.uin ?? 0);
     botData.nickname = client.nickname;
-    botData.online = true;
     botData.connected_at = Date.now();
     if (!bot) {
       countersByBot.set(botData.bot_id, { send: 0, receive: 0 });
@@ -258,7 +311,13 @@ const build = (
       unregisterBot = context.registerBot(bot).unregister;
       unregisterCapabilities = registerBotCapabilities(context, bot);
     }
-    await context.emitLifecycle({ type: "bot:connected", bot });
+    if (!botData.online) {
+      botData.online = true;
+      logger.info(
+        `已连接 icqq Bot${index + 1}: ${colors.cyan(String(client.uin))}`,
+      );
+      await context.emitLifecycle({ type: "bot:connected", bot });
+    }
   };
 
   const stopBot = async (reason: string): Promise<void> => {
@@ -271,37 +330,40 @@ const build = (
 
   return {
     name: `${NAME}.${index + 1}`,
-    version: "1.0.0",
+    version: adapterVersion,
     async start(next) {
       context = next;
+      // icqq 内部用 log4js 打日志，先桥接到 mioku logger 再创建客户端，避免启动横幅等漏出
+      bridgeIcqqLog4js(logger);
       client = createClient({
         ...(instance.config ?? {}),
+        data_dir:
+          instance.config?.data_dir ??
+          path.join(process.cwd(), "data", "icqq"),
         ver: instance.ver ?? instance.config?.ver,
         sign_api_addr: instance.sign_api_addr ?? instance.config?.sign_api_addr,
         ignore_self:
           instance.ignore_self ?? instance.config?.ignore_self ?? true,
+        platform: normalizePlatform(
+          instance.platform ?? instance.config?.platform,
+        ),
       });
+      bridgeIcqqLog4js(logger);
       const captcha = createCaptchaHandler({
         client,
         logger,
-        label: `icqq ${key}`,
+        label,
         key,
         targets,
         retryLogin: () => client!.login(instance.uin, instance.password),
       });
-      disposers.push(
-        addNotifier((prompt) => {
-          if (!client!.isOnline()) return;
-          for (const owner of botConfig.owners) {
-            const uin = Number(owner);
-            if (!Number.isFinite(uin) || uin <= 0) continue;
-            void client!.sendPrivateMsg(uin, prompt).catch(() => undefined);
-          }
-        }),
-      );
+      disposers.push(addNotifier((prompt) => notifyOwners(prompt)));
       bind("system.online", () => {
+        const hadPending = listPending().some((item) => item.key === key);
         clearPending(key);
         void startBot();
+        if (hadPending) notifyOwners(`${label} 登录成功，已上线`);
+        settleLogin();
       });
       // icqq 的 em() 会同时派发完整事件名与各上级前缀，
       // 因此监听 system.offline 即可覆盖 system.offline.network / system.offline.kickoff
@@ -309,6 +371,7 @@ const build = (
         void stopBot(
           String((event as { message?: string }).message ?? "offline"),
         );
+        settleLogin();
       });
       bind("system.login.qrcode", (event) => {
         const image = (event as { image?: Buffer }).image;
@@ -330,31 +393,40 @@ const build = (
             `icqq Bot${index + 1} 二维码保存失败: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
+        settleLogin();
       });
       bind("system.login.slider", (event) => {
         void captcha.handleSlider(event as { url: string });
+        settleLogin();
       });
       bind("system.login.device", (event) => {
-        void captcha.handleDeviceLock(event as { url: string; phone: string });
+        void captcha.handleDeviceLock(
+          event as { url: string; phone?: string },
+        );
+        settleLogin();
       });
       bind("system.login.auth", (event) => {
         void captcha.handleAuth(event as { url: string });
+        settleLogin();
       });
-      bind("system.login.error", (event) =>
-        logger.error(
-          `icqq Bot${index + 1} 登录失败: ${String((event as { message?: string }).message ?? event)}`,
-        ),
-      );
+      bind("system.token.expire", () => settleLogin());
+      bind("system.login.error", (event) => {
+        const message = String(
+          (event as { message?: string }).message ?? event,
+        );
+        logger.error(`icqq Bot${index + 1} 登录失败: ${message}`);
+        notifyOwners(`${label} 登录失败: ${message}`);
+        settleLogin();
+      });
       bind("message", (event) => {
         const counters = countersByBot.get(botData.bot_id);
         if (counters) counters.receive++;
-        if (bot)
-          void context?.dispatch(
-            buildMessageEvent(
-              bot,
-              event as Parameters<typeof buildMessageEvent>[1],
-            ),
-          );
+        if (!bot) return;
+        const messageEvent = buildMessageEvent(
+          bot,
+          event as Parameters<typeof buildMessageEvent>[1],
+        );
+        void context?.dispatch(messageEvent);
       });
       bind("sync.message", (event) => {
         const counters = countersByBot.get(botData.bot_id);
@@ -377,12 +449,15 @@ const build = (
           | FriendRequestEvent
           | GroupRequestEvent
           | GroupInviteEvent;
-        void context?.dispatch(
-          buildRequestEvent(bot, request, async (yes, reason) => {
+        const requestEvent = buildRequestEvent(
+          bot,
+          request,
+          async (yes, reason) => {
             if (request.request_type === "friend") return request.approve(yes);
             return client!.setGroupAddRequest(request.flag, yes, reason);
-          }),
+          },
         );
+        void context?.dispatch(requestEvent);
       });
       logger.info(
         `正在登录 icqq Bot${index + 1}: ${colors.cyan(String(instance.uin))}`,
@@ -393,9 +468,22 @@ const build = (
         logger.error(
           `icqq Bot${index + 1} 登录异常: ${err instanceof Error ? err.message : String(err)}`,
         );
+        settleLogin();
+      }
+      const loginTimer = setTimeout(() => {
+        logger.warn(
+          `icqq Bot${index + 1} 登录结果等待超时，框架继续启动（登录成功后会再提示）`,
+        );
+        settleLogin();
+      }, 60_000);
+      try {
+        await loginSettled;
+      } finally {
+        clearTimeout(loginTimer);
       }
     },
     async stop(reason) {
+      settleLogin();
       await stopBot(reason ?? "stop");
       unregisterBot?.();
       unregisterBot = undefined;
@@ -423,7 +511,7 @@ const build = (
 
 export const icqqAdapterDefinition = defineAdapter<IcqqAdapterConfig>({
   name: NAME,
-  version: "1.0.0",
+  version: adapterVersion,
   apiVersion: 1,
   validateConfig: (input) => {
     const instances = normalizeInstances(input);
@@ -447,6 +535,11 @@ export const icqqAdapterDefinition = defineAdapter<IcqqAdapterConfig>({
         receive: 0,
       };
       const traffic = { sent: counters.send, received: counters.receive };
+      const client = currentBot.client;
+      const login = {
+        platform: platformLabel(client?.config?.platform),
+        platform_version: client?.apk?.version,
+      };
       try {
         const [friendList, groupList] = await Promise.all([
           currentBot.getFriendList(),
@@ -455,6 +548,7 @@ export const icqqAdapterDefinition = defineAdapter<IcqqAdapterConfig>({
         return {
           adapter: NAME,
           bot_id: currentBot.bot_id,
+          ...login,
           stats: {
             friends: friendList.length,
             groups: groupList.length,
@@ -466,6 +560,7 @@ export const icqqAdapterDefinition = defineAdapter<IcqqAdapterConfig>({
         return {
           adapter: NAME,
           bot_id: currentBot.bot_id,
+          ...login,
           stats: traffic,
           data: {},
         };
@@ -505,7 +600,8 @@ export const icqqAdapterDefinition = defineAdapter<IcqqAdapterConfig>({
 
     return {
       name: NAME,
-      version: "1.0.0",
+      version: adapterVersion,
+      impl: { name: "ICQQ", version: icqqVersion },
       async start(context) {
         unregisterStatus = registerStatusProvider(NAME, statusProvider);
         setupCommandChannel(context);

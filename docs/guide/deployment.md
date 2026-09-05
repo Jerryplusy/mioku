@@ -1,3 +1,8 @@
+---
+title: 部署方式
+description: Mioku 机器人部署指南
+---
+
 # 部署方式
 
 机器人本质是一个 Node 进程（`bun run start`），部署的核心问题只有一个：**怎么让它一直活着**。

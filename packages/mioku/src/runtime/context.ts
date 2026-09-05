@@ -147,6 +147,22 @@ export class AdapterContextImpl implements AdapterContext {
   }
 
   async dispatch(event: Event): Promise<void> {
+    if (event.kind === 'message') {
+      // 发送者是本运行时里另一台已连接 bot（如同群的其它 bot 实例）时，
+      // 不进入任何 handler，切断 bot 互相触发导致的循环。
+      // 发送者恰为接收 bot 自身 id 的消息（自身回显、stdin 控制台用户）保持原行为，
+      // 由插件层的 self 过滤与 owner 体系处理。
+      const senderId = event.user_id
+      if (senderId != null) {
+        const senderBot = this.#bots.pick(senderId)
+        if (senderBot && senderBot.bot_id !== event.self_id) {
+          this.#logger.debug(
+            `拦截来自其他已连接 bot 的消息: sender=${senderId} self=${event.self_id}`,
+          )
+          return
+        }
+      }
+    }
     await this.#bus.dispatch(event)
   }
 

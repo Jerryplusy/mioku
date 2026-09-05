@@ -267,9 +267,10 @@ export class AIInstanceImpl implements LocalAIInstance {
         let lastErr: unknown = mainErr;
         for (let i = 0; i < this.fallbackChain.length; i++) {
           const fb = this.fallbackChain[i];
+          const fbArgs = { ...args, model: fb.modelId };
           try {
             const result = await retryOn429(
-              () => fb.callOwnClient(args),
+              () => fb.callOwnClient(fbArgs),
               miokiLogger,
               `错误转移 ${i + 1} (${fb.providerId}/${fb.modelId})`,
             );

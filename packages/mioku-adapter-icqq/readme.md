@@ -22,10 +22,7 @@ pnpm add mioki-adapter-icqq
             "uin": 10086,
             "password": "password",
             "ver": "9.2.90",
-            "sign_api_addr": "http://127.0.0.1:8080/sign?key=114514",
-            "config": {
-              "data_dir": "./data/icqq"
-            }
+            "sign_api_addr": "http://127.0.0.1:8080/sign?key=114514"
           }
         ]
       }
@@ -36,7 +33,9 @@ pnpm add mioki-adapter-icqq
 
 - `password` 可以省略，省略时由 icqq 走扫码登录流程（二维码会保存到系统临时目录并打印路径）。
 - `ver` 和 `sign_api_addr` 是适配器提供的快捷配置，也可以放在 `config` 中。
+- `platform`：登录设备类型，可选 `aphone`（安卓手机，默认）/ `apad`（安卓平板）/ `awatch`（安卓手表）/ `ipad` / `imac`
 - `ignore_self`：是否忽略自己账号发送的消息，默认 `true`（不会收到自己发的消息事件，避免插件重复处理）；如需要监听自己发出的消息可设为 `false`。
+- icqq 的 `device.json` / `<uin>_mobileqq_token` / 图片缓存默认存放在 `<cwd>/data/icqq/`，符合 mioku 的 `data/<plugin>/` 规范；多账号场景下若需隔离，可在 `config.data_dir` 显式指定每个实例的目录（如 `./data/icqq/<uin>`）。
 - qsign 地址必须指向 `/sign`，并带上与 qsign 配置一致的 `key`。
 
 ## 登录验证
@@ -83,6 +82,10 @@ pnpm add mioki-adapter-icqq
 - **stdin 适配器**：启用 `mioku-adapter-stdin` 时，直接在终端输入 `.icqq ...` 即可
   （需要把 `"stdin"` 加入 `mioku.owners`）。
 - **已连接的 Bot**：把 `.icqq ...` 发给任意已登录的 Bot，由该 Bot 代提交。
+
+> **主人通知**：验证提示（滑块链接 / 设备锁 / 身份验证 URL）会打印到终端，同时推送给
+> `mioku.owners` 中配置的 QQ 号——登录尚未完成时 icqq 自己发不了消息，会改由任意已连接的
+> 其它 Bot（如 onebotv11）代发；通过 `.icqq ...` 提交后，登录成功或失败的结果也会推送回来。
 
 ## 许可证
 

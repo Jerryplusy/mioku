@@ -13,38 +13,23 @@ export interface BotAccountStatus {
   avatarUrl: string;
   /** 适配器名，如 "stdin" / "onebotv11" / "icqq"。 */
   adapter: string;
-  /** Underlying bot framework identifier, e.g. "QQBot" / "NapCat" / "LLOneBot". */
+  /** 协议端与版本的可展示文案，如 "ICQQ v1.12.3" / "LLOneBot/7.12.4"，取不到时为空串 */
+  implLabel: string;
+  /** 实现端名称，如 "NapCat" / "LLOneBot" / "ICQQ"，取不到时为空串 */
   framework: string;
-  /** Adapter app version, e.g. "5.0.6" — from OneBot `get_version_info.app_version`. */
+  /** 实现端版本，如 "5.0.6"*/
   appVersion: string;
-  /** OneBot protocol version, e.g. "v11" — from OneBot `get_version_info.protocol_version`. */
+  /** 协议版本，如 OneBot 的 "v11"，没有则为空串 */
   protocolVersion: string;
+  /** 登录设备，如 icqq 的 "aPad"，没有则为空串 */
+  platform: string;
+  /** 登录设备对应的客户端版本，如 "9.3.50.40225"，没有则为空串 */
+  platformVersion: string;
   online: boolean;
   groupCount: number;
   friendCount: number;
   send: number;
   receive: number;
-}
-
-/**
- * OneBot v11 `get_version_info` payload (already unwrapped from the
- * `{ status, retcode, data, ... }` envelope by the adapter's `bot.sendApi`).
- */
-export interface OneBotVersionInfoData {
-  app_name: string;
-  protocol_version: string;
-  app_version: string;
-}
-
-/**
- * OneBot v11 `get_status` payload (already unwrapped by napcat-sdk).
- * Per napcat 官方文档: `{ online, good, stat }` —— `stat` 是空对象，
- * 不包含 `start_time` 或任何统计字段。本接口只声明文档承诺的字段。
- */
-export interface OneBotStatusData {
-  online: boolean;
-  good: boolean;
-  stat: Record<string, never>;
 }
 
 /** Subset of mioku's `AIService.getUsageSummary` payload that we actually render. */
@@ -126,13 +111,11 @@ export interface NodeRuntimeStatus {
   arrayBuffersMB: number;
   eventLoopDelayMs: { mean: number; p99: number };
   /** null when `--expose-gc` is not enabled. */
-  gc:
-    | {
-        available: boolean;
-        count: number;
-        lastDurationMs?: number;
-      }
-    | null;
+  gc: {
+    available: boolean;
+    count: number;
+    lastDurationMs?: number;
+  } | null;
 }
 
 export interface NetworkSample {

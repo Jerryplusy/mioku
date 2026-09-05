@@ -100,7 +100,7 @@ export class MessageQueueManager {
  * 例如 "[reply:1]文字A[reply:2]文字B" → ["[reply:1]文字A", "[reply:2]文字B"]
  */
 export function splitByReplyMarkers(line: string): string[] {
-  const parts = line.split(/(?=\[reply:-?\d+\])/);
+  const parts = line.split(/(?=\[reply:[^\]\n]+\])/);
   return parts.filter((p) => p.trim());
 }
 
@@ -116,12 +116,12 @@ export function parseLineMarkers(
   cleanText: string;
   atUsers: number[];
   pokeUsers: number[];
-  quoteId?: number;
+  quoteId?: string;
   audioText?: string;
 } {
   const atUsers: number[] = [];
   const pokeUsers: number[] = [];
-  let quoteId: number | undefined;
+  let quoteId: string | undefined;
   let audioText: string | undefined;
 
   // 提取 AT 标记
@@ -146,12 +146,13 @@ export function parseLineMarkers(
 
   // 提取引用标记（仅在允许时）
   if (quoteMode !== "skip") {
-    const replyPatterns = [/\[reply:(-?\d+)\]/g];
+    const replyPatterns = [/\[reply:([^\]\n]+)\]/g];
     for (const pattern of replyPatterns) {
       const matches = [...line.matchAll(pattern)];
       for (const match of matches) {
         if (quoteId === undefined) {
-          quoteId = parseInt(match[1], 10);
+          const value = match[1].trim();
+          if (value) quoteId = value;
         }
       }
     }
@@ -170,7 +171,7 @@ export function parseLineMarkers(
   let cleanText = line
     .replace(/\[at:\d+\]/g, "")
     .replace(/\[poke:\d+\]/g, "")
-    .replace(/\[reply:-?\d+\]/g, "")
+    .replace(/\[reply:[^\]\n]+\]/g, "")
     .replace(/\[audio:[^\]]+\]/gi, "")
     .trim();
 
