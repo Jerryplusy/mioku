@@ -1,16 +1,161 @@
 import { defineConfig } from "vitepress";
 import typedocSidebar from "../reference/api/typedoc-sidebar.json";
 
+const SITE_URL =
+  process.env.MIOKU_SITE_URL?.replace(/\/+$/, "") || "https://mioku.top";
+
+const OG_IMAGE = "/images/home/about-hero-dark.jpg";
+const DEFAULT_DESCRIPTION = "AI 优先的插件式机器人框架，基于 TypeScript 与 bun";
+const REPO_URL = "https://github.com/mioku-lab/mioku";
+
+function pageUrl(relativePath: string): string {
+  if (!relativePath || relativePath === "index.md") return `${SITE_URL}/`;
+  const clean = relativePath.replace(/\.md$/, "").replace(/\/index$/, "");
+  return `${SITE_URL}/${clean}`;
+}
+
+type PageType =
+  | "home"
+  | "guide"
+  | "developer"
+  | "advanced"
+  | "reference"
+  | "api"
+  | "other";
+
+function detectPageType(relativePath: string): PageType {
+  if (!relativePath || relativePath === "index.md") return "home";
+  if (relativePath.startsWith("guide/")) return "guide";
+  if (relativePath.startsWith("developer/")) return "developer";
+  if (relativePath.startsWith("advanced/")) return "advanced";
+  if (relativePath === "reference/index.md") return "reference";
+  if (relativePath.startsWith("reference/api/")) return "api";
+  return "other";
+}
+
+function jsonLdForPage(opts: {
+  type: PageType;
+  title: string;
+  description: string;
+  url: string;
+}): string {
+  const { type, title, description, url } = opts;
+  const base: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Mioku",
+    url: SITE_URL,
+    inLanguage: "zh-CN",
+    description: DEFAULT_DESCRIPTION,
+    publisher: {
+      "@type": "Organization",
+      name: "Mioku",
+      url: SITE_URL,
+      logo: {
+        "@type": "ImageObject",
+        url: `${SITE_URL}/images/home/miku-logo.png`,
+      },
+    },
+  };
+
+  let node: Record<string, unknown>;
+  switch (type) {
+    case "home":
+      node = {
+        ...base,
+        "@type": "SoftwareApplication",
+        name: "Mioku",
+        applicationCategory: "DeveloperApplication",
+        applicationSubCategory: "Bot Framework",
+        operatingSystem: "Linux, macOS, Windows",
+        description,
+        url,
+        image: `${SITE_URL}${OG_IMAGE}`,
+        codeRepository: REPO_URL,
+        license: "https://opensource.org/licenses/MIT",
+        author: { "@type": "Person", name: "Jerryplusy" },
+        offers: { "@type": "Offer", price: "0", priceCurrency: "CNY" },
+        keywords:
+          "mioku, qq bot, onebot v11, plugin framework, ai bot, typescript",
+      };
+      break;
+    case "api":
+      node = {
+        ...base,
+        "@type": "TechArticle",
+        headline: title,
+        description,
+        url,
+        image: `${SITE_URL}${OG_IMAGE}`,
+        author: { "@type": "Person", name: "Jerryplusy" },
+        publisher: base.publisher,
+        about: {
+          "@type": "SoftwareSourceCode",
+          name: "Mioku",
+          codeRepository: REPO_URL,
+        },
+        inLanguage: "zh-CN",
+      };
+      break;
+    case "guide":
+    case "developer":
+    case "advanced":
+    case "reference":
+      node = {
+        ...base,
+        "@type": "TechArticle",
+        headline: title,
+        description,
+        url,
+        image: `${SITE_URL}${OG_IMAGE}`,
+        author: { "@type": "Person", name: "Jerryplusy" },
+        publisher: base.publisher,
+        inLanguage: "zh-CN",
+      };
+      break;
+    default:
+      node = {
+        ...base,
+        "@type": "WebPage",
+        name: title,
+        description,
+        url,
+        image: `${SITE_URL}${OG_IMAGE}`,
+        isPartOf: { "@type": "WebSite", name: "Mioku", url: SITE_URL },
+        inLanguage: "zh-CN",
+      };
+  }
+
+  return JSON.stringify(node);
+}
+
 export default defineConfig({
   lang: "zh-CN",
   title: "Mioku",
-  description: "AI 优先的插件式机器人框架",
+  description: DEFAULT_DESCRIPTION,
   cleanUrls: true,
   lastUpdated: true,
   appearance: true,
   head: [
     ["meta", { name: "theme-color", content: "#79d8cf" }],
     ["meta", { name: "apple-mobile-web-app-capable", content: "yes" }],
+    ["meta", { name: "format-detection", content: "telephone=no" }],
+    [
+      "meta",
+      {
+        name: "theme-color",
+        content: "#79d8cf",
+        media: "(prefers-color-scheme: light)",
+      },
+    ],
+    [
+      "meta",
+      {
+        name: "theme-color",
+        content: "#0f172a",
+        media: "(prefers-color-scheme: dark)",
+      },
+    ],
     ["link", { rel: "icon", href: "/favicon.ico" }],
     [
       "link",
@@ -39,9 +184,69 @@ export default defineConfig({
       },
     ],
     ["link", { rel: "manifest", href: "/site.webmanifest" }],
+    ["meta", { property: "og:site_name", content: "Mioku" }],
+    ["meta", { property: "og:locale", content: "zh_CN" }],
+    ["meta", { name: "twitter:site", content: "@mioku_lab" }],
+    ["meta", { property: "og:image", content: `${SITE_URL}${OG_IMAGE}` }],
+    ["meta", { property: "og:image:width", content: "1376" }],
+    ["meta", { property: "og:image:height", content: "768" }],
+    [
+      "meta",
+      {
+        property: "og:image:alt",
+        content: "Mioku — AI 优先的插件式机器人框架",
+      },
+    ],
+    ["meta", { name: "twitter:card", content: "summary_large_image" }],
+    ["meta", { name: "twitter:image", content: `${SITE_URL}${OG_IMAGE}` }],
+    [
+      "meta",
+      {
+        name: "twitter:image:alt",
+        content: "Mioku — AI 优先的插件式机器人框架",
+      },
+    ],
   ],
+  transformPageData(pageData) {
+    const relativePath = pageData.relativePath || "";
+    const url = pageUrl(relativePath);
+    const title = pageData.title
+      ? `${pageData.title} | Mioku`
+      : "Mioku — AI 优先的插件式机器人框架";
+    const description =
+      (pageData.frontmatter?.description as string | undefined)?.trim() ||
+      DEFAULT_DESCRIPTION;
+    const pageType = detectPageType(relativePath);
+    const isHome = pageType === "home";
+
+    pageData.frontmatter ??= {};
+    const head = ((pageData.frontmatter.head as unknown[]) ??= []);
+
+    head.push(["link", { rel: "canonical", href: url }]);
+
+    head.push([
+      "meta",
+      { property: "og:type", content: isHome ? "website" : "article" },
+    ]);
+    head.push([
+      "meta",
+      { property: "og:title", content: isHome ? "Mioku" : title },
+    ]);
+    head.push(["meta", { property: "og:description", content: description }]);
+    head.push(["meta", { property: "og:url", content: url }]);
+
+    head.push([
+      "meta",
+      { name: "twitter:title", content: isHome ? "Mioku" : title },
+    ]);
+    head.push(["meta", { name: "twitter:description", content: description }]);
+    head.push(["meta", { name: "twitter:url", content: url }]);
+
+    const ld = jsonLdForPage({ type: pageType, title, description, url });
+    head.push(["script", { type: "application/ld+json" }, ld]);
+  },
   themeConfig: {
-    logo: "/images/home/cong.png",
+    logo: { src: "/images/home/cong.png", alt: "Mioku" },
     siteTitle: "Mioku",
     search: {
       provider: "local",

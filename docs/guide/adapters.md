@@ -1,3 +1,8 @@
+---
+title: 适配器
+description: Mioku 适配器（Adapter）负责对接具体平台
+---
+
 # 适配器
 
 适配器（Adapter）是机器人与平台之间的桥梁。它负责两件事：

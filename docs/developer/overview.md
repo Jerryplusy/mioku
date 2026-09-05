@@ -1,3 +1,8 @@
+---
+title: 架构总览
+description: Mioku 插件开发架构，事件总线（EventBus）与上下文
+---
+
 # 架构总览
 
 ## 分层结构
