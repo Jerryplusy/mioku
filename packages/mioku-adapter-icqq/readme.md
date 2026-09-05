@@ -22,10 +22,7 @@ pnpm add mioki-adapter-icqq
             "uin": 10086,
             "password": "password",
             "ver": "9.2.90",
-            "sign_api_addr": "http://127.0.0.1:8080/sign?key=114514",
-            "config": {
-              "data_dir": "./data/icqq"
-            }
+            "sign_api_addr": "http://127.0.0.1:8080/sign?key=114514"
           }
         ]
       }
@@ -38,6 +35,7 @@ pnpm add mioki-adapter-icqq
 - `ver` 和 `sign_api_addr` 是适配器提供的快捷配置，也可以放在 `config` 中。
 - `platform`：登录设备类型，可选 `aphone`（安卓手机，默认）/ `apad`（安卓平板）/ `awatch`（安卓手表）/ `ipad` / `imac`
 - `ignore_self`：是否忽略自己账号发送的消息，默认 `true`（不会收到自己发的消息事件，避免插件重复处理）；如需要监听自己发出的消息可设为 `false`。
+- icqq 的 `device.json` / `<uin>_mobileqq_token` / 图片缓存默认存放在 `<cwd>/data/icqq/`，符合 mioku 的 `data/<plugin>/` 规范；多账号场景下若需隔离，可在 `config.data_dir` 显式指定每个实例的目录（如 `./data/icqq/<uin>`）。
 - qsign 地址必须指向 `/sign`，并带上与 qsign 配置一致的 `key`。
 
 ## 登录验证

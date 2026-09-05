@@ -100,7 +100,7 @@ const helpText = (): string =>
     "  .icqq help                  显示本帮助",
     "  .icqq status                查看待处理的验证请求",
     "  .icqq [目标] slider <ticket[,randstr]>  提交滑块验证 ticket",
-    "  .icqq [目标] sms [验证码]    重发短信 / 提交设备锁短信验证码",
+    "  .icqq [目标] sms [验证码]    请求短信 / 提交设备锁短信验证码",
     "  .icqq [目标] login          浏览器完成 URL 验证后重试登录",
   ].join("\n");
 
